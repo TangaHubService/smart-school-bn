@@ -1,0 +1,312 @@
+import { UserStatus } from '@prisma/client';
+import bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'crypto';
+import jwt from 'jsonwebtoken';
+
+import { env } from '../../config/env';
+import { AUDIT_EVENT } from '../../constants/audit-events';
+import { prisma } from '../../db/prisma';
+import { AppError } from '../../common/errors/app-error';
+import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
+import { normalizePermissions } from '../../common/utils/permission-utils';
+import { ttlToSeconds } from '../../common/utils/time';
+import { AuditService } from '../audit/audit.service';
+import { LoginInput, LogoutInput, RefreshInput } from './auth.schemas';
+
+export class AuthService {
+  private readonly auditService = new AuditService();
+
+  async login(input: LoginInput, context: RequestAuditContext) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { code: input.tenantCode },
+    });
+
+    if (!tenant || !tenant.isActive) {
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid email or password',
+      );
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        tenantId: tenant.id,
+        email: input.email.toLowerCase(),
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+      },
+      include: {
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      await this.auditService.log({
+        tenantId: tenant.id,
+        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { reason: 'USER_NOT_FOUND', email: input.email },
+      });
+
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid email or password',
+      );
+    }
+
+    const passwordMatches = await bcrypt.compare(input.password, user.passwordHash);
+
+    if (!passwordMatches) {
+      await this.auditService.log({
+        tenantId: tenant.id,
+        actorUserId: user.id,
+        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { reason: 'WRONG_PASSWORD', email: input.email },
+      });
+
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid email or password',
+      );
+    }
+
+    const { roles, permissions } = this.extractRolesAndPermissions(user.userRoles);
+
+    const payload: JwtUser = {
+      sub: user.id,
+      tenantId: tenant.id,
+      email: user.email,
+      roles,
+      permissions,
+    };
+
+    const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+      expiresIn: env.ACCESS_TOKEN_TTL as jwt.SignOptions['expiresIn'],
+    });
+
+    const refreshToken = this.generateRefreshToken();
+    const refreshTokenHash = this.hashRefreshToken(refreshToken);
+    const refreshExpiry = new Date(
+      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    await prisma.$transaction([
+      prisma.refreshToken.create({
+        data: {
+          tenantId: tenant.id,
+          userId: user.id,
+          tokenHash: refreshTokenHash,
+          expiresAt: refreshExpiry,
+          createdByIp: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+    ]);
+
+    await this.auditService.log({
+      tenantId: tenant.id,
+      actorUserId: user.id,
+      event: AUDIT_EVENT.AUTH_LOGIN_SUCCESS,
+      entity: 'User',
+      entityId: user.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return {
+      accessToken,
+      accessTokenExpiresIn: ttlToSeconds(env.ACCESS_TOKEN_TTL),
+      refreshToken,
+      user: {
+        id: user.id,
+        tenantId: tenant.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+      roles,
+      permissions,
+    };
+  }
+
+  async refresh(input: RefreshInput, context: RequestAuditContext) {
+    const hashedToken = this.hashRefreshToken(input.refreshToken);
+
+    const existingToken = await prisma.refreshToken.findUnique({
+      where: { tokenHash: hashedToken },
+      include: {
+        tenant: true,
+        user: {
+          include: {
+            userRoles: {
+              include: {
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (
+      !existingToken ||
+      existingToken.revokedAt ||
+      existingToken.expiresAt <= new Date() ||
+      existingToken.user.deletedAt ||
+      existingToken.user.status !== UserStatus.ACTIVE ||
+      !existingToken.tenant.isActive
+    ) {
+      throw new AppError(401, 'AUTH_INVALID_REFRESH_TOKEN', 'Invalid refresh token');
+    }
+
+    const { roles, permissions } = this.extractRolesAndPermissions(
+      existingToken.user.userRoles,
+    );
+
+    const payload: JwtUser = {
+      sub: existingToken.user.id,
+      tenantId: existingToken.tenantId,
+      email: existingToken.user.email,
+      roles,
+      permissions,
+    };
+
+    const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+      expiresIn: env.ACCESS_TOKEN_TTL as jwt.SignOptions['expiresIn'],
+    });
+
+    const nextRefreshToken = this.generateRefreshToken();
+    const nextRefreshHash = this.hashRefreshToken(nextRefreshToken);
+    const nextRefreshExpiry = new Date(
+      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.refreshToken.create({
+        data: {
+          tenantId: existingToken.tenantId,
+          userId: existingToken.userId,
+          tokenHash: nextRefreshHash,
+          expiresAt: nextRefreshExpiry,
+          createdByIp: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+      });
+
+      await tx.refreshToken.update({
+        where: { id: existingToken.id },
+        data: {
+          revokedAt: new Date(),
+          replacedByTokenId: created.id,
+        },
+      });
+    });
+
+    await this.auditService.log({
+      tenantId: existingToken.tenantId,
+      actorUserId: existingToken.userId,
+      event: AUDIT_EVENT.AUTH_REFRESH_SUCCESS,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return {
+      accessToken,
+      accessTokenExpiresIn: ttlToSeconds(env.ACCESS_TOKEN_TTL),
+      refreshToken: nextRefreshToken,
+    };
+  }
+
+  async logout(input: LogoutInput, user: JwtUser, context: RequestAuditContext) {
+    if (!input.allDevices && !input.refreshToken) {
+      throw new AppError(
+        400,
+        'AUTH_LOGOUT_TOKEN_REQUIRED',
+        'refreshToken is required when allDevices is false',
+      );
+    }
+
+    if (input.allDevices) {
+      await prisma.refreshToken.updateMany({
+        where: {
+          tenantId: user.tenantId,
+          userId: user.sub,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    } else if (input.refreshToken) {
+      const tokenHash = this.hashRefreshToken(input.refreshToken);
+      await prisma.refreshToken.updateMany({
+        where: {
+          tenantId: user.tenantId,
+          userId: user.sub,
+          tokenHash,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    }
+
+    await this.auditService.log({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      event: AUDIT_EVENT.AUTH_LOGOUT,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        allDevices: input.allDevices,
+      },
+    });
+
+    return {
+      loggedOut: true,
+    };
+  }
+
+  private hashRefreshToken(token: string): string {
+    return createHash('sha256')
+      .update(`${token}:${env.JWT_REFRESH_SECRET}`)
+      .digest('hex');
+  }
+
+  private generateRefreshToken(): string {
+    return randomBytes(48).toString('hex');
+  }
+
+  private extractRolesAndPermissions(
+    userRoles: Array<{ role: { name: string; permissions: unknown } }>,
+  ): { roles: string[]; permissions: string[] } {
+    const roles = userRoles.map((item) => item.role.name);
+    const permissions = [...
+      new Set(
+        userRoles.flatMap((item) => normalizePermissions(item.role.permissions)),
+      ),
+    ];
+
+    return { roles, permissions };
+  }
+}
