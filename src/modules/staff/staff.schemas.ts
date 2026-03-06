@@ -10,6 +10,7 @@ export const acceptInviteSchema = z.object({
   token: z.string().min(32),
   firstName: z.string().trim().min(2).max(80),
   lastName: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(7).max(30).optional(),
   password: z.string().min(8).max(128),
 });
 

@@ -181,6 +181,7 @@ export class StaffService {
         update: {
           firstName: input.firstName,
           lastName: input.lastName,
+          phone: input.phone,
           passwordHash,
           status: 'ACTIVE',
           deletedAt: null,
@@ -190,6 +191,7 @@ export class StaffService {
           email: invite.email,
           firstName: input.firstName,
           lastName: input.lastName,
+          phone: input.phone,
           passwordHash,
           status: 'ACTIVE',
         },
@@ -246,6 +248,7 @@ export class StaffService {
       accepted: true,
       tenantCode: invite.tenant.code,
       email: invite.email,
+      phone: result.user.phone,
       role: invite.role.name,
     };
   }

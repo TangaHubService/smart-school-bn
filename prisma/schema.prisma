@@ -140,8 +140,12 @@ model School {
   phone              String?
   addressLine1       String?
   addressLine2       String?
+  province           String?
   city               String?
   district           String?
+  sector             String?
+  cell               String?
+  village            String?
   country            String    @default("Rwanda")
   timezone           String    @default("Africa/Kigali")
   setupCompletedAt   DateTime?
@@ -160,6 +164,7 @@ model User {
   passwordHash String
   firstName    String
   lastName     String
+  phone        String?
   status       UserStatus @default(ACTIVE)
   lastLoginAt  DateTime?
   deletedAt    DateTime?
