@@ -12,7 +12,11 @@ export class UsersService {
         deletedAt: null,
       },
       include: {
-        tenant: true,
+        tenant: {
+          include: {
+            school: true,
+          },
+        },
         userRoles: {
           include: {
             role: true,
@@ -41,6 +45,13 @@ export class UsersService {
         code: dbUser.tenant.code,
         name: dbUser.tenant.name,
       },
+      school: dbUser.tenant.school
+        ? {
+            id: dbUser.tenant.school.id,
+            displayName: dbUser.tenant.school.displayName,
+            setupCompletedAt: dbUser.tenant.school.setupCompletedAt,
+          }
+        : null,
       email: dbUser.email,
       firstName: dbUser.firstName,
       lastName: dbUser.lastName,

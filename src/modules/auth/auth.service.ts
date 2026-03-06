@@ -17,8 +17,10 @@ export class AuthService {
   private readonly auditService = new AuditService();
 
   async login(input: LoginInput, context: RequestAuditContext) {
+    const tenantCode = input.tenantCode?.trim() || 'platform';
+
     const tenant = await prisma.tenant.findUnique({
-      where: { code: input.tenantCode },
+      where: { code: tenantCode },
     });
 
     if (!tenant || !tenant.isActive) {

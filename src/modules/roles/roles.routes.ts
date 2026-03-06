@@ -19,6 +19,26 @@ rolesRoutes.get(
       navigation: [
         { name: 'Dashboard', path: '/', requiredPermissions: [] },
         {
+          name: 'Tenant Onboarding',
+          path: '/tenants/new',
+          requiredPermissions: ['tenants.create'],
+        },
+        {
+          name: 'School Setup',
+          path: '/setup',
+          requiredPermissions: ['school.setup.manage'],
+        },
+        {
+          name: 'Academics',
+          path: '/academics',
+          requiredPermissions: ['academic_year.manage'],
+        },
+        {
+          name: 'Staff',
+          path: '/staff',
+          requiredPermissions: ['staff.invite'],
+        },
+        {
           name: 'Users',
           path: '/users',
           requiredPermissions: ['users.read'],

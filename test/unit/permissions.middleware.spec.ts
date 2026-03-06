@@ -1,6 +1,20 @@
 import { requirePermissions } from '../../src/common/middleware/require-permissions.middleware';
 
 describe('requirePermissions middleware', () => {
+  it('allows SUPER_ADMIN even without required permissions', () => {
+    const next = jest.fn();
+    const req = {
+      user: {
+        roles: ['SUPER_ADMIN'],
+        permissions: [],
+      },
+    } as any;
+
+    requirePermissions(['roles.read'])(req, {} as any, next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it('allows user with required permissions', () => {
     const next = jest.fn();
     const req = {
