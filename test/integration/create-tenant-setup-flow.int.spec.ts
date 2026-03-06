@@ -41,7 +41,8 @@ describe('create tenant -> setup complete flow', () => {
             create: jest
               .fn()
               .mockResolvedValueOnce({ id: 'role-admin', name: 'SCHOOL_ADMIN' })
-              .mockResolvedValueOnce({ id: 'role-teacher', name: 'TEACHER' }),
+              .mockResolvedValueOnce({ id: 'role-teacher', name: 'TEACHER' })
+              .mockResolvedValueOnce({ id: 'role-parent', name: 'PARENT' }),
           },
           user: {
             create: jest.fn().mockResolvedValue({

@@ -12,6 +12,10 @@ export const PERMISSIONS = {
   SUBJECT_MANAGE: 'subject.manage',
 
   STAFF_INVITE: 'staff.invite',
+  STUDENTS_READ: 'students.read',
+  STUDENTS_MANAGE: 'students.manage',
+  PARENTS_MANAGE: 'parents.manage',
+  PARENT_MY_CHILDREN_READ: 'parents.my_children.read',
   USERS_READ: 'users.read',
   ROLES_READ: 'roles.read',
 } as const;
@@ -32,6 +36,9 @@ export const SCHOOL_ADMIN_PERMISSIONS = [
   PERMISSIONS.CLASS_ROOM_MANAGE,
   PERMISSIONS.SUBJECT_MANAGE,
   PERMISSIONS.STAFF_INVITE,
+  PERMISSIONS.STUDENTS_READ,
+  PERMISSIONS.STUDENTS_MANAGE,
+  PERMISSIONS.PARENTS_MANAGE,
   PERMISSIONS.USERS_READ,
   PERMISSIONS.ROLES_READ,
 ];
@@ -56,6 +63,12 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
       description: 'Teacher role',
       isSystem: true,
       permissions: ['students.read', 'attendance.manage'],
+    },
+    {
+      name: 'PARENT',
+      description: 'Parent portal role',
+      isSystem: true,
+      permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ],
     },
   ];
 }

@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "StudentEnrollment_tenantId_classRoomId_academicYearId_isActive_" RENAME TO "StudentEnrollment_tenantId_classRoomId_academicYearId_isAct_idx";
