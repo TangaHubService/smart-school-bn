@@ -1,7 +1,10 @@
 import { Router } from 'express';
 
 import { authenticate } from '../../common/middleware/authenticate.middleware';
-import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
+import {
+  requireAnyPermissions,
+  requirePermissions,
+} from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
@@ -35,7 +38,7 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/academic-years',
-  requirePermissions([PERMISSIONS.ACADEMIC_YEAR_MANAGE]),
+  requireAnyPermissions([PERMISSIONS.ACADEMIC_YEAR_MANAGE, PERMISSIONS.COURSES_MANAGE]),
   asyncHandler((req, res) => academicsController.listAcademicYears(req, res)),
 );
 
@@ -113,7 +116,7 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/classes',
-  requirePermissions([PERMISSIONS.CLASS_ROOM_MANAGE]),
+  requireAnyPermissions([PERMISSIONS.CLASS_ROOM_MANAGE, PERMISSIONS.COURSES_MANAGE]),
   asyncHandler((req, res) => academicsController.listClassRooms(req, res)),
 );
 
@@ -139,7 +142,7 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/subjects',
-  requirePermissions([PERMISSIONS.SUBJECT_MANAGE]),
+  requireAnyPermissions([PERMISSIONS.SUBJECT_MANAGE, PERMISSIONS.COURSES_MANAGE]),
   asyncHandler((req, res) => academicsController.listSubjects(req, res)),
 );
 

@@ -10,12 +10,30 @@ export function errorHandlerMiddleware(
   res: Response,
   _next: NextFunction,
 ): void {
+  const logger = (req as Request & { log?: { error: (payload: unknown, message?: string) => void } }).log;
+
   if (error instanceof AppError) {
+    logger?.error(
+      {
+        err: error,
+        code: error.code,
+        details: error.details ?? null,
+        requestId: req.requestId,
+      },
+      'Request failed with application error',
+    );
     sendError(req, res, error.statusCode, error.code, error.message, error.details);
     return;
   }
 
   if (error instanceof ZodError) {
+    logger?.error(
+      {
+        err: error,
+        requestId: req.requestId,
+      },
+      'Request validation failed',
+    );
     sendError(
       req,
       res,
@@ -26,6 +44,14 @@ export function errorHandlerMiddleware(
     );
     return;
   }
+
+  logger?.error(
+    {
+      err: error,
+      requestId: req.requestId,
+    },
+    'Unhandled request error',
+  );
 
   sendError(
     req,

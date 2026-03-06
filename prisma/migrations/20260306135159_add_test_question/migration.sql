@@ -1,0 +1,3 @@
+-- This migration was generated to rename a PostgreSQL-truncated index name.
+-- The Sprint 5 migration now creates the index with the final short name
+-- directly, so this rename is intentionally a no-op.
