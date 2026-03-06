@@ -17,6 +17,16 @@ const envSchema = z.object({
   APP_VERSION: z.string().default('0.1.0'),
   COMMIT_SHA: z.string().default('local-dev'),
   BUILD_TIME: z.string().default(new Date().toISOString()),
+  APP_WEB_URL: z.string().url().default('http://localhost:5173'),
+  EMAIL_FROM: z.string().email().default('no-reply@smartschool.rw'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -15,6 +15,17 @@
 - `GET /me`
 - `GET /health`
 - `GET /meta/version`
+- `POST /tenants` (SuperAdmin)
+- `POST /schools/setup` (SchoolAdmin)
+- `GET /schools/setup-status`
+- `POST/GET/PATCH/DELETE /academic-years`
+- `POST/GET/PATCH/DELETE /terms`
+- `POST/GET/PATCH/DELETE /grade-levels`
+- `POST/GET/PATCH/DELETE /classes`
+- `POST/GET/PATCH/DELETE /subjects`
+- `POST /staff/invite`
+- `POST /staff/accept-invite`
+- `GET /staff/invites`
 
 ## Tests
 - Unit: `npm test`

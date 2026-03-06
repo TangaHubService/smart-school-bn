@@ -1,7 +1,14 @@
 import { z } from 'zod';
 
 export const loginSchema = z.object({
-  tenantCode: z.string().trim().min(2).max(50),
+  tenantCode: z
+    .string()
+    .trim()
+    .max(50)
+    .optional()
+    .refine((value) => !value || value.length >= 2, {
+      message: 'tenantCode must be at least 2 characters',
+    }),
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8).max(128),
 });

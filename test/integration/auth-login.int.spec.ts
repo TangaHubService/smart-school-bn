@@ -117,4 +117,37 @@ describe('login integration', () => {
     expect(res.statusCode).toBe(401);
     expect((res.payload as any).error.code).toBe('AUTH_INVALID_CREDENTIALS');
   });
+
+  it('defaults tenant code to platform when tenantCode is not provided', async () => {
+    mockedPrisma.tenant.findUnique.mockResolvedValue({
+      id: 'platform-tenant',
+      code: 'platform',
+      isActive: true,
+    });
+    mockedPrisma.user.findFirst.mockResolvedValue({
+      id: 'super-1',
+      email: 'superadmin@smartschool.rw',
+      passwordHash: 'hash',
+      firstName: 'Platform',
+      lastName: 'Admin',
+      userRoles: [{ role: { name: 'SUPER_ADMIN', permissions: ['tenants.read'] } }],
+    });
+    mockedBcrypt.compare.mockResolvedValue(true);
+
+    const req = createMockRequest({
+      body: {
+        email: 'superadmin@smartschool.rw',
+        password: 'SuperAdmin@12345',
+      },
+    });
+    const res = createMockResponse();
+
+    await runMiddleware(validateBody(loginSchema), req, res);
+    await authController.login(req as any, res as any);
+
+    expect(mockedPrisma.tenant.findUnique).toHaveBeenCalledWith({
+      where: { code: 'platform' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
 });

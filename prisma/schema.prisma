@@ -13,6 +13,13 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 model Tenant {
   id        String   @id @default(uuid())
   code      String   @unique
@@ -22,13 +29,42 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  school        School?
   users         User[]
   roles         Role[]
   userRoles     UserRole[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  invites       Invite[]
+  academicYears AcademicYear[]
+  terms         Term[]
+  gradeLevels   GradeLevel[]
+  classRooms    ClassRoom[]
+  subjects      Subject[]
 
   @@index([isActive])
+}
+
+model School {
+  id                 String    @id @default(uuid())
+  tenantId           String    @unique
+  displayName        String
+  registrationNumber String?   @unique
+  email              String?
+  phone              String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  district           String?
+  country            String    @default("Rwanda")
+  timezone           String    @default("Africa/Kigali")
+  setupCompletedAt   DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([country])
 }
 
 model User {
@@ -44,10 +80,12 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  userRoles     UserRole[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userRoles       UserRole[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  sentInvites     Invite[]       @relation("InviteSentBy")
+  acceptedInvites Invite[]       @relation("InviteAcceptedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -66,6 +104,7 @@ model Role {
 
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   userRoles UserRole[]
+  invites   Invite[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isSystem])
@@ -86,6 +125,126 @@ model UserRole {
   @@unique([tenantId, userId, roleId])
   @@index([tenantId, userId])
   @@index([tenantId, roleId])
+}
+
+model Invite {
+  id               String       @id @default(uuid())
+  tenantId         String
+  email            String
+  roleId           String
+  tokenHash        String       @unique
+  status           InviteStatus @default(PENDING)
+  invitedByUserId  String
+  acceptedByUserId String?
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  role           Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  invitedByUser  User   @relation("InviteSentBy", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  acceptedByUser User?  @relation("InviteAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, email, roleId, status])
+  @@index([tenantId, email, status])
+  @@index([tenantId, expiresAt])
+  @@index([tenantId, roleId])
+}
+
+model AcademicYear {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  isCurrent Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  terms  Term[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isCurrent, isActive])
+}
+
+model Term {
+  id             String   @id @default(uuid())
+  tenantId       String
+  academicYearId String
+  name           String
+  sequence       Int
+  startDate      DateTime
+  endDate        DateTime
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, academicYearId, name])
+  @@unique([tenantId, academicYearId, sequence])
+  @@index([tenantId, academicYearId])
+  @@index([tenantId, startDate, endDate])
+}
+
+model GradeLevel {
+  id        String   @id @default(uuid())
+  tenantId  String
+  code      String
+  name      String
+  rank      Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  classRooms ClassRoom[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, name])
+  @@index([tenantId, rank, isActive])
+}
+
+model ClassRoom {
+  id           String   @id @default(uuid())
+  tenantId     String
+  gradeLevelId String
+  code         String
+  name         String
+  capacity     Int?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  gradeLevel GradeLevel @relation(fields: [gradeLevelId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, gradeLevelId, name])
+  @@index([tenantId, gradeLevelId, isActive])
+}
+
+model Subject {
+  id          String   @id @default(uuid())
+  tenantId    String
+  code        String
+  name        String
+  description String?
+  isCore      Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, name])
+  @@index([tenantId, isCore, isActive])
 }
 
 model RefreshToken {
