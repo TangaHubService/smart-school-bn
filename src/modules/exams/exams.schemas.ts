@@ -1,0 +1,87 @@
+import { z } from 'zod';
+
+const gradingBandSchema = z
+  .object({
+    min: z.number().min(0).max(100),
+    max: z.number().min(0).max(100),
+    grade: z.string().trim().min(1).max(20),
+    remark: z.string().trim().max(120).optional(),
+  })
+  .strict()
+  .refine((value) => value.min <= value.max, {
+    message: 'Band min must be less than or equal to max',
+    path: ['min'],
+  });
+
+export const createGradingSchemeSchema = z
+  .object({
+    name: z.string().trim().min(2).max(80),
+    description: z.string().trim().max(240).optional(),
+    isDefault: z.boolean().default(false),
+    rules: z.array(gradingBandSchema).min(1).max(12),
+  })
+  .strict();
+
+export const createExamSchema = z
+  .object({
+    termId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    subjectId: z.string().uuid(),
+    gradingSchemeId: z.string().uuid().optional(),
+    name: z.string().trim().min(2).max(120),
+    description: z.string().trim().max(500).optional(),
+    totalMarks: z.number().int().min(1).max(500).default(100),
+    weight: z.number().int().min(1).max(500).default(100),
+    examDate: z.string().datetime().optional(),
+  })
+  .strict();
+
+export const listExamsQuerySchema = z.object({
+  termId: z.string().uuid().optional(),
+  classId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
+  q: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const bulkExamMarksSchema = z
+  .object({
+    entries: z
+      .array(
+        z
+          .object({
+            studentId: z.string().uuid(),
+            marksObtained: z.number().int().min(0).max(500).nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+
+export const resultsActionSchema = z
+  .object({
+    termId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    gradingSchemeId: z.string().uuid().optional(),
+  })
+  .strict();
+
+export const reportCardsQuerySchema = z.object({
+  termId: z.string().uuid().optional(),
+});
+
+export const parentReportCardsQuerySchema = z.object({
+  studentId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
+});
+
+export type CreateGradingSchemeInput = z.infer<typeof createGradingSchemeSchema>;
+export type CreateExamInput = z.infer<typeof createExamSchema>;
+export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
+export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
+export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
+export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
+export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;
