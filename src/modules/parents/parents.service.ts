@@ -14,6 +14,7 @@ import {
   ListLinkableStudentsQueryInput,
   LinkParentStudentInput,
   ListParentsQueryInput,
+  ParentStudentAttendanceHistoryQueryInput,
   UpdateParentInput,
 } from './parents.schemas';
 
@@ -702,6 +703,65 @@ export class ParentsService {
       },
     });
 
+    const linkedStudentIds = links.map((link) => link.student.id);
+    const lastThirtyDays = this.parseSchoolDate(this.getTodaySchoolDate());
+    lastThirtyDays.setUTCDate(lastThirtyDays.getUTCDate() - 30);
+
+    const attendanceRecords = linkedStudentIds.length
+      ? await prisma.attendanceRecord.findMany({
+          where: {
+            tenantId,
+            studentId: {
+              in: linkedStudentIds,
+            },
+            attendanceDate: {
+              gte: lastThirtyDays,
+            },
+          },
+          select: {
+            studentId: true,
+            status: true,
+            attendanceDate: true,
+          },
+        })
+      : [];
+
+    const attendanceByStudentId = new Map<
+      string,
+      {
+        total: number;
+        present: number;
+        absent: number;
+        late: number;
+        excused: number;
+        lastMarkedDate: string | null;
+      }
+    >();
+
+    for (const record of attendanceRecords) {
+      const current = attendanceByStudentId.get(record.studentId) ?? {
+        total: 0,
+        present: 0,
+        absent: 0,
+        late: 0,
+        excused: 0,
+        lastMarkedDate: null,
+      };
+
+      current.total += 1;
+      current.present += record.status === 'PRESENT' ? 1 : 0;
+      current.absent += record.status === 'ABSENT' ? 1 : 0;
+      current.late += record.status === 'LATE' ? 1 : 0;
+      current.excused += record.status === 'EXCUSED' ? 1 : 0;
+
+      const recordDate = this.toSchoolDateString(record.attendanceDate);
+      if (!current.lastMarkedDate || recordDate > current.lastMarkedDate) {
+        current.lastMarkedDate = recordDate;
+      }
+
+      attendanceByStudentId.set(record.studentId, current);
+    }
+
     return {
       parent,
       students: links.map((link) => ({
@@ -721,6 +781,161 @@ export class ParentsService {
               classRoom: link.student.enrollments[0].classRoom,
             }
           : null,
+        attendanceLast30Days:
+          attendanceByStudentId.get(link.student.id) ?? {
+            total: 0,
+            present: 0,
+            absent: 0,
+            late: 0,
+            excused: 0,
+            lastMarkedDate: null,
+          },
+      })),
+    };
+  }
+
+  async getMyStudentAttendance(
+    tenantId: string,
+    userId: string,
+    studentId: string,
+    query: ParentStudentAttendanceHistoryQueryInput,
+  ) {
+    const parent = await prisma.parent.findFirst({
+      where: {
+        tenantId,
+        userId,
+        deletedAt: null,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!parent) {
+      throw new AppError(404, 'PARENT_NOT_FOUND', 'Parent profile not found');
+    }
+
+    const link = await prisma.parentStudent.findFirst({
+      where: {
+        tenantId,
+        parentId: parent.id,
+        studentId,
+        deletedAt: null,
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            studentCode: true,
+            firstName: true,
+            lastName: true,
+            enrollments: {
+              where: {
+                isActive: true,
+              },
+              include: {
+                academicYear: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+                classRoom: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: {
+                updatedAt: 'desc',
+              },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    if (!link) {
+      throw new AppError(
+        404,
+        'CHILD_NOT_LINKED',
+        'Student is not linked to the current parent account',
+      );
+    }
+
+    const toDate = query.to
+      ? this.parseSchoolDate(query.to)
+      : this.parseSchoolDate(this.getTodaySchoolDate());
+    const fromDate = query.from
+      ? this.parseSchoolDate(query.from)
+      : new Date(
+          Date.UTC(
+            toDate.getUTCFullYear(),
+            toDate.getUTCMonth(),
+            toDate.getUTCDate() - 30,
+          ),
+        );
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: {
+        tenantId,
+        studentId,
+        attendanceDate: {
+          gte: fromDate,
+          lte: toDate,
+        },
+      },
+      include: {
+        classRoom: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ attendanceDate: 'desc' }, { updatedAt: 'desc' }],
+      take: 1000,
+    });
+
+    return {
+      student: {
+        id: link.student.id,
+        studentCode: link.student.studentCode,
+        firstName: link.student.firstName,
+        lastName: link.student.lastName,
+        currentEnrollment: link.student.enrollments[0]
+          ? {
+              id: link.student.enrollments[0].id,
+              enrolledAt: link.student.enrollments[0].enrolledAt,
+              academicYear: link.student.enrollments[0].academicYear,
+              classRoom: link.student.enrollments[0].classRoom,
+            }
+          : null,
+      },
+      range: {
+        from: this.toSchoolDateString(fromDate),
+        to: this.toSchoolDateString(toDate),
+      },
+      summary: {
+        total: records.length,
+        present: records.filter((item) => item.status === 'PRESENT').length,
+        absent: records.filter((item) => item.status === 'ABSENT').length,
+        late: records.filter((item) => item.status === 'LATE').length,
+        excused: records.filter((item) => item.status === 'EXCUSED').length,
+      },
+      records: records.map((record) => ({
+        id: record.id,
+        date: this.toSchoolDateString(record.attendanceDate),
+        status: record.status,
+        remarks: record.remarks,
+        classRoom: record.classRoom,
+        markedAt: record.markedAt,
+        updatedAt: record.updatedAt,
       })),
     };
   }
@@ -732,5 +947,34 @@ export class ParentsService {
     ) {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message, error.meta);
     }
+  }
+
+  private parseSchoolDate(value: string): Date {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.getTime())) {
+      throw new AppError(400, 'INVALID_DATE', 'Invalid date');
+    }
+
+    return date;
+  }
+
+  private getTodaySchoolDate(): string {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Kigali',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+
+    const value = formatter.format(new Date());
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private toSchoolDateString(date: Date): string {
+    return date.toISOString().slice(0, 10);
   }
 }

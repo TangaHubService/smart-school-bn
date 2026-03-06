@@ -41,8 +41,30 @@ export const listLinkableStudentsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });
 
+const schoolDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format');
+
+export const parentStudentAttendanceHistoryQuerySchema = z
+  .object({
+    from: schoolDateSchema.optional(),
+    to: schoolDateSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.from && value.to && value.from > value.to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['from'],
+        message: 'from date must be less than or equal to to date',
+      });
+    }
+  });
+
 export type CreateParentInput = z.infer<typeof createParentSchema>;
 export type UpdateParentInput = z.infer<typeof updateParentSchema>;
 export type LinkParentStudentInput = z.infer<typeof linkParentStudentSchema>;
 export type ListParentsQueryInput = z.infer<typeof listParentsQuerySchema>;
 export type ListLinkableStudentsQueryInput = z.infer<typeof listLinkableStudentsQuerySchema>;
+export type ParentStudentAttendanceHistoryQueryInput = z.infer<
+  typeof parentStudentAttendanceHistoryQuerySchema
+>;

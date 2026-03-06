@@ -34,6 +34,18 @@ enum ParentRelationship {
   OTHER
 }
 
+enum AttendanceSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
 model Tenant {
   id        String   @id @default(uuid())
   code      String   @unique
@@ -59,6 +71,8 @@ model Tenant {
   enrollments   StudentEnrollment[]
   parents       Parent[]
   parentLinks   ParentStudent[]
+  attendanceSessions AttendanceSession[]
+  attendanceRecords  AttendanceRecord[]
 
   @@index([isActive])
 }
@@ -105,6 +119,10 @@ model User {
   sentInvites     Invite[]       @relation("InviteSentBy")
   acceptedInvites Invite[]       @relation("InviteAcceptedBy")
   parentProfile   Parent?
+  createdAttendanceSessions AttendanceSession[] @relation("AttendanceSessionCreatedBy")
+  editedAttendanceSessions  AttendanceSession[] @relation("AttendanceSessionEditedBy")
+  markedAttendanceRecords   AttendanceRecord[]  @relation("AttendanceRecordMarkedBy")
+  editedAttendanceRecords   AttendanceRecord[]  @relation("AttendanceRecordEditedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -186,6 +204,7 @@ model AcademicYear {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   terms  Term[]
   enrollments StudentEnrollment[]
+  attendanceSessions AttendanceSession[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isCurrent, isActive])
@@ -244,6 +263,8 @@ model ClassRoom {
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   gradeLevel GradeLevel @relation(fields: [gradeLevelId], references: [id], onDelete: Restrict)
   enrollments StudentEnrollment[]
+  attendanceSessions AttendanceSession[]
+  attendanceRecords AttendanceRecord[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gradeLevelId, name])
@@ -284,6 +305,7 @@ model Student {
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   enrollments StudentEnrollment[]
   parentLinks ParentStudent[]
+  attendanceRecords AttendanceRecord[]
 
   @@unique([tenantId, studentCode])
   @@index([tenantId, lastName, firstName])
@@ -356,6 +378,56 @@ model ParentStudent {
   @@unique([tenantId, parentId, studentId])
   @@index([tenantId, studentId, relationship])
   @@index([tenantId, parentId, relationship])
+}
+
+model AttendanceSession {
+  id              String                  @id @default(uuid())
+  tenantId        String
+  classRoomId     String
+  academicYearId  String?
+  sessionDate     DateTime
+  status          AttendanceSessionStatus @default(OPEN)
+  createdByUserId String
+  editedByUserId  String
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: SetNull)
+  createdByUser User        @relation("AttendanceSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  editedByUser  User        @relation("AttendanceSessionEditedBy", fields: [editedByUserId], references: [id], onDelete: Restrict)
+  records      AttendanceRecord[]
+
+  @@unique([tenantId, classRoomId, sessionDate])
+  @@index([tenantId, sessionDate])
+  @@index([tenantId, classRoomId, sessionDate])
+}
+
+model AttendanceRecord {
+  id             String           @id @default(uuid())
+  tenantId       String
+  sessionId      String
+  classRoomId    String
+  studentId      String
+  attendanceDate DateTime
+  status         AttendanceStatus @default(PRESENT)
+  remarks        String?
+  markedByUserId String
+  editedByUserId String
+  markedAt       DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  session      AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  classRoom    ClassRoom         @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  student      Student           @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  markedByUser User              @relation("AttendanceRecordMarkedBy", fields: [markedByUserId], references: [id], onDelete: Restrict)
+  editedByUser User              @relation("AttendanceRecordEditedBy", fields: [editedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, classRoomId, attendanceDate, studentId])
+  @@index([tenantId, classRoomId, attendanceDate])
+  @@index([tenantId, studentId, attendanceDate])
 }
 
 model RefreshToken {

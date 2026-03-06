@@ -57,3 +57,9 @@ parentsRoutes.get(
   requirePermissions([PERMISSIONS.PARENT_MY_CHILDREN_READ]),
   asyncHandler((req, res) => parentsController.listMyStudents(req, res)),
 );
+
+parentsRoutes.get(
+  '/parents/me/students/:studentId/attendance',
+  requirePermissions([PERMISSIONS.PARENT_MY_CHILDREN_READ]),
+  asyncHandler((req, res) => parentsController.getMyStudentAttendance(req, res)),
+);
