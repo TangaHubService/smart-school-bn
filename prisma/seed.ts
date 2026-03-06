@@ -11,6 +11,9 @@ const SCHOOL_ADMIN_PERMISSIONS = [
   'class_room.manage',
   'subject.manage',
   'staff.invite',
+  'students.read',
+  'students.manage',
+  'parents.manage',
   'users.read',
   'roles.read',
 ];
@@ -155,6 +158,25 @@ async function main() {
     },
   });
 
+  const parentRole = await prisma.role.upsert({
+    where: {
+      tenantId_name: {
+        tenantId: schoolTenant.id,
+        name: 'PARENT',
+      },
+    },
+    update: {
+      permissions: ['parents.my_children.read'],
+    },
+    create: {
+      tenantId: schoolTenant.id,
+      name: 'PARENT',
+      description: 'Parent portal role',
+      isSystem: true,
+      permissions: ['parents.my_children.read'],
+    },
+  });
+
   const schoolAdminHash = await bcrypt.hash('Admin@12345', 12);
 
   const schoolAdminUser = await prisma.user.upsert({
@@ -198,7 +220,7 @@ async function main() {
       entity: 'Tenant',
       entityId: schoolTenant.id,
       payload: {
-        createdRoles: [schoolAdminRole.name, teacherRole.name],
+        createdRoles: [schoolAdminRole.name, teacherRole.name, parentRole.name],
       },
     },
   });
