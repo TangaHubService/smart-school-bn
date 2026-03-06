@@ -48,7 +48,7 @@ CREATE INDEX "AttendanceSession_tenantId_sessionDate_idx" ON "AttendanceSession"
 CREATE INDEX "AttendanceSession_tenantId_classRoomId_sessionDate_idx" ON "AttendanceSession"("tenantId", "classRoomId", "sessionDate");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AttendanceRecord_tenantId_classRoomId_attendanceDate_studentId_key" ON "AttendanceRecord"("tenantId", "classRoomId", "attendanceDate", "studentId");
+CREATE UNIQUE INDEX "AttendanceRecord_tenantId_classRoomId_attendanceDate_studen_key" ON "AttendanceRecord"("tenantId", "classRoomId", "attendanceDate", "studentId");
 
 -- CreateIndex
 CREATE INDEX "AttendanceRecord_tenantId_classRoomId_attendanceDate_idx" ON "AttendanceRecord"("tenantId", "classRoomId", "attendanceDate");

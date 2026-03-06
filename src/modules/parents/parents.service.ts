@@ -158,14 +158,14 @@ export class ParentsService {
             },
             update: {
               isSystem: true,
-              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ],
+              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ, PERMISSIONS.REPORT_CARDS_MY_READ],
             },
             create: {
               tenantId,
               name: 'PARENT',
               description: 'Parent portal role',
               isSystem: true,
-              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ],
+              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ, PERMISSIONS.REPORT_CARDS_MY_READ],
             },
           });
 
@@ -332,14 +332,14 @@ export class ParentsService {
             },
             update: {
               isSystem: true,
-              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ],
+              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ, PERMISSIONS.REPORT_CARDS_MY_READ],
             },
             create: {
               tenantId,
               name: 'PARENT',
               description: 'Parent portal role',
               isSystem: true,
-              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ],
+              permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ, PERMISSIONS.REPORT_CARDS_MY_READ],
             },
           });
 

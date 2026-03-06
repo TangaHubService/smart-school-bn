@@ -1,0 +1,5 @@
+-- This migration was generated to rename PostgreSQL-truncated index names,
+-- but replaying it in a shadow database is fragile because the generated
+-- source index names are not stable across environments.
+-- The earlier creation migrations now create these indexes with the final
+-- short names directly, so this migration is intentionally a no-op.

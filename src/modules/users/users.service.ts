@@ -17,6 +17,34 @@ export class UsersService {
             school: true,
           },
         },
+        studentProfile: {
+          include: {
+            enrollments: {
+              where: {
+                isActive: true,
+              },
+              include: {
+                academicYear: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+                classRoom: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                  },
+                },
+              },
+              orderBy: {
+                enrolledAt: 'desc',
+              },
+              take: 1,
+            },
+          },
+        },
         userRoles: {
           include: {
             role: true,
@@ -57,6 +85,21 @@ export class UsersService {
       lastName: dbUser.lastName,
       roles,
       permissions,
+      student: dbUser.studentProfile
+        ? {
+            id: dbUser.studentProfile.id,
+            studentCode: dbUser.studentProfile.studentCode,
+            firstName: dbUser.studentProfile.firstName,
+            lastName: dbUser.studentProfile.lastName,
+            currentEnrollment: dbUser.studentProfile.enrollments[0]
+              ? {
+                  id: dbUser.studentProfile.enrollments[0].id,
+                  academicYear: dbUser.studentProfile.enrollments[0].academicYear,
+                  classRoom: dbUser.studentProfile.enrollments[0].classRoom,
+                }
+              : null,
+          }
+        : null,
     };
   }
 }
