@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { attendanceRoutes } from '../modules/attendance/attendance.routes';
 import { authRoutes } from '../modules/auth/auth.routes';
 import { academicRoutes } from '../modules/academics/academic.routes';
 import { healthRoutes } from '../modules/health/health.routes';
@@ -20,6 +21,7 @@ apiRouter.use('/tenants', tenantsRoutes);
 apiRouter.use('/schools', schoolsRoutes);
 apiRouter.use('/staff', staffRoutes);
 apiRouter.use('/', academicRoutes);
+apiRouter.use('/', attendanceRoutes);
 apiRouter.use('/', studentsRoutes);
 apiRouter.use('/', parentsRoutes);
 apiRouter.use('/health', healthRoutes);

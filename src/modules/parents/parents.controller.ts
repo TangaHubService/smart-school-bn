@@ -2,7 +2,11 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { ParentsService } from './parents.service';
-import { listLinkableStudentsQuerySchema, listParentsQuerySchema } from './parents.schemas';
+import {
+  listLinkableStudentsQuerySchema,
+  listParentsQuerySchema,
+  parentStudentAttendanceHistoryQuerySchema,
+} from './parents.schemas';
 
 const parentsService = new ParentsService();
 
@@ -65,6 +69,18 @@ export class ParentsController {
 
   async listMyStudents(req: Request, res: Response): Promise<Response> {
     const result = await parentsService.listMyStudents(req.tenantId!, req.user!.sub);
+    return sendSuccess(req, res, result);
+  }
+
+  async getMyStudentAttendance(req: Request, res: Response): Promise<Response> {
+    const query = parentStudentAttendanceHistoryQuerySchema.parse(req.query);
+    const result = await parentsService.getMyStudentAttendance(
+      req.tenantId!,
+      req.user!.sub,
+      req.params.studentId,
+      query,
+    );
+
     return sendSuccess(req, res, result);
   }
 }

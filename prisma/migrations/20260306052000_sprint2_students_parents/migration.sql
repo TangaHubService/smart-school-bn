@@ -86,7 +86,7 @@ CREATE INDEX "Student_tenantId_deletedAt_idx" ON "Student"("tenantId", "deletedA
 CREATE UNIQUE INDEX "StudentEnrollment_tenantId_studentId_academicYearId_key" ON "StudentEnrollment"("tenantId", "studentId", "academicYearId");
 
 -- CreateIndex
-CREATE INDEX "StudentEnrollment_tenantId_classRoomId_academicYearId_isActive_idx" ON "StudentEnrollment"("tenantId", "classRoomId", "academicYearId", "isActive");
+CREATE INDEX "StudentEnrollment_tenantId_classRoomId_academicYearId_isAct_idx" ON "StudentEnrollment"("tenantId", "classRoomId", "academicYearId", "isActive");
 
 -- CreateIndex
 CREATE INDEX "StudentEnrollment_tenantId_studentId_isActive_idx" ON "StudentEnrollment"("tenantId", "studentId", "isActive");

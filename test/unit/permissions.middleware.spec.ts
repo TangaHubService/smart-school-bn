@@ -1,3 +1,9 @@
+jest.mock('../../src/modules/audit/audit.service', () => ({
+  AuditService: jest.fn().mockImplementation(() => ({
+    log: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 import { requirePermissions } from '../../src/common/middleware/require-permissions.middleware';
 
 describe('requirePermissions middleware', () => {
