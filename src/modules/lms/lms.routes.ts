@@ -8,6 +8,8 @@ import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { LmsController } from './lms.controller';
 import {
+  assignCourseTeacherSchema,
+  assignTeacherBySubjectSchema,
   createAssignmentSchema,
   createCourseSchema,
   createLessonSchema,
@@ -33,6 +35,32 @@ lmsRoutes.get(
   '/courses',
   requirePermissions([PERMISSIONS.COURSES_READ]),
   asyncHandler((req, res) => lmsController.listCourses(req, res)),
+);
+
+lmsRoutes.get(
+  '/courses/teacher-options',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  asyncHandler((req, res) => lmsController.listTeacherOptions(req, res)),
+);
+
+lmsRoutes.get(
+  '/courses/subject-options',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  asyncHandler((req, res) => lmsController.listSubjectOptions(req, res)),
+);
+
+lmsRoutes.patch(
+  '/courses/:courseId/teacher',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(assignCourseTeacherSchema),
+  asyncHandler((req, res) => lmsController.assignCourseTeacher(req, res)),
+);
+
+lmsRoutes.patch(
+  '/courses/assign-by-subject',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(assignTeacherBySubjectSchema),
+  asyncHandler((req, res) => lmsController.assignTeacherBySubject(req, res)),
 );
 
 lmsRoutes.get(

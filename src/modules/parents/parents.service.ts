@@ -488,6 +488,14 @@ export class ParentsService {
         tenantId,
         deletedAt: null,
         isActive: true,
+        enrollments: query.classId
+          ? {
+              some: {
+                isActive: true,
+                classRoomId: query.classId,
+              },
+            }
+          : undefined,
         OR: query.q
           ? [
               {
@@ -516,12 +524,49 @@ export class ParentsService {
         studentCode: true,
         firstName: true,
         lastName: true,
+        enrollments: {
+          where: {
+            isActive: true,
+          },
+          orderBy: [{ enrolledAt: 'desc' }],
+          take: 1,
+          select: {
+            id: true,
+            enrolledAt: true,
+            academicYear: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            classRoom: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
       },
       orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
       take: query.pageSize,
     });
 
-    return students;
+    return students.map((student) => ({
+      id: student.id,
+      studentCode: student.studentCode,
+      firstName: student.firstName,
+      lastName: student.lastName,
+      currentEnrollment: student.enrollments[0]
+        ? {
+            id: student.enrollments[0].id,
+            enrolledAt: student.enrollments[0].enrolledAt.toISOString(),
+            academicYear: student.enrollments[0].academicYear,
+            classRoom: student.enrollments[0].classRoom,
+          }
+        : null,
+    }));
   }
 
   async linkStudent(

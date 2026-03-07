@@ -116,7 +116,11 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/classes',
-  requireAnyPermissions([PERMISSIONS.CLASS_ROOM_MANAGE, PERMISSIONS.COURSES_MANAGE]),
+  requireAnyPermissions([
+    PERMISSIONS.CLASS_ROOM_MANAGE,
+    PERMISSIONS.COURSES_MANAGE,
+    PERMISSIONS.PARENTS_MANAGE,
+  ]),
   asyncHandler((req, res) => academicsController.listClassRooms(req, res)),
 );
 

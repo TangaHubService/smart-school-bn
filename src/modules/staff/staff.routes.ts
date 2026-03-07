@@ -7,7 +7,7 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { StaffController } from './staff.controller';
-import { acceptInviteSchema, inviteStaffSchema } from './staff.schemas';
+import { acceptInviteSchema, inviteStaffSchema, updateStaffMemberSchema } from './staff.schemas';
 
 const staffController = new StaffController();
 
@@ -34,6 +34,39 @@ staffRoutes.get(
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
   asyncHandler((req, res) => staffController.listInvites(req, res)),
+);
+
+staffRoutes.get(
+  '/members',
+  authenticate,
+  enforceTenant,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  asyncHandler((req, res) => staffController.listMembers(req, res)),
+);
+
+staffRoutes.get(
+  '/members/:id',
+  authenticate,
+  enforceTenant,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  asyncHandler((req, res) => staffController.getMember(req, res)),
+);
+
+staffRoutes.patch(
+  '/members/:id',
+  authenticate,
+  enforceTenant,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  validateBody(updateStaffMemberSchema),
+  asyncHandler((req, res) => staffController.updateMember(req, res)),
+);
+
+staffRoutes.delete(
+  '/members/:id',
+  authenticate,
+  enforceTenant,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  asyncHandler((req, res) => staffController.deleteMember(req, res)),
 );
 
 staffRoutes.delete(

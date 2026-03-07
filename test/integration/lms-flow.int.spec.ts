@@ -3,12 +3,14 @@ jest.mock('../../src/db/prisma', () => {
     academicYear: { findFirst: jest.fn() },
     classRoom: { findFirst: jest.fn() },
     subject: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), findMany: jest.fn() },
     student: { findFirst: jest.fn() },
     course: {
       create: jest.fn(),
       findFirst: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
+      update: jest.fn(),
     },
     lesson: {
       aggregate: jest.fn(),
@@ -58,6 +60,24 @@ const teacherActor = {
     'submissions.read',
     'submissions.grade',
     'files.upload',
+  ],
+};
+
+const adminActor = {
+  sub: 'admin-1',
+  tenantId: 'tenant-1',
+  email: 'admin@school.rw',
+  roles: ['SCHOOL_ADMIN'],
+  permissions: [
+    'courses.read',
+    'courses.manage',
+    'lessons.manage',
+    'lessons.publish',
+    'assignments.manage',
+    'submissions.read',
+    'submissions.grade',
+    'files.upload',
+    'staff.invite',
   ],
 };
 
@@ -118,6 +138,7 @@ describe('lms integration flow', () => {
     mockedPrisma.academicYear.findFirst.mockResolvedValue({ id: 'year-1' });
     mockedPrisma.classRoom.findFirst.mockResolvedValue({ id: 'class-1' });
     mockedPrisma.subject.findFirst.mockResolvedValue({ id: 'subject-1' });
+    mockedPrisma.course.findFirst.mockResolvedValueOnce({ id: 'course-existing-1' });
 
     mockedPrisma.course.create.mockResolvedValue(buildCourseRow());
 
@@ -267,6 +288,119 @@ describe('lms integration flow', () => {
     expect(myCourses.items).toHaveLength(1);
     expect(myCourses.items[0].lessons).toHaveLength(1);
     expect(myCourses.items[0].lessons[0].isPublished).toBe(true);
+  });
+
+  it('teacher cannot create a course without selecting a subject', async () => {
+    mockedPrisma.academicYear.findFirst.mockResolvedValue({ id: 'year-1' });
+    mockedPrisma.classRoom.findFirst.mockResolvedValue({ id: 'class-1' });
+
+    await expect(
+      lmsService.createCourse(
+        'tenant-1',
+        {
+          academicYearId: 'year-1',
+          classRoomId: 'class-1',
+          title: 'Science Grade 1',
+        },
+        teacherActor,
+        context,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'COURSE_SUBJECT_REQUIRED',
+    });
+
+    expect(mockedPrisma.course.create).not.toHaveBeenCalled();
+  });
+
+  it('teacher cannot create a course for a subject not assigned to them', async () => {
+    mockedPrisma.academicYear.findFirst.mockResolvedValue({ id: 'year-1' });
+    mockedPrisma.classRoom.findFirst.mockResolvedValue({ id: 'class-1' });
+    mockedPrisma.subject.findFirst.mockResolvedValue({ id: 'subject-2' });
+    mockedPrisma.course.findFirst.mockResolvedValue(null);
+
+    await expect(
+      lmsService.createCourse(
+        'tenant-1',
+        {
+          academicYearId: 'year-1',
+          classRoomId: 'class-1',
+          subjectId: 'subject-2',
+          title: 'Science Grade 1',
+        },
+        teacherActor,
+        context,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'COURSE_SUBJECT_NOT_ASSIGNED',
+    });
+
+    expect(mockedPrisma.course.create).not.toHaveBeenCalled();
+  });
+
+  it('admin assigns a teacher to a course and teacher list remains scoped to assigned courses', async () => {
+    mockedPrisma.course.findFirst.mockResolvedValueOnce({
+      id: 'course-1',
+      teacherUserId: 'admin-1',
+    });
+    mockedPrisma.user.findFirst.mockResolvedValue({ id: 'teacher-1' });
+    mockedPrisma.course.update.mockResolvedValue(buildCourseRow());
+
+    const updatedCourse = await lmsService.assignCourseTeacher(
+      'tenant-1',
+      'course-1',
+      {
+        teacherUserId: 'teacher-1',
+      },
+      adminActor,
+      context,
+    );
+
+    expect(updatedCourse.teacher.id).toBe('teacher-1');
+    expect(mockedPrisma.course.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          teacherUserId: 'teacher-1',
+        }),
+      }),
+    );
+
+    mockedPrisma.$transaction.mockResolvedValueOnce([
+      1,
+      [
+        {
+          ...buildCourseRow(),
+          _count: {
+            lessons: 0,
+            assignments: 0,
+          },
+        },
+      ],
+    ]);
+
+    const teacherCourses = await lmsService.listCourses(
+      'tenant-1',
+      {
+        academicYearId: 'year-1',
+        classId: 'class-1',
+        page: 1,
+        pageSize: 12,
+      },
+      teacherActor,
+    );
+
+    expect(mockedPrisma.course.count).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        isActive: true,
+        classRoomId: 'class-1',
+        academicYearId: 'year-1',
+        teacherUserId: 'teacher-1',
+      },
+    });
+    expect(teacherCourses.items).toHaveLength(1);
+    expect(teacherCourses.items[0].teacher.id).toBe('teacher-1');
   });
 
   it('assignment submit -> grade -> student sees feedback', async () => {

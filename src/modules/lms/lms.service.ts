@@ -1,4 +1,4 @@
-import { Prisma, SubmissionStatus } from '@prisma/client';
+import { Prisma, SubmissionStatus, UserStatus } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -7,12 +7,16 @@ import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
+  AssignCourseTeacherInput,
+  AssignTeacherBySubjectInput,
   CourseDetailQueryInput,
   CreateAssignmentInput,
   CreateCourseInput,
   CreateLessonInput,
   CreateSubmissionInput,
   GradeSubmissionInput,
+  ListCourseTeacherOptionsQueryInput,
+  ListCourseSubjectOptionsQueryInput,
   ListAssignmentsQueryInput,
   ListAssignmentSubmissionsQueryInput,
   ListCoursesQueryInput,
@@ -33,6 +37,19 @@ export class LmsService {
     context: RequestAuditContext,
   ) {
     await this.ensureAcademicTargets(tenantId, input.academicYearId, input.classRoomId, input.subjectId);
+    const teacherUserId = await this.resolveCourseTeacherUserId(tenantId, input.teacherUserId, actor);
+
+    if (this.isTeacherOnly(actor)) {
+      if (!input.subjectId) {
+        throw new AppError(
+          400,
+          'COURSE_SUBJECT_REQUIRED',
+          'Subject is required when teachers create courses',
+        );
+      }
+
+      await this.ensureTeacherCanUseSubject(tenantId, actor.sub, input.subjectId);
+    }
 
     try {
       const created = await prisma.course.create({
@@ -41,7 +58,7 @@ export class LmsService {
           academicYearId: input.academicYearId,
           classRoomId: input.classRoomId,
           subjectId: input.subjectId,
-          teacherUserId: actor.sub,
+          teacherUserId,
           title: input.title,
           description: input.description,
         },
@@ -57,6 +74,12 @@ export class LmsService {
         requestId: context.requestId,
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
+        payload: {
+          academicYearId: input.academicYearId,
+          classRoomId: input.classRoomId,
+          subjectId: input.subjectId ?? null,
+          teacherUserId,
+        },
       });
 
       return this.mapCourse(created);
@@ -77,6 +100,10 @@ export class LmsService {
       classRoomId: query.classId,
       academicYearId: query.academicYearId,
     };
+
+    if (query.teacherUserId) {
+      where.teacherUserId = query.teacherUserId;
+    }
 
     if (this.isTeacherOnly(actor)) {
       where.teacherUserId = actor.sub;
@@ -113,6 +140,368 @@ export class LmsService {
       })),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
+  }
+
+  async listTeacherOptions(
+    tenantId: string,
+    query: ListCourseTeacherOptionsQueryInput,
+    actor: JwtUser,
+  ) {
+    this.ensureAdminCanAssignTeacher(actor);
+
+    return prisma.user.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        userRoles: {
+          some: {
+            role: {
+              name: 'TEACHER',
+            },
+          },
+        },
+        OR: query.q
+          ? [
+              {
+                firstName: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                lastName: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                email: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+            ]
+          : undefined,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { email: 'asc' }],
+    });
+  }
+
+  async listSubjectOptions(
+    tenantId: string,
+    query: ListCourseSubjectOptionsQueryInput,
+    actor: JwtUser,
+  ) {
+    let subjectIds: string[] | undefined;
+
+    if (this.isTeacherOnly(actor)) {
+      const assigned = await prisma.course.findMany({
+        where: {
+          tenantId,
+          isActive: true,
+          teacherUserId: actor.sub,
+          subjectId: {
+            not: null,
+          },
+        },
+        select: {
+          subjectId: true,
+        },
+        distinct: ['subjectId'],
+      });
+
+      subjectIds = assigned.map((item) => item.subjectId).filter((id): id is string => Boolean(id));
+      if (!subjectIds.length) {
+        return [];
+      }
+    }
+
+    return prisma.subject.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        ...(subjectIds ? { id: { in: subjectIds } } : {}),
+        OR: query.q
+          ? [
+              {
+                name: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                code: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+            ]
+          : undefined,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+      },
+      orderBy: [{ name: 'asc' }, { code: 'asc' }],
+    });
+  }
+
+  async assignCourseTeacher(
+    tenantId: string,
+    courseId: string,
+    input: AssignCourseTeacherInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    this.ensureAdminCanAssignTeacher(actor);
+
+    const course = await prisma.course.findFirst({
+      where: {
+        id: courseId,
+        tenantId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        teacherUserId: true,
+      },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    const teacherUserId = await this.resolveCourseTeacherUserId(
+      tenantId,
+      input.teacherUserId,
+      actor,
+    );
+
+    if (teacherUserId === course.teacherUserId) {
+      const currentCourse = await prisma.course.findFirst({
+        where: {
+          id: courseId,
+          tenantId,
+          isActive: true,
+        },
+        include: this.courseInclude,
+      });
+
+      if (!currentCourse) {
+        throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+      }
+
+      return this.mapCourse(currentCourse);
+    }
+
+    try {
+      const updated = await prisma.course.update({
+        where: {
+          id: courseId,
+        },
+        data: {
+          teacherUserId,
+        },
+        include: this.courseInclude,
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.COURSE_TEACHER_ASSIGNED,
+        entity: 'Course',
+        entityId: updated.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          previousTeacherUserId: course.teacherUserId,
+          teacherUserId,
+        },
+      });
+
+      return this.mapCourse(updated);
+    } catch (error) {
+      this.handleUniqueError(
+        error,
+        'This teacher already has a course with the same title in this class and academic year',
+      );
+      throw error;
+    }
+  }
+
+  async assignTeacherBySubject(
+    tenantId: string,
+    input: AssignTeacherBySubjectInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    this.ensureAdminCanAssignTeacher(actor);
+
+    const teacherUserId = await this.resolveCourseTeacherUserId(
+      tenantId,
+      input.teacherUserId,
+      actor,
+    );
+
+    const [academicYear, classRoom, subject] = await Promise.all([
+      prisma.academicYear.findFirst({
+        where: {
+          id: input.academicYearId,
+          tenantId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      }),
+      prisma.classRoom.findFirst({
+        where: {
+          id: input.classRoomId,
+          tenantId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
+      }),
+      prisma.subject.findFirst({
+        where: {
+          id: input.subjectId,
+          tenantId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
+      }),
+    ]);
+
+    if (!academicYear) {
+      throw new AppError(404, 'ACADEMIC_YEAR_NOT_FOUND', 'Academic year not found');
+    }
+
+    if (!classRoom) {
+      throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class room not found');
+    }
+
+    if (!subject) {
+      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
+    }
+
+    const existing = await prisma.course.findFirst({
+      where: {
+        tenantId,
+        isActive: true,
+        academicYearId: input.academicYearId,
+        classRoomId: input.classRoomId,
+        subjectId: input.subjectId,
+      },
+      include: this.courseInclude,
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+
+    if (existing) {
+      if (existing.teacherUser.id === teacherUserId) {
+        return this.mapCourse(existing);
+      }
+
+      try {
+        const updated = await prisma.course.update({
+          where: {
+            id: existing.id,
+          },
+          data: {
+            teacherUserId,
+          },
+          include: this.courseInclude,
+        });
+
+        await this.auditService.log({
+          tenantId,
+          actorUserId: actor.sub,
+          event: AUDIT_EVENT.COURSE_TEACHER_ASSIGNED,
+          entity: 'Course',
+          entityId: updated.id,
+          requestId: context.requestId,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+          payload: {
+            assignmentType: 'SUBJECT',
+            academicYearId: input.academicYearId,
+            classRoomId: input.classRoomId,
+            subjectId: input.subjectId,
+            previousTeacherUserId: existing.teacherUser.id,
+            teacherUserId,
+          },
+        });
+
+        return this.mapCourse(updated);
+      } catch (error) {
+        this.handleUniqueError(
+          error,
+          'This teacher already has a course with the same title in this class and academic year',
+        );
+        throw error;
+      }
+    }
+
+    const generatedTitle = `${subject.name} ${classRoom.name}`;
+
+    try {
+      const created = await prisma.course.create({
+        data: {
+          tenantId,
+          academicYearId: input.academicYearId,
+          classRoomId: input.classRoomId,
+          subjectId: input.subjectId,
+          teacherUserId,
+          title: generatedTitle,
+          description: `Auto-created for ${subject.name} in ${classRoom.name} (${academicYear.name}).`,
+        },
+        include: this.courseInclude,
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.COURSE_TEACHER_ASSIGNED,
+        entity: 'Course',
+        entityId: created.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          assignmentType: 'SUBJECT',
+          academicYearId: input.academicYearId,
+          classRoomId: input.classRoomId,
+          subjectId: input.subjectId,
+          teacherUserId,
+          autoCreated: true,
+        },
+      });
+
+      return this.mapCourse(created);
+    } catch (error) {
+      this.handleUniqueError(
+        error,
+        'A matching subject course already exists for this teacher, class, and year',
+      );
+      throw error;
+    }
   }
 
   async getCourseDetail(
@@ -1070,6 +1459,18 @@ export class LmsService {
     return actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN');
   }
 
+  private ensureAdminCanAssignTeacher(actor: JwtUser) {
+    if (this.isAdmin(actor)) {
+      return;
+    }
+
+    throw new AppError(
+      403,
+      'COURSE_TEACHER_ASSIGN_FORBIDDEN',
+      'Only administrators can assign teachers to courses',
+    );
+  }
+
   private ensureCanManageCourse(teacherUserId: string, actor: JwtUser) {
     if (this.isAdmin(actor)) {
       return;
@@ -1080,6 +1481,79 @@ export class LmsService {
     }
 
     throw new AppError(403, 'COURSE_MANAGE_FORBIDDEN', 'You cannot manage this course');
+  }
+
+  private async ensureTeacherCanUseSubject(
+    tenantId: string,
+    teacherUserId: string,
+    subjectId: string,
+  ) {
+    const assigned = await prisma.course.findFirst({
+      where: {
+        tenantId,
+        isActive: true,
+        teacherUserId,
+        subjectId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!assigned) {
+      throw new AppError(
+        403,
+        'COURSE_SUBJECT_NOT_ASSIGNED',
+        'This subject is not assigned to the current teacher',
+      );
+    }
+  }
+
+  private async resolveCourseTeacherUserId(
+    tenantId: string,
+    requestedTeacherUserId: string | undefined,
+    actor: JwtUser,
+  ) {
+    if (this.isTeacherOnly(actor)) {
+      if (requestedTeacherUserId && requestedTeacherUserId !== actor.sub) {
+        throw new AppError(
+          403,
+          'COURSE_TEACHER_ASSIGN_FORBIDDEN',
+          'Teachers can only create courses assigned to themselves',
+        );
+      }
+
+      return actor.sub;
+    }
+
+    if (!requestedTeacherUserId) {
+      return actor.sub;
+    }
+
+    const teacher = await prisma.user.findFirst({
+      where: {
+        id: requestedTeacherUserId,
+        tenantId,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        userRoles: {
+          some: {
+            role: {
+              name: 'TEACHER',
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!teacher) {
+      throw new AppError(404, 'COURSE_TEACHER_NOT_FOUND', 'Assigned teacher not found');
+    }
+
+    return teacher.id;
   }
 
   private async upsertFileAsset(

@@ -37,6 +37,7 @@ export const listParentsQuerySchema = z.object({
 });
 
 export const listLinkableStudentsQuerySchema = z.object({
+  classId: z.string().uuid().optional(),
   q: z.string().trim().min(1).max(120).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
 });

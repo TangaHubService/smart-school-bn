@@ -86,6 +86,41 @@ enum ResultSnapshotStatus {
   PUBLISHED
 }
 
+enum ConductSeverity {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum ConductIncidentStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+}
+
+enum ConductActionType {
+  WARNING
+  COUNSELING
+  PARENT_MEETING
+  COMMUNITY_SERVICE
+  DETENTION
+  SUSPENSION
+  OTHER
+}
+
+enum ConductFeedbackAuthorType {
+  SCHOOL_STAFF
+  GOV_AUDITOR
+}
+
+enum GovScopeLevel {
+  SECTOR
+  DISTRICT
+  PROVINCE
+  COUNTRY
+}
+
 model Tenant {
   id        String   @id @default(uuid())
   code      String   @unique
@@ -127,6 +162,9 @@ model Tenant {
   examMarks     ExamMark[]
   resultSnapshots ResultSnapshot[]
   fileAssets    FileAsset[]
+  conductIncidents ConductIncident[]
+  conductActions   ConductAction[]
+  conductFeedbacks ConductFeedback[]
 
   @@index([isActive])
 }
@@ -155,6 +193,7 @@ model School {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([country])
+  @@index([country, province, district, sector])
 }
 
 model User {
@@ -203,6 +242,12 @@ model User {
   assessmentAttempts       AssessmentAttempt[] @relation("AssessmentAttemptStudentUser")
   manuallyGradedAssessmentAttempts AssessmentAttempt[] @relation("AssessmentAttemptManuallyGradedBy")
   uploadedAssets           FileAsset[]         @relation("FileAssetUploadedBy")
+  reportedConductIncidents ConductIncident[]   @relation("ConductIncidentReportedBy")
+  resolvedConductIncidents ConductIncident[]   @relation("ConductIncidentResolvedBy")
+  createdConductActions    ConductAction[]     @relation("ConductActionCreatedBy")
+  authoredConductFeedbacks ConductFeedback[]   @relation("ConductFeedbackAuthoredBy")
+  govAuditorScopes         GovAuditorScope[]   @relation("GovAuditorUser")
+  assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -353,6 +398,7 @@ model ClassRoom {
   courses Course[]
   exams   Exam[]
   resultSnapshots ResultSnapshot[]
+  conductIncidents ConductIncident[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gradeLevelId, name])
@@ -402,11 +448,108 @@ model Student {
   assessmentAttempts AssessmentAttempt[]
   examMarks      ExamMark[]
   resultSnapshots ResultSnapshot[]
+  conductIncidents ConductIncident[]
 
   @@unique([tenantId, studentCode])
   @@index([tenantId, lastName, firstName])
   @@index([tenantId, isActive, createdAt])
   @@index([tenantId, deletedAt])
+}
+
+model ConductIncident {
+  id                String                @id @default(uuid())
+  tenantId          String
+  studentId         String
+  classRoomId       String?
+  reportedByUserId  String
+  occurredAt        DateTime
+  category          String
+  title             String
+  description       String
+  severity          ConductSeverity       @default(MODERATE)
+  status            ConductIncidentStatus @default(OPEN)
+  location          String?
+  reporterNotes     String?
+  resolutionSummary String?
+  resolvedAt        DateTime?
+  resolvedByUserId  String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  student        Student         @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  classRoom      ClassRoom?      @relation(fields: [classRoomId], references: [id], onDelete: SetNull)
+  reportedByUser User            @relation("ConductIncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  resolvedByUser User?           @relation("ConductIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  actions        ConductAction[]
+  feedback       ConductFeedback[]
+
+  @@index([tenantId, studentId, occurredAt])
+  @@index([tenantId, classRoomId, occurredAt])
+  @@index([tenantId, status, severity, occurredAt])
+}
+
+model ConductAction {
+  id              String            @id @default(uuid())
+  tenantId        String
+  incidentId      String
+  createdByUserId String
+  type            ConductActionType
+  title           String
+  description     String?
+  actionDate      DateTime
+  dueDate         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  incident      ConductIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  createdByUser User            @relation("ConductActionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, incidentId, actionDate])
+  @@index([tenantId, type, actionDate])
+}
+
+model ConductFeedback {
+  id          String                    @id @default(uuid())
+  tenantId    String
+  incidentId  String
+  authorUserId String
+  authorType  ConductFeedbackAuthorType
+  body        String
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  incident   ConductIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  authorUser User            @relation("ConductFeedbackAuthoredBy", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, incidentId, createdAt])
+  @@index([authorUserId, createdAt])
+}
+
+model GovAuditorScope {
+  id               String        @id @default(uuid())
+  auditorUserId    String
+  assignedByUserId String?
+  scopeLevel       GovScopeLevel
+  country          String        @default("Rwanda")
+  province         String?
+  district         String?
+  sector           String?
+  notes            String?
+  startsAt         DateTime?
+  endsAt           DateTime?
+  isActive         Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  auditorUser    User  @relation("GovAuditorUser", fields: [auditorUserId], references: [id], onDelete: Cascade)
+  assignedByUser User? @relation("GovAuditorScopeAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([auditorUserId, isActive, scopeLevel])
+  @@index([scopeLevel, country, province, district, sector])
 }
 
 model StudentEnrollment {

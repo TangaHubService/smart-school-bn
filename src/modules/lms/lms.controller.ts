@@ -3,10 +3,14 @@ import { Request, Response } from 'express';
 import { sendSuccess } from '../../common/utils/response';
 import { LmsService } from './lms.service';
 import {
+  assignCourseTeacherSchema,
+  assignTeacherBySubjectSchema,
   listAssignmentsQuerySchema,
   courseDetailQuerySchema,
   listAssignmentSubmissionsQuerySchema,
   listCoursesQuerySchema,
+  listCourseTeacherOptionsQuerySchema,
+  listCourseSubjectOptionsQuerySchema,
   listMyCoursesQuerySchema,
 } from './lms.schemas';
 
@@ -35,6 +39,45 @@ export class LmsController {
   async listCourses(req: Request, res: Response): Promise<Response> {
     const query = listCoursesQuerySchema.parse(req.query);
     const result = await lmsService.listCourses(req.tenantId!, query, req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listTeacherOptions(req: Request, res: Response): Promise<Response> {
+    const query = listCourseTeacherOptionsQuerySchema.parse(req.query);
+    const result = await lmsService.listTeacherOptions(req.tenantId!, query, req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listSubjectOptions(req: Request, res: Response): Promise<Response> {
+    const query = listCourseSubjectOptionsQuerySchema.parse(req.query);
+    const result = await lmsService.listSubjectOptions(req.tenantId!, query, req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async assignCourseTeacher(req: Request, res: Response): Promise<Response> {
+    const input = assignCourseTeacherSchema.parse(req.body);
+    const result = await lmsService.assignCourseTeacher(
+      req.tenantId!,
+      req.params.courseId,
+      input,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async assignTeacherBySubject(req: Request, res: Response): Promise<Response> {
+    const input = assignTeacherBySubjectSchema.parse(req.body);
+    const result = await lmsService.assignTeacherBySubject(
+      req.tenantId!,
+      input,
+      req.user!,
+      buildContext(req),
+    );
 
     return sendSuccess(req, res, result);
   }
