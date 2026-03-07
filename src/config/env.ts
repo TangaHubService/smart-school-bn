@@ -31,6 +31,14 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
   CLOUDINARY_FOLDER_PREFIX: z.string().default('smart-school'),
+  FEATURE_CONDUCT_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  FEATURE_GOV_AUDITING_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
   FEATURE_ASSESSMENTS_ENABLED: z
     .enum(['true', 'false'])
     .default('true')

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { StaffService } from './staff.service';
+import { listStaffMembersQuerySchema } from './staff.schemas';
 
 const staffService = new StaffService();
 
@@ -32,6 +33,40 @@ export class StaffController {
 
   async listInvites(req: Request, res: Response): Promise<Response> {
     const result = await staffService.listInvites(req.tenantId!);
+    return sendSuccess(req, res, result);
+  }
+
+  async listMembers(req: Request, res: Response): Promise<Response> {
+    const query = listStaffMembersQuerySchema.parse(req.query);
+    const result = await staffService.listMembers(req.tenantId!, query);
+    return sendSuccess(req, res, result);
+  }
+
+  async getMember(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.getMember(req.tenantId!, req.params.id);
+    return sendSuccess(req, res, result);
+  }
+
+  async updateMember(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.updateMember(
+      req.tenantId!,
+      req.params.id,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteMember(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.deleteMember(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildContext(req),
+    );
+
     return sendSuccess(req, res, result);
   }
 

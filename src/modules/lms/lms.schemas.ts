@@ -28,14 +28,31 @@ export const createCourseSchema = z
     academicYearId: z.string().uuid(),
     classRoomId: z.string().uuid(),
     subjectId: z.string().uuid().optional(),
+    teacherUserId: z.string().uuid().optional(),
     title: z.string().trim().min(2).max(120),
     description: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+export const assignCourseTeacherSchema = z
+  .object({
+    teacherUserId: z.string().uuid(),
+  })
+  .strict();
+
+export const assignTeacherBySubjectSchema = z
+  .object({
+    teacherUserId: z.string().uuid(),
+    academicYearId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    subjectId: z.string().uuid(),
   })
   .strict();
 
 export const listCoursesQuerySchema = z.object({
   classId: z.string().uuid().optional(),
   academicYearId: z.string().uuid().optional(),
+  teacherUserId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(10),
 });
@@ -158,7 +175,17 @@ export const listMyCoursesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(20).default(10),
 });
 
+export const listCourseTeacherOptionsQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+});
+
+export const listCourseSubjectOptionsQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+});
+
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;
+export type AssignCourseTeacherInput = z.infer<typeof assignCourseTeacherSchema>;
+export type AssignTeacherBySubjectInput = z.infer<typeof assignTeacherBySubjectSchema>;
 export type ListCoursesQueryInput = z.infer<typeof listCoursesQuerySchema>;
 export type CourseDetailQueryInput = z.infer<typeof courseDetailQuerySchema>;
 export type UploadedAssetInput = z.infer<typeof uploadedAssetSchema>;
@@ -172,3 +199,9 @@ export type ListAssignmentSubmissionsQueryInput = z.infer<
 >;
 export type ListAssignmentsQueryInput = z.infer<typeof listAssignmentsQuerySchema>;
 export type ListMyCoursesQueryInput = z.infer<typeof listMyCoursesQuerySchema>;
+export type ListCourseTeacherOptionsQueryInput = z.infer<
+  typeof listCourseTeacherOptionsQuerySchema
+>;
+export type ListCourseSubjectOptionsQueryInput = z.infer<
+  typeof listCourseSubjectOptionsQuerySchema
+>;

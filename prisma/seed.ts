@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 
 import {
   buildDefaultTenantRoles,
+  GOV_AUDITOR_PERMISSIONS,
   SCHOOL_ADMIN_PERMISSIONS,
   SUPER_ADMIN_PERMISSIONS,
 } from '../src/constants/permissions';
@@ -161,6 +162,25 @@ async function main() {
       description: 'Platform super administrator role',
       isSystem: true,
       permissions: SUPER_ADMIN_PERMISSIONS,
+    },
+  });
+
+  await prisma.role.upsert({
+    where: {
+      tenantId_name: {
+        tenantId: platformTenant.id,
+        name: 'GOV_AUDITOR',
+      },
+    },
+    update: {
+      permissions: GOV_AUDITOR_PERMISSIONS,
+    },
+    create: {
+      tenantId: platformTenant.id,
+      name: 'GOV_AUDITOR',
+      description: 'Government auditor role',
+      isSystem: true,
+      permissions: GOV_AUDITOR_PERMISSIONS,
     },
   });
 

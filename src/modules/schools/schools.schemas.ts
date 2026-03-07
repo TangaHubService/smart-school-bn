@@ -14,8 +14,12 @@ export const schoolSetupSchema = z.object({
       phone: z.string().trim().max(40).optional(),
       addressLine1: z.string().trim().max(200).optional(),
       addressLine2: z.string().trim().max(200).optional(),
+      province: z.string().trim().max(100).optional(),
       city: z.string().trim().max(100).optional(),
       district: z.string().trim().max(100).optional(),
+      sector: z.string().trim().max(100).optional(),
+      cell: z.string().trim().max(100).optional(),
+      village: z.string().trim().max(100).optional(),
       country: z.string().trim().max(100).default('Rwanda'),
       timezone: z.string().trim().max(80).default('Africa/Kigali'),
     })
