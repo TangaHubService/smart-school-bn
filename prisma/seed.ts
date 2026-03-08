@@ -184,40 +184,50 @@ async function main() {
     },
   });
 
-  const superAdminPasswordHash = await bcrypt.hash('SuperAdmin@12345', 12);
+  const superAdminPasswordHash = await bcrypt.hash('Kigali2019@2022', 12);
+  const platformSuperAdminEmails = [
+    'smartschoolrwanda@gmail.com',
+    'sibomanadamascene1999@gmail.com',
+  ];
 
-  const superAdminUser = await prisma.user.upsert({
-    where: {
-      tenantId_email: {
-        tenantId: platformTenant.id,
-        email: 'superadmin@smartschool.rw',
+  for (const email of platformSuperAdminEmails) {
+    const superAdminUser = await prisma.user.upsert({
+      where: {
+        tenantId_email: {
+          tenantId: platformTenant.id,
+          email,
+        },
       },
-    },
-    update: {},
-    create: {
-      tenantId: platformTenant.id,
-      email: 'superadmin@smartschool.rw',
-      passwordHash: superAdminPasswordHash,
-      firstName: 'Platform',
-      lastName: 'Admin',
-    },
-  });
+      update: {
+        passwordHash: superAdminPasswordHash,
+        firstName: 'Sibmana',
+        lastName: 'Damascene',
+      },
+      create: {
+        tenantId: platformTenant.id,
+        email,
+        passwordHash: superAdminPasswordHash,
+        firstName: 'Sibmana',
+        lastName: 'Damascene',
+      },
+    });
 
-  await prisma.userRole.upsert({
-    where: {
-      tenantId_userId_roleId: {
+    await prisma.userRole.upsert({
+      where: {
+        tenantId_userId_roleId: {
+          tenantId: platformTenant.id,
+          userId: superAdminUser.id,
+          roleId: superAdminRole.id,
+        },
+      },
+      update: {},
+      create: {
         tenantId: platformTenant.id,
         userId: superAdminUser.id,
         roleId: superAdminRole.id,
       },
-    },
-    update: {},
-    create: {
-      tenantId: platformTenant.id,
-      userId: superAdminUser.id,
-      roleId: superAdminRole.id,
-    },
-  });
+    });
+  }
 
   const schoolTenant = await prisma.tenant.upsert({
     where: { code: 'gs-rwanda' },
@@ -1576,7 +1586,8 @@ async function main() {
           parentRole.name,
         ],
         sampleLogins: {
-          superAdmin: 'superadmin@smartschool.rw / SuperAdmin@12345',
+          superAdmin:
+            'smartschoolrwanda@gmail.com, sibomanadamascene1999@gmail.com / Kigali2019@2022',
           schoolAdmin: 'admin@school.rw / Admin@12345',
           teacher: 'teacher@school.rw / Teacher@12345',
           student: 'student@school.rw / Student@12345',
