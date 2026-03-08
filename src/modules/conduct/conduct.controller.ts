@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { sendSuccess } from '../../common/utils/response';
 import { ConductService } from './conduct.service';
 import {
+  listConductMarksQuerySchema,
   listConductIncidentsQuerySchema,
   studentConductProfileQuerySchema,
 } from './conduct.schemas';
@@ -87,6 +88,63 @@ export class ConductController {
       req.tenantId!,
       req.params.studentId,
       query,
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async getStudentConduct(req: Request, res: Response): Promise<Response> {
+    const query = studentConductProfileQuerySchema.parse(req.query);
+    const result = await conductService.getStudentConductProfile(
+      req.tenantId!,
+      req.params.id,
+      query,
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listMarks(req: Request, res: Response): Promise<Response> {
+    const query = listConductMarksQuerySchema.parse(req.query);
+    const result = await conductService.listMarks(req.tenantId!, query);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async upsertMark(req: Request, res: Response): Promise<Response> {
+    const result = await conductService.upsertMark(
+      req.tenantId!,
+      req.params.studentId,
+      req.params.termId,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async recalculateMark(req: Request, res: Response): Promise<Response> {
+    const result = await conductService.recalculateMark(
+      req.tenantId!,
+      req.params.studentId,
+      req.params.termId,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async lockMark(req: Request, res: Response): Promise<Response> {
+    const result = await conductService.lockMark(
+      req.tenantId!,
+      req.params.studentId,
+      req.params.termId,
+      req.body,
+      req.user!,
+      buildContext(req),
     );
 
     return sendSuccess(req, res, result);

@@ -7,6 +7,7 @@ import { buildPagination } from '../../common/utils/pagination';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
+import { ConductService } from '../conduct/conduct.service';
 import {
   BulkExamMarksInput,
   CreateExamInput,
@@ -74,6 +75,7 @@ type ReportCardPayload = {
 
 export class ExamsService {
   private readonly auditService = new AuditService();
+  private readonly conductService = new ConductService();
 
   async listGradingSchemes(tenantId: string) {
     const items = await prisma.gradingScheme.findMany({
@@ -652,6 +654,20 @@ export class ExamsService {
         publishedCount: updated.count,
       },
     });
+
+    if (env.FEATURE_CONDUCT_ENABLED && env.FEATURE_CONDUCT_MARKS_ENABLED) {
+      try {
+        await this.conductService.lockMarksForResultPublication(
+          tenantId,
+          input.termId,
+          input.classRoomId,
+          actor,
+          context,
+        );
+      } catch {
+        // Keep existing publish workflow backward-compatible if conduct marks are not fully migrated.
+      }
+    }
 
     return {
       status: 'PUBLISHED' as const,

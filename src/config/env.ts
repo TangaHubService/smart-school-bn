@@ -39,6 +39,10 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),
+  FEATURE_CONDUCT_MARKS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
   FEATURE_ASSESSMENTS_ENABLED: z
     .enum(['true', 'false'])
     .default('true')

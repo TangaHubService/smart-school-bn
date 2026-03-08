@@ -109,6 +109,11 @@ enum ConductActionType {
   OTHER
 }
 
+enum ConductMarkMethod {
+  MANUAL
+  DEDUCT
+}
+
 enum ConductFeedbackAuthorType {
   SCHOOL_STAFF
   GOV_AUDITOR
@@ -165,6 +170,8 @@ model Tenant {
   conductIncidents ConductIncident[]
   conductActions   ConductAction[]
   conductFeedbacks ConductFeedback[]
+  conductMarks     ConductMark[]
+  conductConfigs   ConductConfig[]
 
   @@index([isActive])
 }
@@ -246,6 +253,8 @@ model User {
   resolvedConductIncidents ConductIncident[]   @relation("ConductIncidentResolvedBy")
   createdConductActions    ConductAction[]     @relation("ConductActionCreatedBy")
   authoredConductFeedbacks ConductFeedback[]   @relation("ConductFeedbackAuthoredBy")
+  updatedConductMarks      ConductMark[]       @relation("ConductMarkUpdatedBy")
+  lockedConductMarks       ConductMark[]       @relation("ConductMarkLockedBy")
   govAuditorScopes         GovAuditorScope[]   @relation("GovAuditorUser")
   assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
 
@@ -354,6 +363,8 @@ model Term {
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   exams        Exam[]
   resultSnapshots ResultSnapshot[]
+  conductIncidents ConductIncident[]
+  conductMarks ConductMark[]
 
   @@unique([tenantId, academicYearId, name])
   @@unique([tenantId, academicYearId, sequence])
@@ -449,6 +460,7 @@ model Student {
   examMarks      ExamMark[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
+  conductMarks ConductMark[]
 
   @@unique([tenantId, studentCode])
   @@index([tenantId, lastName, firstName])
@@ -460,12 +472,14 @@ model ConductIncident {
   id                String                @id @default(uuid())
   tenantId          String
   studentId         String
+  termId            String?
   classRoomId       String?
   reportedByUserId  String
   occurredAt        DateTime
   category          String
   title             String
   description       String
+  deductionPoints   Int                   @default(0)
   severity          ConductSeverity       @default(MODERATE)
   status            ConductIncidentStatus @default(OPEN)
   location          String?
@@ -478,6 +492,7 @@ model ConductIncident {
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   student        Student         @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term           Term?           @relation(fields: [termId], references: [id], onDelete: SetNull)
   classRoom      ClassRoom?      @relation(fields: [classRoomId], references: [id], onDelete: SetNull)
   reportedByUser User            @relation("ConductIncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: Restrict)
   resolvedByUser User?           @relation("ConductIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
@@ -486,6 +501,7 @@ model ConductIncident {
 
   @@index([tenantId, studentId, occurredAt])
   @@index([tenantId, classRoomId, occurredAt])
+  @@index([tenantId, termId, occurredAt])
   @@index([tenantId, status, severity, occurredAt])
 }
 
@@ -514,7 +530,8 @@ model ConductAction {
 model ConductFeedback {
   id          String                    @id @default(uuid())
   tenantId    String
-  incidentId  String
+  incidentId  String?
+  conductMarkId String?
   authorUserId String
   authorType  ConductFeedbackAuthorType
   body        String
@@ -522,11 +539,53 @@ model ConductFeedback {
   updatedAt   DateTime                  @updatedAt
 
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  incident   ConductIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incident   ConductIncident? @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  conductMark ConductMark?   @relation(fields: [conductMarkId], references: [id], onDelete: Cascade)
   authorUser User            @relation("ConductFeedbackAuthoredBy", fields: [authorUserId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, incidentId, createdAt])
+  @@index([tenantId, conductMarkId, createdAt])
   @@index([authorUserId, createdAt])
+}
+
+model ConductMark {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  studentId            String
+  termId               String
+  score                Int
+  maxScore             Int
+  isLocked             Boolean  @default(false)
+  computedFromIncidents Boolean @default(false)
+  overrideReason       String?
+  lockedAt             DateTime?
+  lockedByUserId       String?
+  updatedByUserId      String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant        Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  student       Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term          Term    @relation(fields: [termId], references: [id], onDelete: Restrict)
+  updatedByUser User    @relation("ConductMarkUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  lockedByUser  User?   @relation("ConductMarkLockedBy", fields: [lockedByUserId], references: [id], onDelete: SetNull)
+  feedback      ConductFeedback[]
+
+  @@unique([tenantId, studentId, termId])
+  @@index([tenantId, termId, isLocked])
+  @@index([tenantId, studentId, updatedAt])
+}
+
+model ConductConfig {
+  id            String           @id @default(uuid())
+  tenantId      String           @unique
+  method        ConductMarkMethod @default(MANUAL)
+  maxScore      Int              @default(20)
+  deductionRules Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model GovAuditorScope {

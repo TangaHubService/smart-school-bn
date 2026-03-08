@@ -116,8 +116,22 @@ export const listGovSchoolsQuerySchema = z.object({
 
 export const listGovIncidentsQuerySchema = z.object({
   tenantId: z.string().uuid().optional(),
+  schoolId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
   status: z.nativeEnum(ConductIncidentStatus).optional(),
   severity: z.nativeEnum(ConductSeverity).optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const listGovConductMarksQuerySchema = z.object({
+  tenantId: z.string().uuid().optional(),
+  schoolId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
+  severity: z.nativeEnum(ConductSeverity).optional(),
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
   q: z.string().trim().min(1).max(120).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -135,4 +149,5 @@ export type UpdateGovAuditorScopeInput = z.infer<typeof updateGovAuditorScopeSch
 export type ListGovAuditorsQueryInput = z.infer<typeof listGovAuditorsQuerySchema>;
 export type ListGovSchoolsQueryInput = z.infer<typeof listGovSchoolsQuerySchema>;
 export type ListGovIncidentsQueryInput = z.infer<typeof listGovIncidentsQuerySchema>;
+export type ListGovConductMarksQueryInput = z.infer<typeof listGovConductMarksQuerySchema>;
 export type AddGovFeedbackInput = z.infer<typeof addGovFeedbackSchema>;

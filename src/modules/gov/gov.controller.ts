@@ -4,6 +4,7 @@ import { sendSuccess } from '../../common/utils/response';
 import { GovService } from './gov.service';
 import {
   listGovAuditorsQuerySchema,
+  listGovConductMarksQuerySchema,
   listGovIncidentsQuerySchema,
   listGovSchoolsQuerySchema,
 } from './gov.schemas';
@@ -37,14 +38,16 @@ export class GovController {
   }
 
   async listAuditorScopes(req: Request, res: Response): Promise<Response> {
-    const result = await govService.listAuditorScopes(req.params.auditorUserId, req.user!);
+    const auditorUserId = req.params.auditorUserId ?? req.params.userId;
+    const result = await govService.listAuditorScopes(auditorUserId, req.user!);
 
     return sendSuccess(req, res, result);
   }
 
   async assignScope(req: Request, res: Response): Promise<Response> {
+    const auditorUserId = req.params.auditorUserId ?? req.params.userId;
     const result = await govService.assignScope(
-      req.params.auditorUserId,
+      auditorUserId,
       req.body,
       req.user!,
       buildContext(req),
@@ -100,6 +103,24 @@ export class GovController {
     const result = await govService.addFeedback(
       req.user!,
       req.params.incidentId,
+      req.body,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listMarks(req: Request, res: Response): Promise<Response> {
+    const query = listGovConductMarksQuerySchema.parse(req.query);
+    const result = await govService.listMarks(req.user!, query);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async addMarkFeedback(req: Request, res: Response): Promise<Response> {
+    const result = await govService.addMarkFeedback(
+      req.user!,
+      req.params.markId,
       req.body,
       buildContext(req),
     );

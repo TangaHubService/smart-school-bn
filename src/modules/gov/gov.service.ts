@@ -1,4 +1,9 @@
-import { ConductFeedbackAuthorType, GovScopeLevel, Prisma } from '@prisma/client';
+import {
+  ConductFeedbackAuthorType,
+  ConductSeverity,
+  GovScopeLevel,
+  Prisma,
+} from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 import { AppError } from '../../common/errors/app-error';
@@ -20,6 +25,7 @@ import {
   AssignGovAuditorScopeInput,
   CreateGovAuditorInput,
   ListGovAuditorsQueryInput,
+  ListGovConductMarksQueryInput,
   ListGovIncidentsQueryInput,
   ListGovSchoolsQueryInput,
   UpdateGovAuditorScopeInput,
@@ -30,6 +36,77 @@ type PlatformContext = {
   schoolWhere: Prisma.SchoolWhereInput | null;
   isSuperAdmin: boolean;
 };
+
+const conductMarkInclude = {
+  tenant: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      school: {
+        select: {
+          id: true,
+          displayName: true,
+          province: true,
+          district: true,
+          sector: true,
+          country: true,
+        },
+      },
+    },
+  },
+  student: {
+    select: {
+      id: true,
+      studentCode: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  term: {
+    select: {
+      id: true,
+      name: true,
+      sequence: true,
+      academicYear: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  updatedByUser: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  lockedByUser: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  },
+  feedback: {
+    orderBy: { createdAt: 'asc' },
+    include: {
+      authorUser: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.ConductMarkInclude;
+
+type ConductMarkRecord = Prisma.ConductMarkGetPayload<{
+  include: typeof conductMarkInclude;
+}>;
 
 export class GovService {
   private readonly auditService = new AuditService();
@@ -551,6 +628,80 @@ export class GovService {
     return this.getIncidentDetail(actor, incidentId);
   }
 
+  async listMarks(actor: JwtUser, query: ListGovConductMarksQueryInput) {
+    this.assertGovMarksRuntimeReady();
+    const access = await this.resolvePlatformAccess(actor);
+
+    if (!access.schoolWhere) {
+      return {
+        items: [],
+        pagination: buildPagination(query.page, query.pageSize, 0),
+      };
+    }
+
+    const where = this.buildMarkWhere(access, query);
+    const skip = (query.page - 1) * query.pageSize;
+
+    const [totalItems, marks] = await prisma.$transaction([
+      prisma.conductMark.count({ where }),
+      prisma.conductMark.findMany({
+        where,
+        skip,
+        take: query.pageSize,
+        include: conductMarkInclude,
+        orderBy: [{ term: { startDate: 'desc' } }, { updatedAt: 'desc' }],
+      }),
+    ]);
+
+    return {
+      items: marks.map((mark) => this.mapConductMark(mark)),
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
+    };
+  }
+
+  async addMarkFeedback(
+    actor: JwtUser,
+    markId: string,
+    input: AddGovFeedbackInput,
+    context: RequestAuditContext,
+  ) {
+    this.assertGovMarksRuntimeReady();
+    const access = await this.resolvePlatformAccess(actor);
+    const mark = await this.getScopedMarkOrThrow(access, {
+      id: markId,
+    });
+
+    await prisma.conductFeedback.create({
+      data: {
+        tenantId: mark.tenantId,
+        conductMarkId: mark.id,
+        authorUserId: actor.sub,
+        authorType: ConductFeedbackAuthorType.GOV_AUDITOR,
+        body: input.body,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId: mark.tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.CONDUCT_FEEDBACK_ADDED,
+      entity: 'ConductMark',
+      entityId: mark.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        authorType: ConductFeedbackAuthorType.GOV_AUDITOR,
+      },
+    });
+
+    const refreshed = await this.getScopedMarkOrThrow(access, {
+      id: mark.id,
+    });
+
+    return this.mapConductMark(refreshed);
+  }
+
   private async resolvePlatformAccess(actor: JwtUser): Promise<PlatformContext> {
     const platformTenantId = await this.assertPlatformActor(actor);
     const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
@@ -618,6 +769,18 @@ export class GovService {
     }
   }
 
+  private assertGovMarksRuntimeReady() {
+    const runtimePrisma = prisma as unknown as Record<string, unknown>;
+
+    if (!runtimePrisma.conductMark || !runtimePrisma.conductFeedback) {
+      throw new AppError(
+        503,
+        'GOV_MARK_RUNTIME_RESTART_REQUIRED',
+        'Government conduct marks are running with an outdated Prisma client. Restart the backend after prisma generate.',
+      );
+    }
+  }
+
   private async ensureGovAuditorRole(platformTenantId: string) {
     return prisma.role.upsert({
       where: {
@@ -673,8 +836,13 @@ export class GovService {
       };
     }
 
-    if (query.tenantId) {
-      where.tenantId = query.tenantId;
+    const tenantId = query.tenantId ?? query.schoolId;
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+
+    if (query.termId) {
+      where.termId = query.termId;
     }
 
     if (query.status) {
@@ -745,6 +913,105 @@ export class GovService {
     return where;
   }
 
+  private buildMarkWhere(
+    access: PlatformContext,
+    query: ListGovConductMarksQueryInput,
+  ): Prisma.ConductMarkWhereInput {
+    const clauses: Prisma.ConductMarkWhereInput[] = [];
+
+    if (!access.isSuperAdmin && access.schoolWhere) {
+      clauses.push({
+        tenant: {
+          school: access.schoolWhere,
+        },
+      });
+    }
+
+    const tenantId = query.tenantId ?? query.schoolId;
+    if (tenantId) {
+      clauses.push({
+        tenantId,
+      });
+    }
+
+    if (query.termId) {
+      clauses.push({
+        termId: query.termId,
+      });
+    }
+
+    if (query.from || query.to) {
+      clauses.push({
+        updatedAt: {
+          ...(query.from ? { gte: new Date(query.from) } : {}),
+          ...(query.to ? { lte: new Date(query.to) } : {}),
+        },
+      });
+    }
+
+    if (query.severity) {
+      clauses.push({
+        student: {
+          conductIncidents: {
+            some: {
+              ...(query.termId ? { termId: query.termId } : {}),
+              severity: query.severity as ConductSeverity,
+            },
+          },
+        },
+      });
+    }
+
+    if (query.q) {
+      clauses.push({
+        OR: [
+          {
+            student: {
+              firstName: {
+                contains: query.q,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            student: {
+              lastName: {
+                contains: query.q,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            student: {
+              studentCode: {
+                contains: query.q,
+                mode: 'insensitive',
+              },
+            },
+          },
+          {
+            tenant: {
+              school: {
+                displayName: {
+                  contains: query.q,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (!clauses.length) {
+      return {};
+    }
+
+    return {
+      AND: clauses,
+    };
+  }
+
   private async getScopedSchoolOrThrow(access: PlatformContext, tenantId: string) {
     if (!access.schoolWhere) {
       throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'School is outside the assigned scope');
@@ -772,6 +1039,37 @@ export class GovService {
     }
 
     return school;
+  }
+
+  private async getScopedMarkOrThrow(
+    access: PlatformContext,
+    where: Prisma.ConductMarkWhereInput,
+  ) {
+    if (!access.schoolWhere) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'Conduct mark is outside the assigned scope');
+    }
+
+    const mark = await prisma.conductMark.findFirst({
+      where: access.isSuperAdmin
+        ? where
+        : {
+            AND: [
+              where,
+              {
+                tenant: {
+                  school: access.schoolWhere,
+                },
+              },
+            ],
+          },
+      include: conductMarkInclude,
+    });
+
+    if (!mark) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'Conduct mark is outside the assigned scope');
+    }
+
+    return mark;
   }
 
   private async getScopedIncidentOrThrow(
@@ -937,6 +1235,66 @@ export class GovService {
           OR: [{ endsAt: null }, { endsAt: { gte: now } }],
         },
       ],
+    };
+  }
+
+  private mapConductMark(mark: ConductMarkRecord) {
+    return {
+      id: mark.id,
+      tenantId: mark.tenantId,
+      score: mark.score,
+      maxScore: mark.maxScore,
+      isLocked: mark.isLocked,
+      computedFromIncidents: mark.computedFromIncidents,
+      overrideReason: mark.overrideReason,
+      lockedAt: mark.lockedAt,
+      createdAt: mark.createdAt,
+      updatedAt: mark.updatedAt,
+      school: mark.tenant.school
+        ? {
+            id: mark.tenant.school.id,
+            tenantId: mark.tenant.id,
+            code: mark.tenant.code,
+            displayName: mark.tenant.school.displayName,
+            province: mark.tenant.school.province,
+            district: mark.tenant.school.district,
+            sector: mark.tenant.school.sector,
+            country: mark.tenant.school.country,
+          }
+        : null,
+      student: {
+        id: mark.student.id,
+        studentCode: mark.student.studentCode,
+        firstName: mark.student.firstName,
+        lastName: mark.student.lastName,
+      },
+      term: mark.term,
+      updatedBy: mark.updatedByUser
+        ? {
+            id: mark.updatedByUser.id,
+            firstName: mark.updatedByUser.firstName,
+            lastName: mark.updatedByUser.lastName,
+          }
+        : null,
+      lockedBy: mark.lockedByUser
+        ? {
+            id: mark.lockedByUser.id,
+            firstName: mark.lockedByUser.firstName,
+            lastName: mark.lockedByUser.lastName,
+          }
+        : null,
+      feedback: mark.feedback.map((entry) => ({
+        id: entry.id,
+        authorType: entry.authorType,
+        body: entry.body,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        author: {
+          id: entry.authorUser.id,
+          firstName: entry.authorUser.firstName,
+          lastName: entry.authorUser.lastName,
+        },
+      })),
     };
   }
 

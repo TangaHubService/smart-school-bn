@@ -57,6 +57,13 @@ export const conductIncidentInclude = {
       name: true,
     },
   },
+  term: {
+    select: {
+      id: true,
+      name: true,
+      sequence: true,
+    },
+  },
   reportedByUser: {
     select: {
       id: true,
@@ -126,9 +133,12 @@ export function mapConductIncident(
     id: incident.id,
     tenantId: incident.tenantId,
     occurredAt: incident.occurredAt,
+    termId: incident.termId,
+    term: incident.term,
     category: incident.category,
     title: incident.title,
     description: incident.description,
+    deductionPoints: incident.deductionPoints,
     severity: incident.severity,
     status: incident.status,
     location: incident.location,

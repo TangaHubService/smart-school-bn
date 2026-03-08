@@ -1,6 +1,7 @@
 import {
   ConductActionType,
   ConductIncidentStatus,
+  ConductMarkMethod,
   ConductSeverity,
 } from '@prisma/client';
 import { z } from 'zod';
@@ -13,15 +14,18 @@ const isoDateSchema = z
 export const conductSeveritySchema = z.nativeEnum(ConductSeverity);
 export const conductIncidentStatusSchema = z.nativeEnum(ConductIncidentStatus);
 export const conductActionTypeSchema = z.nativeEnum(ConductActionType);
+export const conductMarkMethodSchema = z.nativeEnum(ConductMarkMethod);
 
 export const createConductIncidentSchema = z
   .object({
     studentId: z.string().uuid(),
+    termId: z.string().uuid().optional(),
     classRoomId: z.string().uuid().optional(),
     occurredAt: isoDateSchema,
     category: z.string().trim().min(2).max(80),
     title: z.string().trim().min(3).max(140),
     description: z.string().trim().min(5).max(2000),
+    deductionPoints: z.coerce.number().int().min(0).max(100).optional(),
     severity: conductSeveritySchema.optional(),
     location: z.string().trim().max(160).optional(),
     reporterNotes: z.string().trim().max(1200).optional(),
@@ -30,9 +34,11 @@ export const createConductIncidentSchema = z
 
 export const updateConductIncidentSchema = z
   .object({
+    termId: z.string().uuid().nullable().optional(),
     category: z.string().trim().min(2).max(80).optional(),
     title: z.string().trim().min(3).max(140).optional(),
     description: z.string().trim().min(5).max(2000).optional(),
+    deductionPoints: z.coerce.number().int().min(0).max(100).optional(),
     severity: conductSeveritySchema.optional(),
     status: conductIncidentStatusSchema.optional(),
     occurredAt: isoDateSchema.optional(),
@@ -60,7 +66,9 @@ export const resolveConductIncidentSchema = z
 
 export const listConductIncidentsQuerySchema = z.object({
   studentId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
   classRoomId: z.string().uuid().optional(),
+  classId: z.string().uuid().optional(),
   status: conductIncidentStatusSchema.optional(),
   severity: conductSeveritySchema.optional(),
   q: z.string().trim().min(1).max(120).optional(),
@@ -69,9 +77,42 @@ export const listConductIncidentsQuerySchema = z.object({
 });
 
 export const studentConductProfileQuerySchema = z.object({
+  termId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+export const listConductMarksQuerySchema = z.object({
+  termId: z.string().uuid().optional(),
+  classRoomId: z.string().uuid().optional(),
+  classId: z.string().uuid().optional(),
+  studentId: z.string().uuid().optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const updateConductMarkSchema = z
+  .object({
+    score: z.coerce.number().int().min(0),
+    maxScore: z.coerce.number().int().min(1).max(1000).optional(),
+    reason: z.string().trim().min(3).max(400).optional(),
+    manualOverride: z.boolean().optional(),
+  })
+  .strict();
+
+export const recalculateConductMarkSchema = z
+  .object({
+    maxScore: z.coerce.number().int().min(1).max(1000).optional(),
+    reason: z.string().trim().max(400).optional(),
+  })
+  .strict();
+
+export const lockConductMarkSchema = z
+  .object({
+    reason: z.string().trim().max(400).optional(),
+  })
+  .strict();
 
 export type CreateConductIncidentInput = z.infer<typeof createConductIncidentSchema>;
 export type UpdateConductIncidentInput = z.infer<typeof updateConductIncidentSchema>;
@@ -79,3 +120,7 @@ export type AddConductActionInput = z.infer<typeof addConductActionSchema>;
 export type ResolveConductIncidentInput = z.infer<typeof resolveConductIncidentSchema>;
 export type ListConductIncidentsQueryInput = z.infer<typeof listConductIncidentsQuerySchema>;
 export type StudentConductProfileQueryInput = z.infer<typeof studentConductProfileQuerySchema>;
+export type ListConductMarksQueryInput = z.infer<typeof listConductMarksQuerySchema>;
+export type UpdateConductMarkInput = z.infer<typeof updateConductMarkSchema>;
+export type RecalculateConductMarkInput = z.infer<typeof recalculateConductMarkSchema>;
+export type LockConductMarkInput = z.infer<typeof lockConductMarkSchema>;
