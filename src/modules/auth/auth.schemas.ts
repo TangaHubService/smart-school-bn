@@ -1,17 +1,20 @@
 import { z } from 'zod';
 
-export const loginSchema = z.object({
-  tenantCode: z
-    .string()
-    .trim()
-    .max(50)
-    .optional()
-    .refine((value) => !value || value.length >= 2, {
-      message: 'tenantCode must be at least 2 characters',
-    }),
+const staffLoginSchema = z.object({
+  loginAs: z.literal('staff').optional().default('staff'),
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8).max(128),
 });
+
+const studentLoginSchema = z.object({
+  loginAs: z.literal('student'),
+  studentId: z.string().trim().min(1).max(40),
+});
+
+export const loginSchema = z.union([
+  staffLoginSchema,
+  studentLoginSchema,
+]);
 
 export const refreshSchema = z.object({
   refreshToken: z.string().min(32),

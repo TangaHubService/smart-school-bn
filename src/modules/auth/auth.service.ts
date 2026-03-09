@@ -17,135 +17,11 @@ export class AuthService {
   private readonly auditService = new AuditService();
 
   async login(input: LoginInput, context: RequestAuditContext) {
-    const tenantCode = input.tenantCode?.trim() || 'platform';
-
-    const tenant = await prisma.tenant.findUnique({
-      where: { code: tenantCode },
-    });
-
-    if (!tenant || !tenant.isActive) {
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid email or password',
-      );
+    if (input.loginAs === 'student') {
+      return this.loginStudent(input.studentId, context);
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        tenantId: tenant.id,
-        email: input.email.toLowerCase(),
-        deletedAt: null,
-        status: UserStatus.ACTIVE,
-      },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
-    });
-
-    if (!user) {
-      await this.auditService.log({
-        tenantId: tenant.id,
-        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
-        requestId: context.requestId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        payload: { reason: 'USER_NOT_FOUND', email: input.email },
-      });
-
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid email or password',
-      );
-    }
-
-    const passwordMatches = await bcrypt.compare(input.password, user.passwordHash);
-
-    if (!passwordMatches) {
-      await this.auditService.log({
-        tenantId: tenant.id,
-        actorUserId: user.id,
-        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
-        requestId: context.requestId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        payload: { reason: 'WRONG_PASSWORD', email: input.email },
-      });
-
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid email or password',
-      );
-    }
-
-    const { roles, permissions } = this.extractRolesAndPermissions(user.userRoles);
-
-    const payload: JwtUser = {
-      sub: user.id,
-      tenantId: tenant.id,
-      email: user.email,
-      roles,
-      permissions,
-    };
-
-    const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-      expiresIn: env.ACCESS_TOKEN_TTL as jwt.SignOptions['expiresIn'],
-    });
-
-    const refreshToken = this.generateRefreshToken();
-    const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    const refreshExpiry = new Date(
-      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
-    );
-
-    await prisma.$transaction([
-      prisma.refreshToken.create({
-        data: {
-          tenantId: tenant.id,
-          userId: user.id,
-          tokenHash: refreshTokenHash,
-          expiresAt: refreshExpiry,
-          createdByIp: context.ipAddress,
-          userAgent: context.userAgent,
-        },
-      }),
-      prisma.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      }),
-    ]);
-
-    await this.auditService.log({
-      tenantId: tenant.id,
-      actorUserId: user.id,
-      event: AUDIT_EVENT.AUTH_LOGIN_SUCCESS,
-      entity: 'User',
-      entityId: user.id,
-      requestId: context.requestId,
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-    });
-
-    return {
-      accessToken,
-      accessTokenExpiresIn: ttlToSeconds(env.ACCESS_TOKEN_TTL),
-      refreshToken,
-      user: {
-        id: user.id,
-        tenantId: tenant.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      },
-      roles,
-      permissions,
-    };
+    return this.loginStaff(input.email, input.password, context);
   }
 
   async refresh(input: RefreshInput, context: RequestAuditContext) {
@@ -297,6 +173,269 @@ export class AuthService {
 
   private generateRefreshToken(): string {
     return randomBytes(48).toString('hex');
+  }
+
+  private async loginStaff(
+    email: string,
+    password: string,
+    context: RequestAuditContext,
+  ) {
+    const normalizedEmail = email.toLowerCase();
+
+    const users = await prisma.user.findMany({
+      where: {
+        email: normalizedEmail,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        tenant: {
+          isActive: true,
+        },
+      },
+      include: {
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!users.length) {
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid email or password',
+      );
+    }
+
+    const matchedUsers: Array<(typeof users)[number]> = [];
+
+    for (const user of users) {
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (isMatch) {
+        matchedUsers.push(user);
+      }
+    }
+
+    if (!matchedUsers.length) {
+      await Promise.all(
+        users.map((user) =>
+          this.auditService.log({
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            payload: { reason: 'WRONG_PASSWORD', email: normalizedEmail },
+          }),
+        ),
+      );
+
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid email or password',
+      );
+    }
+
+    const resolvedUser = this.resolveMatchedEmailUser(matchedUsers);
+    if (!resolvedUser) {
+      await Promise.all(
+        matchedUsers.map((user) =>
+          this.auditService.log({
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            payload: { reason: 'AMBIGUOUS_EMAIL', email: normalizedEmail },
+          }),
+        ),
+      );
+
+      throw new AppError(
+        409,
+        'AUTH_AMBIGUOUS_ACCOUNT',
+        'Multiple accounts match this email. Contact support.',
+      );
+    }
+
+    return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
+  }
+
+  private resolveMatchedEmailUser<
+    T extends {
+      userRoles: Array<{ role: { name: string } }>;
+    },
+  >(users: T[]): T | null {
+    if (users.length === 1) {
+      return users[0];
+    }
+
+    const superAdmins = users.filter((user) =>
+      user.userRoles.some((item) => item.role.name === 'SUPER_ADMIN'),
+    );
+
+    if (superAdmins.length === 1) {
+      return superAdmins[0];
+    }
+
+    return null;
+  }
+
+  private async loginStudent(studentId: string, context: RequestAuditContext) {
+    const normalizedStudentId = studentId.trim();
+
+    const students = await prisma.student.findMany({
+      where: {
+        studentCode: {
+          equals: normalizedStudentId,
+          mode: 'insensitive',
+        },
+        isActive: true,
+        deletedAt: null,
+        tenant: {
+          isActive: true,
+        },
+      },
+      include: {
+        user: {
+          include: {
+            userRoles: {
+              include: {
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const loginCandidates = students
+      .filter(
+        (student) =>
+          Boolean(student.user) &&
+          student.user!.deletedAt === null &&
+          student.user!.status === UserStatus.ACTIVE &&
+          student.user!.userRoles.some((item) => item.role.name === 'STUDENT'),
+      )
+      .map((student) => ({
+        tenantId: student.tenantId,
+        user: student.user!,
+      }));
+
+    if (!loginCandidates.length) {
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid student ID',
+      );
+    }
+
+    if (loginCandidates.length > 1) {
+      await Promise.all(
+        loginCandidates.map((candidate) =>
+          this.auditService.log({
+            tenantId: candidate.tenantId,
+            actorUserId: candidate.user.id,
+            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            payload: {
+              reason: 'AMBIGUOUS_STUDENT_ID',
+              studentId: normalizedStudentId,
+            },
+          }),
+        ),
+      );
+
+      throw new AppError(
+        409,
+        'AUTH_AMBIGUOUS_STUDENT_ID',
+        'Student ID is linked to multiple schools. Contact support.',
+      );
+    }
+
+    const candidate = loginCandidates[0];
+    return this.completeLogin(candidate.tenantId, candidate.user, context);
+  }
+
+  private async completeLogin(
+    tenantId: string,
+    user: {
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      userRoles: Array<{ role: { name: string; permissions: unknown } }>;
+    },
+    context: RequestAuditContext,
+  ) {
+    const { roles, permissions } = this.extractRolesAndPermissions(user.userRoles);
+
+    const payload: JwtUser = {
+      sub: user.id,
+      tenantId,
+      email: user.email,
+      roles,
+      permissions,
+    };
+
+    const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+      expiresIn: env.ACCESS_TOKEN_TTL as jwt.SignOptions['expiresIn'],
+    });
+
+    const refreshToken = this.generateRefreshToken();
+    const refreshTokenHash = this.hashRefreshToken(refreshToken);
+    const refreshExpiry = new Date(
+      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+    );
+
+    await prisma.$transaction([
+      prisma.refreshToken.create({
+        data: {
+          tenantId,
+          userId: user.id,
+          tokenHash: refreshTokenHash,
+          expiresAt: refreshExpiry,
+          createdByIp: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+      }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+    ]);
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: user.id,
+      event: AUDIT_EVENT.AUTH_LOGIN_SUCCESS,
+      entity: 'User',
+      entityId: user.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return {
+      accessToken,
+      accessTokenExpiresIn: ttlToSeconds(env.ACCESS_TOKEN_TTL),
+      refreshToken,
+      user: {
+        id: user.id,
+        tenantId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+      roles,
+      permissions,
+    };
   }
 
   private extractRolesAndPermissions(

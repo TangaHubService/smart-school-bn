@@ -4,8 +4,8 @@ import { AuthService } from '../../src/modules/auth/auth.service';
 
 jest.mock('../../src/db/prisma', () => {
   const prisma = {
-    tenant: { findUnique: jest.fn() },
-    user: { findFirst: jest.fn(), update: jest.fn() },
+    user: { findMany: jest.fn(), update: jest.fn() },
+    student: { findMany: jest.fn() },
     refreshToken: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
@@ -24,8 +24,8 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../../src/db/prisma';
 
 const mockedPrisma = prisma as unknown as {
-  tenant: { findUnique: jest.Mock };
-  user: { findFirst: jest.Mock; update: jest.Mock };
+  user: { findMany: jest.Mock; update: jest.Mock };
+  student: { findMany: jest.Mock };
   refreshToken: {
     create: jest.Mock;
     findUnique: jest.Mock;
@@ -48,35 +48,34 @@ describe('AuthService', () => {
     mockedPrisma.refreshToken.create.mockResolvedValue({ id: 'rt-1' });
     mockedPrisma.user.update.mockResolvedValue({ id: 'user-1' });
     mockedPrisma.auditLog.create.mockResolvedValue({ id: 1n });
+    mockedPrisma.user.findMany.mockResolvedValue([]);
+    mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('logs in user and returns access/refresh tokens', async () => {
-    mockedPrisma.tenant.findUnique.mockResolvedValue({
-      id: 'tenant-1',
-      code: 'gs-rwanda',
-      isActive: true,
-    });
-    mockedPrisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      email: 'admin@school.rw',
-      passwordHash: 'hash',
-      firstName: 'Admin',
-      lastName: 'User',
-      userRoles: [
-        {
-          role: {
-            name: 'SCHOOL_ADMIN',
-            permissions: ['roles.read', 'users.read'],
+  it('logs in staff with inferred tenant and returns access/refresh tokens', async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([
+      {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        email: 'admin@school.rw',
+        passwordHash: 'hash',
+        firstName: 'Admin',
+        lastName: 'User',
+        userRoles: [
+          {
+            role: {
+              name: 'SCHOOL_ADMIN',
+              permissions: ['roles.read', 'users.read'],
+            },
           },
-        },
-      ],
-    });
+        ],
+      },
+    ]);
     mockedBcrypt.compare.mockResolvedValue(true);
 
     const result = await authService.login(
       {
-        tenantCode: 'gs-rwanda',
+        loginAs: 'staff',
         email: 'admin@school.rw',
         password: 'Admin@12345',
       },
@@ -96,6 +95,53 @@ describe('AuthService', () => {
       process.env.JWT_ACCESS_SECRET!,
     ) as jwt.JwtPayload;
     expect(decoded.sub).toBe('user-1');
+    expect(decoded.tenantId).toBe('tenant-1');
+  });
+
+  it('logs in student using student id only', async () => {
+    mockedPrisma.student.findMany.mockResolvedValue([
+      {
+        tenantId: 'tenant-1',
+        user: {
+          id: 'student-user-1',
+          email: 'student@school.rw',
+          firstName: 'Alice',
+          lastName: 'Uwase',
+          status: 'ACTIVE',
+          deletedAt: null,
+          userRoles: [
+            {
+              role: {
+                name: 'STUDENT',
+                permissions: ['student.my_courses.read'],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await authService.login(
+      {
+        loginAs: 'student',
+        studentId: 'STU-001',
+      },
+      {
+        requestId: 'req-1',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      },
+    );
+
+    expect(result.accessToken).toEqual(expect.any(String));
+    expect(result.refreshToken).toEqual(expect.any(String));
+    expect(result.roles).toContain('STUDENT');
+
+    const decoded = jwt.verify(
+      result.accessToken,
+      process.env.JWT_ACCESS_SECRET!,
+    ) as jwt.JwtPayload;
+    expect(decoded.sub).toBe('student-user-1');
     expect(decoded.tenantId).toBe('tenant-1');
   });
 
