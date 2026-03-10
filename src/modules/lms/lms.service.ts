@@ -1200,19 +1200,34 @@ export class LmsService {
     actor: JwtUser,
     query: ListMyCoursesQueryInput,
   ) {
-    const student = await this.getStudentProfile(tenantId, actor.sub);
-    const enrollmentPairs = student.enrollments.map((item) => ({
+    // 1. Get Student profile if exists
+    const student = await prisma.student.findFirst({
+      where: { tenantId, userId: actor.sub, deletedAt: null, isActive: true },
+      include: { enrollments: { where: { isActive: true } } },
+    });
+
+    // 2. Get Program enrollments (Academy)
+    const programEnrollments = await prisma.programEnrollment.findMany({
+      where: { tenantId, userId: actor.sub, isActive: true },
+      include: { program: { select: { courseId: true } } },
+    });
+
+    const academyCourseIds = programEnrollments
+      .map((pe) => pe.program.courseId)
+      .filter((id): id is string => Boolean(id));
+
+    const enrollmentPairs = student?.enrollments.map((item) => ({
       classRoomId: item.classRoomId,
       academicYearId: item.academicYearId,
-    }));
+    })) ?? [];
 
-    if (!enrollmentPairs.length) {
+    if (!enrollmentPairs.length && !academyCourseIds.length) {
       return {
         student: {
-          id: student.id,
-          studentCode: student.studentCode,
-          firstName: student.firstName,
-          lastName: student.lastName,
+          id: student?.id ?? actor.sub,
+          studentCode: student?.studentCode ?? 'PUBLIC',
+          firstName: student?.firstName ?? actor.email.split('@')[0],
+          lastName: student?.lastName ?? '',
         },
         items: [],
         pagination: buildPagination(query.page, query.pageSize, 0),
@@ -1223,10 +1238,13 @@ export class LmsService {
     const where: Prisma.CourseWhereInput = {
       tenantId,
       isActive: true,
-      OR: enrollmentPairs.map((pair) => ({
-        classRoomId: pair.classRoomId,
-        academicYearId: pair.academicYearId,
-      })),
+      OR: [
+        ...enrollmentPairs.map((pair) => ({
+          classRoomId: pair.classRoomId,
+          academicYearId: pair.academicYearId,
+        })),
+        ...(academyCourseIds.length ? [{ id: { in: academyCourseIds } }] : []),
+      ],
     };
 
     const [totalItems, items] = await prisma.$transaction([
@@ -1254,7 +1272,7 @@ export class LmsService {
               attachmentAsset: true,
               submissions: {
                 where: {
-                  studentId: student.id,
+                  studentId: student?.id,
                 },
                 include: {
                   student: {
@@ -1286,10 +1304,10 @@ export class LmsService {
 
     return {
       student: {
-        id: student.id,
-        studentCode: student.studentCode,
-        firstName: student.firstName,
-        lastName: student.lastName,
+        id: student?.id ?? actor.sub,
+        studentCode: student?.studentCode ?? 'PUBLIC',
+        firstName: student?.firstName ?? actor.email.split('@')[0],
+        lastName: student?.lastName ?? '',
       },
       items: items.map((item) => ({
         ...this.mapCourse(item),

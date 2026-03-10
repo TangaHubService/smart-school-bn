@@ -18,10 +18,12 @@ import { staffRoutes } from '../modules/staff/staff.routes';
 import { studentsRoutes } from '../modules/students/students.routes';
 import { tenantsRoutes } from '../modules/tenants/tenants.routes';
 import { usersRoutes } from '../modules/users/users.routes';
+import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
 import { env } from '../config/env';
 
 export const apiRouter = Router();
 
+apiRouter.use('/public-academy', publicAcademyRouter);
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/', usersRoutes);
 apiRouter.use('/tenants', tenantsRoutes);

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { AuthService } from './auth.service';
-import { LoginInput, LogoutInput, RefreshInput } from './auth.schemas';
+import { LoginInput, LogoutInput, RefreshInput, RegisterInput } from './auth.schemas';
 
 const authService = new AuthService();
 
@@ -32,6 +32,14 @@ export class AuthController {
     const result = await authService.logout(
       req.body as LogoutInput,
       req.user!,
+      buildContext(req),
+    );
+    return sendSuccess(req, res, result);
+  }
+
+  async register(req: Request, res: Response): Promise<Response> {
+    const result = await authService.register(
+      req.body as RegisterInput,
       buildContext(req),
     );
     return sendSuccess(req, res, result);

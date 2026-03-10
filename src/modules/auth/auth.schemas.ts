@@ -26,6 +26,14 @@ export const logoutSchema = z.object({
   allDevices: z.boolean().optional().default(false),
 });
 
+export const registerSchema = z.object({
+  firstName: z.string().trim().min(2).max(50),
+  lastName: z.string().trim().min(2).max(50),
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(8).max(128),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;

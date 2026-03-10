@@ -24,6 +24,97 @@ export class AuthService {
     return this.loginStaff(input.email, input.password, context);
   }
 
+  async register(input: any, context: RequestAuditContext) {
+    const { firstName, lastName, email, password } = input;
+    const normalizedEmail = email.toLowerCase();
+
+    // 1. Find Public Academy Tenant
+    const academyTenant = await prisma.tenant.findUnique({
+      where: { code: 'PUBLIC_ACADEMY' },
+    });
+
+    if (!academyTenant || !academyTenant.isActive) {
+      throw new AppError(500, 'AUTH_ACADEMY_NOT_CONFIGURED', 'Public Academy is not correctly configured.');
+    }
+
+    // 2. Check if user already exists in this tenant
+    const existingUser = await prisma.user.findUnique({
+      where: {
+        tenantId_email: {
+          tenantId: academyTenant.id,
+          email: normalizedEmail,
+        },
+      },
+    });
+
+    if (existingUser) {
+      throw new AppError(409, 'AUTH_USER_EXISTS', 'An account already exists with this email.');
+    }
+
+    // 3. Find PUBLIC_LEARNER role
+    const learnerRole = await prisma.role.findUnique({
+      where: {
+        tenantId_name: {
+          tenantId: academyTenant.id,
+          name: 'PUBLIC_LEARNER',
+        },
+      },
+    });
+
+    if (!learnerRole) {
+      throw new AppError(500, 'AUTH_ROLE_NOT_FOUND', 'Public learner role not found.');
+    }
+
+    // 4. Create User
+    const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
+
+    const user = await prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          tenantId: academyTenant.id,
+          email: normalizedEmail,
+          firstName,
+          lastName,
+          passwordHash,
+          status: UserStatus.ACTIVE,
+        },
+      });
+
+      const studentCode = `L-${randomBytes(3).toString('hex').toUpperCase()}`;
+      await tx.student.create({
+        data: {
+          tenantId: academyTenant.id,
+          userId: newUser.id,
+          studentCode,
+          firstName,
+          lastName,
+          isActive: true,
+        },
+      });
+
+      await tx.userRole.create({
+        data: {
+          tenantId: academyTenant.id,
+          userId: newUser.id,
+          roleId: learnerRole.id,
+        },
+      });
+
+      return tx.user.findUniqueOrThrow({
+        where: { id: newUser.id },
+        include: {
+          userRoles: {
+            include: {
+              role: true,
+            },
+          },
+        },
+      });
+    });
+
+    return this.completeLogin(academyTenant.id, user, context);
+  }
+
   async refresh(input: RefreshInput, context: RequestAuditContext) {
     const hashedToken = this.hashRefreshToken(input.refreshToken);
 

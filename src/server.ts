@@ -1,10 +1,16 @@
+import { createServer } from 'http';
 import { env } from './config/env';
 import { prisma } from './db/prisma';
 import { createApp } from './app';
+import { initSocket } from './common/utils/socket-server';
 
 const app = createApp();
+const httpServer = createServer(app);
 
-const server = app.listen(env.PORT, () => {
+// Initialize Socket.io
+initSocket(httpServer);
+
+const server = httpServer.listen(env.PORT, () => {
   console.log(`smart-school-bn listening on port ${env.PORT}`);
 });
 

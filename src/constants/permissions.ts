@@ -175,5 +175,15 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
       isSystem: true,
       permissions: [PERMISSIONS.PARENT_MY_CHILDREN_READ, PERMISSIONS.REPORT_CARDS_MY_READ],
     },
+    {
+      name: 'PUBLIC_LEARNER',
+      description: 'Public Academy learner role',
+      isSystem: true,
+      permissions: [
+        PERMISSIONS.STUDENT_MY_COURSES_READ,
+        PERMISSIONS.ASSESSMENTS_SUBMIT,
+        PERMISSIONS.FILES_UPLOAD,
+      ],
+    },
   ];
 }

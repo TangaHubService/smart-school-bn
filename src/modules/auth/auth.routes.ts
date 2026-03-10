@@ -5,11 +5,17 @@ import { enforceTenant } from '../../common/middleware/tenant.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { AuthController } from './auth.controller';
-import { loginSchema, logoutSchema, refreshSchema } from './auth.schemas';
+import { loginSchema, logoutSchema, refreshSchema, registerSchema } from './auth.schemas';
 
 const authController = new AuthController();
 
 export const authRoutes = Router();
+
+authRoutes.post(
+  '/register',
+  validateBody(registerSchema),
+  asyncHandler((req, res) => authController.register(req, res)),
+);
 
 authRoutes.post(
   '/login',

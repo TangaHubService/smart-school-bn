@@ -6,6 +6,7 @@ declare global {
       requestId: string;
       tenantId?: string;
       user?: JwtUser;
+      rawBody?: string;
     }
   }
 }

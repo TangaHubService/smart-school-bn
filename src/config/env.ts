@@ -43,6 +43,11 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((value) => value === 'true'),
+  PAYPACK_CLIENT_ID: z.string().optional(),
+  PAYPACK_CLIENT_SECRET: z.string().optional(),
+  PAYPACK_BASE_URL: z.string().url().default('https://payments.paypack.rw/api'),
+  PAYPACK_WEBHOOK_SECRET: z.string().optional(),
+  PAYPACK_WEBHOOK_MODE: z.string().default('development'),
 });
 
 const parsed = envSchema.safeParse(process.env);
