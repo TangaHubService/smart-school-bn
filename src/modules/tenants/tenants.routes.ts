@@ -9,6 +9,7 @@ import { TenantsController } from './tenants.controller';
 import {
   createTenantSchema,
   inviteTenantAdminSchema,
+  updateTenantStatusSchema,
   updateTenantSchema,
 } from './tenants.schemas';
 
@@ -52,6 +53,14 @@ tenantsRoutes.patch(
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateTenantSchema),
   asyncHandler((req, res) => tenantsController.updateTenant(req, res)),
+);
+
+tenantsRoutes.patch(
+  '/:id/status',
+  authenticate,
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  validateBody(updateTenantStatusSchema),
+  asyncHandler((req, res) => tenantsController.updateTenantStatus(req, res)),
 );
 
 tenantsRoutes.delete(

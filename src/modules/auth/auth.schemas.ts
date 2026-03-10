@@ -8,6 +8,7 @@ const staffLoginSchema = z.object({
 
 const studentLoginSchema = z.object({
   loginAs: z.literal('student'),
+  schoolCode: z.string().trim().min(1).max(20),
   studentId: z.string().trim().min(1).max(40),
 });
 

@@ -394,27 +394,49 @@ export class StaffService {
       throw new AppError(400, 'STAFF_MEMBER_SELF_STATUS_FORBIDDEN', 'You cannot deactivate your own account');
     }
 
-    const updated = await prisma.user.update({
-      where: {
-        id: member.id,
-      },
-      data: {
-        firstName: input.firstName,
-        lastName: input.lastName,
-        phone: input.phone,
-        status: input.status,
-      },
-      include: {
-        userRoles: {
-          include: {
-            role: {
-              select: {
-                name: true,
+    const shouldRevokeRefreshTokens =
+      input.status !== undefined &&
+      input.status !== member.status &&
+      input.status !== UserStatus.ACTIVE;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextMember = await tx.user.update({
+        where: {
+          id: member.id,
+        },
+        data: {
+          firstName: input.firstName,
+          lastName: input.lastName,
+          phone: input.phone,
+          status: input.status,
+        },
+        include: {
+          userRoles: {
+            include: {
+              role: {
+                select: {
+                  name: true,
+                },
               },
             },
           },
         },
-      },
+      });
+
+      if (shouldRevokeRefreshTokens) {
+        await tx.refreshToken.updateMany({
+          where: {
+            tenantId,
+            userId: member.id,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: new Date(),
+          },
+        });
+      }
+
+      return nextMember;
     });
 
     await this.auditService.log({
@@ -430,6 +452,7 @@ export class StaffService {
         firstName: updated.firstName,
         lastName: updated.lastName,
         phone: updated.phone,
+        previousStatus: member.status,
         status: updated.status,
       },
     });

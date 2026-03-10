@@ -54,6 +54,10 @@ export const updateTenantSchema = z.object({
   }),
 });
 
+export const updateTenantStatusSchema = z.object({
+  isActive: z.boolean(),
+});
+
 export const listTenantsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -63,4 +67,5 @@ export const listTenantsQuerySchema = z.object({
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
 export type InviteTenantAdminInput = z.infer<typeof inviteTenantAdminSchema>;
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
+export type UpdateTenantStatusInput = z.infer<typeof updateTenantStatusSchema>;
 export type ListTenantsQueryInput = z.infer<typeof listTenantsQuerySchema>;

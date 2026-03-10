@@ -8,8 +8,13 @@ jest.mock('../../src/db/prisma', () => {
       update: jest.fn(),
       findMany: jest.fn(),
     },
-    user: { upsert: jest.fn() },
+    user: {
+      upsert: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
     userRole: { upsert: jest.fn() },
+    refreshToken: { updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -17,7 +22,7 @@ jest.mock('../../src/db/prisma', () => {
   return { prisma };
 });
 
-import { InviteStatus } from '@prisma/client';
+import { InviteStatus, UserStatus } from '@prisma/client';
 
 import { prisma } from '../../src/db/prisma';
 import { StaffService } from '../../src/modules/staff/staff.service';
@@ -112,5 +117,118 @@ describe('StaffService', () => {
         },
       ),
     ).rejects.toMatchObject({ code: 'INVITE_EXPIRED', statusCode: 400 });
+  });
+
+  it('deactivates member and revokes active refresh tokens', async () => {
+    const member = {
+      id: 'member-1',
+      tenantId: 'tenant-1',
+      email: 'teacher@school.rw',
+      firstName: 'Jean',
+      lastName: 'Teacher',
+      phone: null,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      userRoles: [{ role: { name: 'TEACHER' } }],
+    };
+
+    mockedPrisma.user.findFirst.mockResolvedValue(member);
+
+    const txUserUpdate = jest.fn().mockResolvedValue({
+      ...member,
+      status: UserStatus.INACTIVE,
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const txRefreshUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
+
+    mockedPrisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        user: { update: txUserUpdate },
+        refreshToken: { updateMany: txRefreshUpdateMany },
+      }),
+    );
+
+    const result = await staffService.updateMember(
+      'tenant-1',
+      'member-1',
+      { status: UserStatus.INACTIVE },
+      {
+        sub: 'admin-1',
+        tenantId: 'tenant-1',
+        email: 'admin@school.rw',
+        roles: ['SCHOOL_ADMIN'],
+        permissions: ['staff.invite'],
+      },
+      {
+        requestId: 'req-1',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      },
+    );
+
+    expect(result.status).toBe(UserStatus.INACTIVE);
+    expect(txRefreshUpdateMany).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'tenant-1',
+        userId: 'member-1',
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: expect.any(Date),
+      },
+    });
+  });
+
+  it('activates member without revoking refresh tokens', async () => {
+    const member = {
+      id: 'member-1',
+      tenantId: 'tenant-1',
+      email: 'teacher@school.rw',
+      firstName: 'Jean',
+      lastName: 'Teacher',
+      phone: null,
+      status: UserStatus.INACTIVE,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      userRoles: [{ role: { name: 'TEACHER' } }],
+    };
+
+    mockedPrisma.user.findFirst.mockResolvedValue(member);
+
+    const txUserUpdate = jest.fn().mockResolvedValue({
+      ...member,
+      status: UserStatus.ACTIVE,
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+    const txRefreshUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
+
+    mockedPrisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        user: { update: txUserUpdate },
+        refreshToken: { updateMany: txRefreshUpdateMany },
+      }),
+    );
+
+    const result = await staffService.updateMember(
+      'tenant-1',
+      'member-1',
+      { status: UserStatus.ACTIVE },
+      {
+        sub: 'admin-1',
+        tenantId: 'tenant-1',
+        email: 'admin@school.rw',
+        roles: ['SCHOOL_ADMIN'],
+        permissions: ['staff.invite'],
+      },
+      {
+        requestId: 'req-1',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      },
+    );
+
+    expect(result.status).toBe(UserStatus.ACTIVE);
+    expect(txRefreshUpdateMany).not.toHaveBeenCalled();
   });
 });

@@ -18,7 +18,7 @@ export class AuthService {
 
   async login(input: LoginInput, context: RequestAuditContext) {
     if (input.loginAs === 'student') {
-      return this.loginStudent(input.studentId, context);
+      return this.loginStudent(input.schoolCode, input.studentId, context);
     }
 
     return this.loginStaff(input.email, input.password, context);
@@ -285,7 +285,12 @@ export class AuthService {
     return null;
   }
 
-  private async loginStudent(studentId: string, context: RequestAuditContext) {
+  private async loginStudent(
+    schoolCode: string,
+    studentId: string,
+    context: RequestAuditContext,
+  ) {
+    const normalizedSchoolCode = schoolCode.trim();
     const normalizedStudentId = studentId.trim();
 
     const students = await prisma.student.findMany({
@@ -297,6 +302,10 @@ export class AuthService {
         isActive: true,
         deletedAt: null,
         tenant: {
+          code: {
+            equals: normalizedSchoolCode,
+            mode: 'insensitive',
+          },
           isActive: true,
         },
       },

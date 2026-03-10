@@ -16,6 +16,7 @@ import {
   InviteTenantAdminInput,
   ListTenantsQueryInput,
   UpdateTenantInput,
+  UpdateTenantStatusInput,
 } from './tenants.schemas';
 
 export class TenantsService {
@@ -565,6 +566,20 @@ export class TenantsService {
     actor: JwtUser,
     context: RequestAuditContext,
   ) {
+    return this.updateTenantStatus(
+      tenantId,
+      { isActive: false },
+      actor,
+      context,
+    );
+  }
+
+  async updateTenantStatus(
+    tenantId: string,
+    input: UpdateTenantStatusInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
     const existing = await prisma.tenant.findFirst({
       where: {
         id: tenantId,
@@ -576,7 +591,7 @@ export class TenantsService {
       throw new AppError(404, 'TENANT_NOT_FOUND', 'School not found');
     }
 
-    if (!existing.isActive) {
+    if (existing.isActive === input.isActive) {
       return {
         id: existing.id,
         code: existing.code,
@@ -589,30 +604,32 @@ export class TenantsService {
       const tenant = await tx.tenant.update({
         where: { id: tenantId },
         data: {
-          isActive: false,
+          isActive: input.isActive,
         },
       });
 
-      await tx.refreshToken.updateMany({
-        where: {
-          tenantId,
-          revokedAt: null,
-        },
-        data: {
-          revokedAt: new Date(),
-        },
-      });
+      if (!input.isActive) {
+        await tx.refreshToken.updateMany({
+          where: {
+            tenantId,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: new Date(),
+          },
+        });
 
-      await tx.invite.updateMany({
-        where: {
-          tenantId,
-          status: InviteStatus.PENDING,
-        },
-        data: {
-          status: InviteStatus.REVOKED,
-          revokedAt: new Date(),
-        },
-      });
+        await tx.invite.updateMany({
+          where: {
+            tenantId,
+            status: InviteStatus.PENDING,
+          },
+          data: {
+            status: InviteStatus.REVOKED,
+            revokedAt: new Date(),
+          },
+        });
+      }
 
       return tenant;
     });
@@ -620,7 +637,7 @@ export class TenantsService {
     await this.auditService.log({
       tenantId,
       actorUserId: actor.sub,
-      event: AUDIT_EVENT.TENANT_DEACTIVATED,
+      event: input.isActive ? AUDIT_EVENT.TENANT_ACTIVATED : AUDIT_EVENT.TENANT_DEACTIVATED,
       entity: 'Tenant',
       entityId: tenantId,
       requestId: context.requestId,
@@ -629,6 +646,7 @@ export class TenantsService {
       payload: {
         code: result.code,
         name: result.name,
+        isActive: result.isActive,
       },
     });
 

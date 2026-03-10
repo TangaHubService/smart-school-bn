@@ -58,6 +58,17 @@ export class TenantsController {
     return sendSuccess(req, res, result);
   }
 
+  async updateTenantStatus(req: Request, res: Response): Promise<Response> {
+    const result = await tenantsService.updateTenantStatus(
+      req.params.id,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async deactivateTenant(req: Request, res: Response): Promise<Response> {
     const result = await tenantsService.deactivateTenant(
       req.params.id,
