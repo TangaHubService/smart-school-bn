@@ -22,12 +22,15 @@ export const createGradingSchemeSchema = z
   })
   .strict();
 
+export const examTypeSchema = z.enum(['CAT', 'EXAM']);
+
 export const createExamSchema = z
   .object({
     termId: z.string().uuid(),
     classRoomId: z.string().uuid(),
     subjectId: z.string().uuid(),
     gradingSchemeId: z.string().uuid().optional(),
+    examType: examTypeSchema.optional().default('EXAM'),
     name: z.string().trim().min(2).max(120),
     description: z.string().trim().max(500).optional(),
     totalMarks: z.number().int().min(1).max(500).default(100),
@@ -69,8 +72,32 @@ export const resultsActionSchema = z
   })
   .strict();
 
+export const bulkConductGradesSchema = z
+  .object({
+    termId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    entries: z
+      .array(
+        z
+          .object({
+            studentId: z.string().uuid(),
+            grade: z.string().trim().min(1).max(20),
+            remark: z.string().trim().max(200).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+
 export const reportCardsQuerySchema = z.object({
   termId: z.string().uuid().optional(),
+});
+
+export const conductGradesQuerySchema = z.object({
+  termId: z.string().uuid(),
+  classRoomId: z.string().uuid(),
 });
 
 export const parentReportCardsQuerySchema = z.object({
@@ -85,3 +112,5 @@ export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
 export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
 export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;
+export type BulkConductGradesInput = z.infer<typeof bulkConductGradesSchema>;
+export type ConductGradesQueryInput = z.infer<typeof conductGradesQuerySchema>;

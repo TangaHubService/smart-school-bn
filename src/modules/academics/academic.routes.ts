@@ -68,7 +68,13 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/terms',
-  requirePermissions([PERMISSIONS.TERM_MANAGE]),
+  requireAnyPermissions([
+    PERMISSIONS.TERM_MANAGE,
+    PERMISSIONS.EXAMS_READ,
+    PERMISSIONS.COURSES_MANAGE,
+    PERMISSIONS.REPORT_CARDS_READ,
+    PERMISSIONS.TIMETABLE_READ,
+  ]),
   asyncHandler((req, res) => academicsController.listTerms(req, res)),
 );
 

@@ -8,7 +8,9 @@ import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
+  BulkConductGradesInput,
   BulkExamMarksInput,
+  ConductGradesQueryInput,
   CreateExamInput,
   CreateGradingSchemeInput,
   ListExamsQueryInput,
@@ -55,12 +57,14 @@ type ReportCardPayload = {
     exams: Array<{
       examId: string;
       name: string;
+      examType?: 'CAT' | 'EXAM';
       marksObtained: number;
       totalMarks: number;
       percentage: number;
       weight: number;
     }>;
   }>;
+  conduct?: { grade: string; remark?: string | null };
   totals: {
     totalMarksObtained: number;
     totalMarksPossible: number;
@@ -202,6 +206,7 @@ export class ExamsService {
           subjectId: input.subjectId,
           gradingSchemeId: gradingScheme.id,
           teacherUserId,
+          examType: input.examType ?? 'EXAM',
           name: input.name,
           description: input.description,
           totalMarks: input.totalMarks,
@@ -431,6 +436,111 @@ export class ExamsService {
     };
   }
 
+  async listConductGradesForEntry(
+    tenantId: string,
+    query: ConductGradesQueryInput,
+    actor: JwtUser,
+  ) {
+    this.ensureAdmin(actor);
+    const scope = await this.getResultScope(tenantId, query.termId, query.classRoomId);
+    const students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
+    const conductGrades = await prisma.conductGrade.findMany({
+      where: {
+        tenantId,
+        termId: query.termId,
+        classRoomId: query.classRoomId,
+      },
+      select: { studentId: true, grade: true, remark: true },
+    });
+    const gradeByStudentId = new Map(conductGrades.map((g) => [g.studentId, { grade: g.grade, remark: g.remark }]));
+    return {
+      students: students.map((s) => ({
+        id: s.id,
+        studentCode: s.studentCode,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        grade: gradeByStudentId.get(s.id)?.grade ?? '',
+        remark: gradeByStudentId.get(s.id)?.remark ?? '',
+      })),
+    };
+  }
+
+  async bulkSaveConductGrades(
+    tenantId: string,
+    input: BulkConductGradesInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    this.ensureAdmin(actor);
+    const scope = await this.getResultScope(tenantId, input.termId, input.classRoomId);
+
+    const existing = await prisma.resultSnapshot.count({
+      where: {
+        tenantId,
+        termId: input.termId,
+        classRoomId: input.classRoomId,
+      },
+    });
+    if (existing > 0) {
+      throw new AppError(409, 'RESULTS_ALREADY_LOCKED', 'Results are locked. Unlock first to edit conduct grades');
+    }
+
+    const students = await this.getClassStudents(tenantId, scope.academicYear.id, input.classRoomId);
+    const studentIds = new Set(students.map((s) => s.id));
+    for (const entry of input.entries) {
+      if (!studentIds.has(entry.studentId)) {
+        throw new AppError(400, 'CONDUCT_STUDENT_NOT_IN_CLASS', `Student ${entry.studentId} is not in this class`);
+      }
+    }
+
+    let savedCount = 0;
+    await prisma.$transaction(async (tx) => {
+      for (const entry of input.entries) {
+        await tx.conductGrade.upsert({
+          where: {
+            tenantId_termId_classRoomId_studentId: {
+              tenantId,
+              termId: input.termId,
+              classRoomId: input.classRoomId,
+              studentId: entry.studentId,
+            },
+          },
+          update: {
+            grade: entry.grade,
+            remark: entry.remark ?? null,
+            updatedByUserId: actor.sub,
+          },
+          create: {
+            tenantId,
+            academicYearId: scope.academicYear.id,
+            termId: input.termId,
+            classRoomId: input.classRoomId,
+            studentId: entry.studentId,
+            grade: entry.grade,
+            remark: entry.remark ?? null,
+            createdByUserId: actor.sub,
+            updatedByUserId: actor.sub,
+          },
+        });
+        savedCount += 1;
+      }
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.EXAM_MARKS_SAVED,
+      entity: 'ConductGrade',
+      entityId: `${input.termId}:${input.classRoomId}`,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { entriesCount: input.entries.length },
+    });
+
+    return { savedCount };
+  }
+
   async lockResults(
     tenantId: string,
     input: ResultsActionInput,
@@ -493,6 +603,13 @@ export class ExamsService {
       });
     }
 
+    const conductByStudentId = await this.getConductGradesForScope(
+      tenantId,
+      scope.academicYear.id,
+      input.termId,
+      input.classRoomId,
+    );
+
     const draftSnapshots = students.map((student) =>
       this.buildStudentSnapshot({
         schoolName: scope.schoolName,
@@ -503,6 +620,7 @@ export class ExamsService {
         student,
         exams,
         gradingScheme,
+        conduct: conductByStudentId.get(student.id),
       }),
     );
 
@@ -1122,6 +1240,24 @@ export class ExamsService {
     };
   }
 
+  private async getConductGradesForScope(
+    tenantId: string,
+    academicYearId: string,
+    termId: string,
+    classRoomId: string,
+  ): Promise<Map<string, { grade: string; remark?: string | null }>> {
+    const grades = await prisma.conductGrade.findMany({
+      where: {
+        tenantId,
+        academicYearId,
+        termId,
+        classRoomId,
+      },
+      select: { studentId: true, grade: true, remark: true },
+    });
+    return new Map(grades.map((g) => [g.studentId, { grade: g.grade, remark: g.remark }]));
+  }
+
   private buildStudentSnapshot(params: {
     schoolName: string;
     school: {
@@ -1139,6 +1275,7 @@ export class ExamsService {
     student: { id: string; studentCode: string; firstName: string; lastName: string };
     exams: Array<any>;
     gradingScheme: { id: string; name: string; version: number; rules: Prisma.JsonValue };
+    conduct?: { grade: string; remark?: string | null };
   }) {
     const rules = params.gradingScheme.rules as unknown as GradingBand[];
 
@@ -1166,6 +1303,7 @@ export class ExamsService {
       subjectRow.exams.push({
         examId: exam.id,
         name: exam.name,
+        examType: exam.examType ?? 'EXAM',
         marksObtained,
         totalMarks: exam.totalMarks,
         percentage,
@@ -1175,8 +1313,25 @@ export class ExamsService {
     }
 
     const subjects = Array.from(subjectMap.values()).map((subject) => {
-      const weightTotal = subject.exams.reduce((sum, exam) => sum + exam.weight, 0) || 1;
-      const weightedAverage = subject.exams.reduce((sum, exam) => sum + exam.percentage * exam.weight, 0) / weightTotal;
+      const catExams = subject.exams.filter((e) => e.examType === 'CAT');
+      const examExams = subject.exams.filter((e) => e.examType === 'EXAM');
+      let weightedAverage: number;
+      if (catExams.length && examExams.length) {
+        const catAvg =
+          catExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
+          (catExams.reduce((s, e) => s + e.weight, 0) || 1);
+        const examAvg =
+          examExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
+          (examExams.reduce((s, e) => s + e.weight, 0) || 1);
+        const catWeightTotal = catExams.reduce((s, e) => s + e.weight, 0);
+        const examWeightTotal = examExams.reduce((s, e) => s + e.weight, 0);
+        const totalWeight = catWeightTotal + examWeightTotal || 1;
+        weightedAverage = (catAvg * catWeightTotal + examAvg * examWeightTotal) / totalWeight;
+      } else {
+        const weightTotal = subject.exams.reduce((sum, exam) => sum + exam.weight, 0) || 1;
+        weightedAverage =
+          subject.exams.reduce((sum, exam) => sum + exam.percentage * exam.weight, 0) / weightTotal;
+      }
       const band = this.resolveBand(rules, weightedAverage);
       return {
         ...subject,
@@ -1225,6 +1380,7 @@ export class ExamsService {
           classTeacherName: teacherNames[0] ?? null,
           generatedAt: new Date().toISOString(),
         },
+        conduct: params.conduct,
         subjects,
         totals: {
           totalMarksObtained,
@@ -1288,6 +1444,7 @@ export class ExamsService {
       id: exam.id,
       name: exam.name,
       description: exam.description,
+      examType: exam.examType ?? 'EXAM',
       totalMarks: exam.totalMarks,
       weight: exam.weight,
       examDate: exam.examDate,

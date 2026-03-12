@@ -86,6 +86,11 @@ enum ResultSnapshotStatus {
   PUBLISHED
 }
 
+enum ExamType {
+  CAT
+  EXAM
+}
+
 enum ConductSeverity {
   LOW
   MODERATE
@@ -165,6 +170,7 @@ model Tenant {
   conductIncidents ConductIncident[]
   conductActions   ConductAction[]
   conductFeedbacks ConductFeedback[]
+  conductGrades    ConductGrade[]
   programs         Program[]
   payments         Payment[]
   programEnrollments ProgramEnrollment[]
@@ -252,6 +258,8 @@ model User {
   resolvedConductIncidents ConductIncident[]   @relation("ConductIncidentResolvedBy")
   createdConductActions    ConductAction[]     @relation("ConductActionCreatedBy")
   authoredConductFeedbacks ConductFeedback[]   @relation("ConductFeedbackAuthoredBy")
+  createdConductGrades     ConductGrade[]      @relation("ConductGradeCreatedBy")
+  updatedConductGrades     ConductGrade[]      @relation("ConductGradeUpdatedBy")
   govAuditorScopes         GovAuditorScope[]   @relation("GovAuditorUser")
   assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
   payments                 Payment[]
@@ -341,6 +349,7 @@ model AcademicYear {
   courses Course[]
   exams   Exam[]
   resultSnapshots ResultSnapshot[]
+  conductGrades   ConductGrade[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, name])
@@ -363,6 +372,7 @@ model Term {
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   exams        Exam[]
   resultSnapshots ResultSnapshot[]
+  conductGrades   ConductGrade[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, academicYearId, name])
@@ -409,6 +419,7 @@ model ClassRoom {
   exams   Exam[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
+  conductGrades    ConductGrade[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, code])
@@ -460,6 +471,7 @@ model Student {
   examMarks      ExamMark[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
+  conductGrades    ConductGrade[]
 
   @@unique([tenantId, studentCode])
   @@index([tenantId, lastName, firstName])
@@ -538,6 +550,32 @@ model ConductFeedback {
 
   @@index([tenantId, incidentId, createdAt])
   @@index([authorUserId, createdAt])
+}
+
+model ConductGrade {
+  id              String   @id @default(uuid())
+  tenantId        String
+  academicYearId  String
+  termId          String
+  classRoomId     String
+  studentId       String
+  grade           String
+  remark          String?
+  createdByUserId String
+  updatedByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant         Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  term           Term       @relation(fields: [termId], references: [id], onDelete: Restrict)
+  classRoom      ClassRoom  @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  student        Student    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  createdByUser  User       @relation("ConductGradeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedByUser  User       @relation("ConductGradeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, termId, classRoomId, studentId])
+  @@index([tenantId, termId, classRoomId])
 }
 
 model GovAuditorScope {
@@ -930,6 +968,7 @@ model Exam {
   subjectId       String
   gradingSchemeId String
   teacherUserId   String
+  examType        ExamType @default(EXAM)
   name            String
   description     String?
   totalMarks      Int      @default(100)

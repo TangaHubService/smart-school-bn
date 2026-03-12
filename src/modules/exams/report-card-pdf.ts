@@ -42,6 +42,7 @@ interface ReportCardPayload {
     position: number;
     classSize: number;
   };
+  conduct?: { grade: string; remark?: string | null };
   subjects: Array<{
     subjectName: string;
     averagePercentage: number;
@@ -324,12 +325,15 @@ export async function buildReportCardPdfBuffer(
       tableY += rowHeight;
     }
 
-    const summaryRows = [
+    const summaryRows: Array<[string, string]> = [
       ['Total', `${payload.totals.totalMarksObtained.toFixed(1)} / ${payload.totals.totalMarksPossible}`],
       ['Percentage', `${payload.totals.averagePercentage.toFixed(1)} %`],
       ['Final Grade', payload.totals.grade],
       ['Position', `${payload.totals.position} out of ${payload.totals.classSize}`],
-    ] as const;
+    ];
+    if (payload.conduct) {
+      summaryRows.push(['Conduct', `${payload.conduct.grade}${payload.conduct.remark ? ` - ${payload.conduct.remark}` : ''}`]);
+    }
 
     for (const [label, value] of summaryRows) {
       drawCell(doc, tableX, tableY, 180, 22, label, {

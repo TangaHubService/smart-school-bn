@@ -8,6 +8,7 @@ import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { ExamsController } from './exams.controller';
 import {
+  bulkConductGradesSchema,
   bulkExamMarksSchema,
   createExamSchema,
   createGradingSchemeSchema,
@@ -62,6 +63,19 @@ examsRoutes.post(
   requirePermissions([PERMISSIONS.EXAM_MARKS_MANAGE]),
   validateBody(bulkExamMarksSchema),
   asyncHandler((req, res) => examsController.bulkSaveMarks(req, res)),
+);
+
+examsRoutes.get(
+  '/results/conduct',
+  requirePermissions([PERMISSIONS.RESULTS_LOCK]),
+  asyncHandler((req, res) => examsController.listConductGradesForEntry(req, res)),
+);
+
+examsRoutes.post(
+  '/results/conduct/bulk',
+  requirePermissions([PERMISSIONS.RESULTS_LOCK]),
+  validateBody(bulkConductGradesSchema),
+  asyncHandler((req, res) => examsController.bulkSaveConductGrades(req, res)),
 );
 
 examsRoutes.post(

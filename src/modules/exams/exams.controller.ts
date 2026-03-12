@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { sendSuccess } from '../../common/utils/response';
 import { ExamsService } from './exams.service';
 import {
+  conductGradesQuerySchema,
   listExamsQuerySchema,
   parentReportCardsQuerySchema,
   reportCardsQuerySchema,
@@ -52,6 +53,17 @@ export class ExamsController {
 
   async bulkSaveMarks(req: Request, res: Response) {
     const result = await examsService.bulkSaveMarks(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async listConductGradesForEntry(req: Request, res: Response) {
+    const query = conductGradesQuerySchema.parse(req.query);
+    const result = await examsService.listConductGradesForEntry(req.tenantId!, query, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async bulkSaveConductGrades(req: Request, res: Response) {
+    const result = await examsService.bulkSaveConductGrades(req.tenantId!, req.body, req.user!, buildContext(req));
     return sendSuccess(req, res, result);
   }
 
