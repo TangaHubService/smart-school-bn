@@ -26,15 +26,37 @@ interface SessionResolutionInput {
 export class AttendanceService {
   private readonly auditService = new AuditService();
 
-  async listAttendanceClasses(tenantId: string) {
-    return prisma.classRoom.findMany({
-      where: {
-        tenantId,
+  async listAttendanceClasses(
+    tenantId: string,
+    actor?: { sub: string; roles?: string[] },
+    teacherOnly?: boolean,
+  ) {
+    const isTeacher =
+      teacherOnly &&
+      actor?.roles?.includes('TEACHER') &&
+      !actor?.roles?.includes('SCHOOL_ADMIN') &&
+      !actor?.roles?.includes('SUPER_ADMIN');
+
+    const where: Prisma.ClassRoomWhereInput = {
+      tenantId,
+      isActive: true,
+      gradeLevel: {
         isActive: true,
-        gradeLevel: {
-          isActive: true,
-        },
       },
+    };
+
+    if (isTeacher && actor?.sub) {
+      const teacherClassIds = await prisma.course.findMany({
+        where: { tenantId, teacherUserId: actor.sub, isActive: true },
+        select: { classRoomId: true },
+        distinct: ['classRoomId'],
+      });
+      const ids = teacherClassIds.map((c) => c.classRoomId);
+      where.id = ids.length ? { in: ids } : { in: ['__none__'] };
+    }
+
+    return prisma.classRoom.findMany({
+      where,
       select: {
         id: true,
         code: true,

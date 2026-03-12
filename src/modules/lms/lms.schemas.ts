@@ -54,7 +54,7 @@ export const listCoursesQuerySchema = z.object({
   academicYearId: z.string().uuid().optional(),
   teacherUserId: z.string().uuid().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(50).default(10),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const courseDetailQuerySchema = z.object({
@@ -172,7 +172,7 @@ export const listAssignmentsQuerySchema = z.object({
 
 export const listMyCoursesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(20).default(10),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export const listCourseTeacherOptionsQuerySchema = z.object({

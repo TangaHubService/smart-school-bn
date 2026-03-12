@@ -61,6 +61,12 @@ conductRoutes.post(
 );
 
 conductRoutes.get(
+  '/conduct/me',
+  requirePermissions([PERMISSIONS.CONDUCT_MY_READ]),
+  asyncHandler((req, res) => conductController.getMyConductProfile(req, res)),
+);
+
+conductRoutes.get(
   '/conduct/students/:studentId/profile',
   requirePermissions([PERMISSIONS.CONDUCT_READ]),
   asyncHandler((req, res) => conductController.getStudentConductProfile(req, res)),

@@ -20,4 +20,9 @@ export class DashboardController {
     const result = await dashboardService.getStudentDashboard(req.user!);
     return sendSuccess(req, res, result);
   }
+
+  async getTeacherDashboard(req: Request, res: Response): Promise<Response> {
+    const result = await dashboardService.getTeacherDashboard(req.user!);
+    return sendSuccess(req, res, result);
+  }
 }

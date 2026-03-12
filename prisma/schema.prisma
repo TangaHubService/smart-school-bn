@@ -168,6 +168,8 @@ model Tenant {
   programs         Program[]
   payments         Payment[]
   programEnrollments ProgramEnrollment[]
+  timetableSlots  TimetableSlot[]
+  announcements   Announcement[]
 
   @@index([isActive])
 }
@@ -227,6 +229,7 @@ model User {
   editedAttendanceRecords   AttendanceRecord[]  @relation("AttendanceRecordEditedBy")
   taughtCourses            Course[]            @relation("CourseTeacher")
   managedExams             Exam[]              @relation("ExamTeacher")
+  authoredAnnouncements    Announcement[]      @relation("AnnouncementAuthor")
   createdGradingSchemes    GradingScheme[]     @relation("GradingSchemeCreatedBy")
   updatedGradingSchemes    GradingScheme[]     @relation("GradingSchemeUpdatedBy")
   createdExams             Exam[]              @relation("ExamCreatedBy")
@@ -338,6 +341,7 @@ model AcademicYear {
   courses Course[]
   exams   Exam[]
   resultSnapshots ResultSnapshot[]
+  timetableSlots TimetableSlot[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isCurrent, isActive])
@@ -359,6 +363,7 @@ model Term {
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   exams        Exam[]
   resultSnapshots ResultSnapshot[]
+  timetableSlots TimetableSlot[]
 
   @@unique([tenantId, academicYearId, name])
   @@unique([tenantId, academicYearId, sequence])
@@ -404,6 +409,7 @@ model ClassRoom {
   exams   Exam[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
+  timetableSlots TimetableSlot[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gradeLevelId, name])
@@ -646,6 +652,7 @@ model Course {
   assignments  Assignment[]
   assessments  Assessment[]
   programs     Program[]
+  timetableSlots TimetableSlot[]
 
   @@unique([tenantId, academicYearId, classRoomId, teacherUserId, title])
   @@index([tenantId, classRoomId, academicYearId, isActive])
@@ -1163,4 +1170,56 @@ model ProgramEnrollment {
 
   @@unique([userId, programId])
   @@index([tenantId, isActive])
+}
+
+enum AnnouncementAudience {
+  ALL
+  CLASS_ROOM
+  GRADE_LEVEL
+}
+
+model TimetableSlot {
+  id              String   @id @default(uuid())
+  tenantId        String
+  academicYearId  String
+  termId          String
+  classRoomId    String
+  courseId        String
+  dayOfWeek      Int      // 1=Mon .. 5=Fri
+  periodNumber   Int
+  startTime      String   // HH:mm
+  endTime        String   // HH:mm
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  term         Term         @relation(fields: [termId], references: [id], onDelete: Cascade)
+  classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Cascade)
+  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, academicYearId, termId, classRoomId, dayOfWeek, periodNumber])
+  @@index([tenantId, academicYearId, termId, classRoomId])
+  @@index([tenantId, academicYearId, classRoomId])
+}
+
+model Announcement {
+  id                String              @id @default(uuid())
+  tenantId          String
+  title             String
+  body              String
+  authorUserId      String
+  audience          AnnouncementAudience @default(ALL)
+  targetClassRoomIds String[]           @default([]) // when audience=CLASS_ROOM
+  targetGradeLevelIds String[]          @default([]) // when audience=GRADE_LEVEL
+  publishedAt       DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  author User   @relation("AnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, publishedAt])
+  @@index([tenantId, audience])
 }

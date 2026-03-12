@@ -61,6 +61,10 @@ export const resolveConductIncidentSchema = z
 export const listConductIncidentsQuerySchema = z.object({
   studentId: z.string().uuid().optional(),
   classRoomId: z.string().uuid().optional(),
+  teacherOnly: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   status: conductIncidentStatusSchema.optional(),
   severity: conductSeveritySchema.optional(),
   q: z.string().trim().min(1).max(120).optional(),

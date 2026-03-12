@@ -31,7 +31,11 @@ export class ConductController {
 
   async listIncidents(req: Request, res: Response): Promise<Response> {
     const query = listConductIncidentsQuerySchema.parse(req.query);
-    const result = await conductService.listIncidents(req.tenantId!, query);
+    const result = await conductService.listIncidents(
+      req.tenantId!,
+      query,
+      req.user,
+    );
 
     return sendSuccess(req, res, result);
   }
@@ -86,6 +90,17 @@ export class ConductController {
     const result = await conductService.getStudentConductProfile(
       req.tenantId!,
       req.params.studentId,
+      query,
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async getMyConductProfile(req: Request, res: Response): Promise<Response> {
+    const query = studentConductProfileQuerySchema.parse(req.query);
+    const result = await conductService.getMyConductProfile(
+      req.tenantId!,
+      req.user!,
       query,
     );
 

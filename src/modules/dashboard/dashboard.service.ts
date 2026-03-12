@@ -113,9 +113,11 @@ export class DashboardService {
       }),
       prisma.userRole.count({
         where: {
-          user: { deletedAt: null },
+          user: {
+            deletedAt: null,
+            tenant: { code: { not: 'platform' } },
+          },
           role: { name: { in: ['SCHOOL_ADMIN', 'SUPER_ADMIN'] } },
-          user: { tenant: { code: { not: 'platform' } } },
         },
       }),
       prisma.userRole.count({
@@ -462,6 +464,130 @@ export class DashboardService {
         { id: 'assignments', name: 'Assignments Submitted', value: pendingAssignments },
         { id: 'assessments', name: 'Assessments', value: assessments },
       ],
+    };
+  }
+
+  async getTeacherDashboard(actor: JwtUser): Promise<{
+    school: { displayName: string; city: string | null };
+    metrics: {
+      myCourses: number;
+      myClasses: number;
+      pendingSubmissions: number;
+      upcomingExams: number;
+    };
+    todayAttendance: {
+      markedStudents: number;
+      pendingClasses: number;
+      totalClasses: number;
+    };
+    upcomingExams: Array<{ id: string; title: string; date: string; time: string; relativeDate: string }>;
+  }> {
+    const tenantId = actor.tenantId!;
+    const userId = actor.sub;
+
+    const school = await prisma.school.findUnique({
+      where: { tenantId },
+      select: { displayName: true, city: true },
+    });
+
+    const teacherClassRoomIds = await prisma.course.findMany({
+      where: { tenantId, teacherUserId: userId, isActive: true },
+      select: { classRoomId: true },
+      distinct: ['classRoomId'],
+    });
+    const classIds = teacherClassRoomIds.map((c) => c.classRoomId);
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Kigali',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const todayDate = /^\d{4}-\d{2}-\d{2}$/.test(todayStr)
+      ? new Date(`${todayStr}T00:00:00.000Z`)
+      : new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+
+    const [
+      myCoursesCount,
+      pendingSubmissionsCount,
+      upcomingExams,
+      totalTeacherClasses,
+      sessionsToday,
+      recordsToday,
+    ] = await prisma.$transaction([
+      prisma.course.count({
+        where: { tenantId, teacherUserId: userId, isActive: true },
+      }),
+      prisma.submission.count({
+        where: {
+          status: 'SUBMITTED',
+          assignment: { course: { teacherUserId: userId } },
+        },
+      }),
+      prisma.exam.findMany({
+        where: { tenantId, teacherUserId: userId },
+        take: 5,
+        orderBy: { examDate: 'asc' },
+        include: { subject: true, classRoom: true },
+      }),
+      prisma.classRoom.count({
+        where: { id: { in: classIds }, isActive: true },
+      }),
+      prisma.attendanceSession.count({
+        where: {
+          tenantId,
+          classRoomId: { in: classIds },
+          sessionDate: todayDate,
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          tenantId,
+          classRoomId: { in: classIds },
+          attendanceDate: todayDate,
+        },
+      }),
+    ]);
+
+    const formatRelativeDate = (date: Date): string => {
+      const now = new Date();
+      const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Tomorrow';
+      if (diff > 1 && diff <= 7) return `In ${diff} Days`;
+      return date.toLocaleDateString();
+    };
+
+    return {
+      school: {
+        displayName: school?.displayName ?? 'School',
+        city: school?.city ?? null,
+      },
+      metrics: {
+        myCourses: myCoursesCount,
+        myClasses: totalTeacherClasses,
+        pendingSubmissions: pendingSubmissionsCount,
+        upcomingExams: upcomingExams.length,
+      },
+      todayAttendance: {
+        markedStudents: recordsToday,
+        pendingClasses: Math.max(totalTeacherClasses - sessionsToday, 0),
+        totalClasses: totalTeacherClasses,
+      },
+      upcomingExams: upcomingExams.slice(0, 3).map((exam) => {
+        const examDate = exam.examDate ?? exam.createdAt;
+        return {
+          id: exam.id,
+          title: exam.name ?? `${exam.subject?.name ?? 'Exam'}`,
+          date: examDate.toISOString().split('T')[0],
+          time: examDate.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          }),
+          relativeDate: formatRelativeDate(examDate),
+        };
+      }),
     };
   }
 

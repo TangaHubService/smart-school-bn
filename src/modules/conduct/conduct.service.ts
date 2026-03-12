@@ -108,8 +108,12 @@ export class ConductService {
     return mapConductIncident(created, 'school');
   }
 
-  async listIncidents(tenantId: string, query: ListConductIncidentsQueryInput) {
-    const where = this.buildIncidentWhere(tenantId, query);
+  async listIncidents(
+    tenantId: string,
+    query: ListConductIncidentsQueryInput,
+    actor?: { sub: string; roles?: string[] },
+  ) {
+    const where = await this.buildIncidentWhere(tenantId, query, actor);
     const skip = (query.page - 1) * query.pageSize;
 
     const [totalItems, incidents] = await prisma.$transaction([
@@ -271,6 +275,27 @@ export class ConductService {
     return mapConductIncident(resolved, 'school');
   }
 
+  async getMyConductProfile(
+    tenantId: string,
+    actor: JwtUser,
+    query: StudentConductProfileQueryInput,
+  ) {
+    const student = await prisma.student.findFirst({
+      where: {
+        tenantId,
+        userId: actor.sub,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!student) {
+      throw new AppError(403, 'STUDENT_NOT_FOUND', 'Student profile not found');
+    }
+
+    return this.getStudentConductProfile(tenantId, student.id, query);
+  }
+
   async getStudentConductProfile(
     tenantId: string,
     studentId: string,
@@ -357,10 +382,20 @@ export class ConductService {
     };
   }
 
-  private buildIncidentWhere(
+  private async getTeacherClassRoomIds(tenantId: string, userId: string): Promise<string[]> {
+    const courses = await prisma.course.findMany({
+      where: { tenantId, teacherUserId: userId, isActive: true },
+      select: { classRoomId: true },
+      distinct: ['classRoomId'],
+    });
+    return courses.map((c) => c.classRoomId);
+  }
+
+  private async buildIncidentWhere(
     tenantId: string,
     query: ListConductIncidentsQueryInput,
-  ): Prisma.ConductIncidentWhereInput {
+    actor?: { sub: string; roles?: string[] },
+  ): Promise<Prisma.ConductIncidentWhereInput> {
     const where: Prisma.ConductIncidentWhereInput = {
       tenantId,
     };
@@ -371,6 +406,19 @@ export class ConductService {
 
     if (query.classRoomId) {
       where.classRoomId = query.classRoomId;
+    }
+
+    const isTeacherOnly =
+      query.teacherOnly &&
+      actor?.roles?.includes('TEACHER') &&
+      !actor?.roles?.includes('SCHOOL_ADMIN') &&
+      !actor?.roles?.includes('SUPER_ADMIN');
+
+    if (isTeacherOnly && actor?.sub && !query.classRoomId) {
+      const teacherClassIds = await this.getTeacherClassRoomIds(tenantId, actor.sub);
+      where.classRoomId = teacherClassIds.length
+        ? { in: teacherClassIds }
+        : { in: ['__none__'] };
     }
 
     if (query.status) {

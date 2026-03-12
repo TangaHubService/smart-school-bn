@@ -40,3 +40,11 @@ dashboardRoutes.get(
   requireAnyPermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
   asyncHandler((req, res) => dashboardController.getStudentDashboard(req, res)),
 );
+
+dashboardRoutes.get(
+  '/dashboard/teacher',
+  authenticate,
+  enforceTenant,
+  requireAnyPermissions([PERMISSIONS.COURSES_READ, PERMISSIONS.ATTENDANCE_READ]),
+  asyncHandler((req, res) => dashboardController.getTeacherDashboard(req, res)),
+);

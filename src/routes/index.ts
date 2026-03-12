@@ -18,6 +18,8 @@ import { schoolsRoutes } from '../modules/schools/schools.routes';
 import { staffRoutes } from '../modules/staff/staff.routes';
 import { studentsRoutes } from '../modules/students/students.routes';
 import { tenantsRoutes } from '../modules/tenants/tenants.routes';
+import { timetableRoutes } from '../modules/timetable/timetable.routes';
+import { announcementsRoutes } from '../modules/announcements/announcements.routes';
 import { usersRoutes } from '../modules/users/users.routes';
 import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
 import { env } from '../config/env';
@@ -46,6 +48,8 @@ if (env.FEATURE_ASSESSMENTS_ENABLED) {
 if (env.FEATURE_GOV_AUDITING_ENABLED) {
   apiRouter.use('/', govRoutes);
 }
+apiRouter.use('/', timetableRoutes);
+apiRouter.use('/', announcementsRoutes);
 apiRouter.use('/', dashboardRoutes);
 apiRouter.use('/health', healthRoutes);
 apiRouter.use('/meta', metaRoutes);

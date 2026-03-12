@@ -4,6 +4,7 @@ import { sendSuccess } from '../../common/utils/response';
 import {
   attendanceSummaryQuerySchema,
   classAttendanceQuerySchema,
+  listAttendanceClassesQuerySchema,
   studentAttendanceHistoryQuerySchema,
 } from './attendance.schemas';
 import { AttendanceService } from './attendance.service';
@@ -20,7 +21,12 @@ function buildContext(req: Request) {
 
 export class AttendanceController {
   async listAttendanceClasses(req: Request, res: Response): Promise<Response> {
-    const result = await attendanceService.listAttendanceClasses(req.tenantId!);
+    const query = listAttendanceClassesQuerySchema.parse(req.query);
+    const result = await attendanceService.listAttendanceClasses(
+      req.tenantId!,
+      req.user,
+      query.teacherOnly,
+    );
     return sendSuccess(req, res, result);
   }
 

@@ -40,6 +40,13 @@ export const bulkAttendanceRecordsSchema = z
     }
   });
 
+export const listAttendanceClassesQuerySchema = z.object({
+  teacherOnly: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
+});
+
 export const classAttendanceQuerySchema = z.object({
   date: schoolDateSchema.optional(),
 });
@@ -63,6 +70,7 @@ export const studentAttendanceHistoryQuerySchema = z
     }
   });
 
+export type ListAttendanceClassesQueryInput = z.infer<typeof listAttendanceClassesQuerySchema>;
 export type CreateAttendanceSessionInput = z.infer<typeof createAttendanceSessionSchema>;
 export type BulkAttendanceRecordsInput = z.infer<typeof bulkAttendanceRecordsSchema>;
 export type ClassAttendanceQueryInput = z.infer<typeof classAttendanceQuerySchema>;

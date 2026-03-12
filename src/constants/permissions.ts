@@ -18,6 +18,7 @@ export const PERMISSIONS = {
   ATTENDANCE_READ: 'attendance.read',
   ATTENDANCE_MANAGE: 'attendance.manage',
   CONDUCT_READ: 'conduct.read',
+  CONDUCT_MY_READ: 'conduct.my_read',
   CONDUCT_MANAGE: 'conduct.manage',
   CONDUCT_RESOLVE: 'conduct.resolve',
   COURSES_READ: 'courses.read',
@@ -52,6 +53,11 @@ export const PERMISSIONS = {
   GOV_FEEDBACK_MANAGE: 'gov.feedback.manage',
   GOV_AUDITORS_MANAGE: 'gov.auditors.manage',
   GOV_SCOPES_MANAGE: 'gov.scopes.manage',
+  TIMETABLE_READ: 'timetable.read',
+  TIMETABLE_MANAGE: 'timetable.manage',
+  ANNOUNCEMENTS_READ: 'announcements.read',
+  ANNOUNCEMENTS_MANAGE: 'announcements.manage',
+  ANNOUNCEMENTS_MY_READ: 'announcements.my_read',
 } as const;
 
 export const SUPER_ADMIN_PERMISSIONS = [
@@ -105,6 +111,10 @@ export const SCHOOL_ADMIN_PERMISSIONS = [
   PERMISSIONS.PARENTS_MANAGE,
   PERMISSIONS.USERS_READ,
   PERMISSIONS.ROLES_READ,
+  PERMISSIONS.TIMETABLE_READ,
+  PERMISSIONS.TIMETABLE_MANAGE,
+  PERMISSIONS.ANNOUNCEMENTS_READ,
+  PERMISSIONS.ANNOUNCEMENTS_MANAGE,
 ];
 
 export const GOV_AUDITOR_PERMISSIONS = [
@@ -155,6 +165,9 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
         PERMISSIONS.SUBMISSIONS_READ,
         PERMISSIONS.SUBMISSIONS_GRADE,
         PERMISSIONS.FILES_UPLOAD,
+        PERMISSIONS.TIMETABLE_READ,
+        PERMISSIONS.TIMETABLE_MANAGE,
+        PERMISSIONS.ANNOUNCEMENTS_READ,
       ],
     },
     {
@@ -166,6 +179,8 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
         PERMISSIONS.ASSIGNMENTS_SUBMIT,
         PERMISSIONS.ASSESSMENTS_SUBMIT,
         PERMISSIONS.REPORT_CARDS_MY_READ,
+        PERMISSIONS.CONDUCT_MY_READ,
+        PERMISSIONS.ANNOUNCEMENTS_MY_READ,
         PERMISSIONS.FILES_UPLOAD,
       ],
     },
