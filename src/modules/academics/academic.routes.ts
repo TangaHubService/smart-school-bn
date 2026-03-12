@@ -38,7 +38,11 @@ academicRoutes.post(
 
 academicRoutes.get(
   '/academic-years',
-  requireAnyPermissions([PERMISSIONS.ACADEMIC_YEAR_MANAGE, PERMISSIONS.COURSES_MANAGE]),
+  requireAnyPermissions([
+    PERMISSIONS.ACADEMIC_YEAR_MANAGE,
+    PERMISSIONS.COURSES_MANAGE,
+    PERMISSIONS.STUDENT_MY_COURSES_READ,
+  ]),
   asyncHandler((req, res) => academicsController.listAcademicYears(req, res)),
 );
 

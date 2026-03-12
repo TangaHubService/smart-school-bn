@@ -4,6 +4,7 @@ import { attendanceRoutes } from '../modules/attendance/attendance.routes';
 import { authRoutes } from '../modules/auth/auth.routes';
 import { academicRoutes } from '../modules/academics/academic.routes';
 import { assessmentsRoutes } from '../modules/assessments/assessments.routes';
+import { dashboardRoutes } from '../modules/dashboard/dashboard.routes';
 import { conductRoutes } from '../modules/conduct/conduct.routes';
 import { healthRoutes } from '../modules/health/health.routes';
 import { examsRoutes } from '../modules/exams/exams.routes';
@@ -45,6 +46,7 @@ if (env.FEATURE_ASSESSMENTS_ENABLED) {
 if (env.FEATURE_GOV_AUDITING_ENABLED) {
   apiRouter.use('/', govRoutes);
 }
+apiRouter.use('/', dashboardRoutes);
 apiRouter.use('/health', healthRoutes);
 apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/roles', rolesRoutes);
