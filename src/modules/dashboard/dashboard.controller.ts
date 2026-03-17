@@ -7,7 +7,19 @@ const dashboardService = new DashboardService();
 
 export class DashboardController {
   async getSuperAdminDashboard(req: Request, res: Response): Promise<Response> {
-    const result = await dashboardService.getSuperAdminDashboard(req.user!);
+    const filters = {
+      academicYear: typeof req.query.academicYear === 'string' ? req.query.academicYear : undefined,
+      term: typeof req.query.term === 'string' ? req.query.term : undefined,
+      region: typeof req.query.region === 'string' ? req.query.region : undefined,
+      school: typeof req.query.school === 'string' ? req.query.school : undefined,
+      status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    };
+    const result = await dashboardService.getSuperAdminDashboard(req.user!, filters);
+    return sendSuccess(req, res, result);
+  }
+
+  async getSuperAdminFilters(req: Request, res: Response): Promise<Response> {
+    const result = await dashboardService.getSuperAdminFilters(req.user!);
     return sendSuccess(req, res, result);
   }
 

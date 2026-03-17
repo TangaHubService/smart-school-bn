@@ -102,4 +102,42 @@ export class UsersService {
         : null,
     };
   }
+
+  async listUsers(currentUser: JwtUser) {
+    const users = await prisma.user.findMany({
+      where: {
+        tenantId: currentUser.tenantId,
+        deletedAt: null,
+      },
+      include: {
+        tenant: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+
+    return {
+      items: users.map((user) => ({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone ?? null,
+        tenant: user.tenant
+          ? {
+              id: user.tenant.id,
+              name: user.tenant.name,
+              code: user.tenant.code,
+            }
+          : null,
+        roles: user.userRoles.map((item) => item.role.name),
+      })),
+    };
+  }
 }

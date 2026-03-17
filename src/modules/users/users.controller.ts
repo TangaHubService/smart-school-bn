@@ -10,4 +10,9 @@ export class UsersController {
     const result = await usersService.getMe(req.user!);
     return sendSuccess(req, res, result);
   }
+
+  async listUsers(req: Request, res: Response): Promise<Response> {
+    const result = await usersService.listUsers(req.user!);
+    return sendSuccess(req, res, result);
+  }
 }

@@ -83,10 +83,33 @@ export interface SchoolAdminDashboardData {
 }
 
 export class DashboardService {
-  async getSuperAdminDashboard(_actor: JwtUser): Promise<SuperAdminDashboardData> {
+  async getSuperAdminDashboard(
+    _actor: JwtUser,
+    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
+  ): Promise<SuperAdminDashboardData> {
+    const statusFilter = filters?.status;
+    const regionFilter = filters?.region;
+    const schoolFilter = filters?.school;
+
     const tenantsWhere: Prisma.TenantWhereInput = {
       code: { not: 'platform' },
-      isActive: true,
+      ...(statusFilter === 'inactive'
+        ? { isActive: false }
+        : statusFilter === 'all'
+          ? {}
+          : { isActive: true }),
+      ...(regionFilter && regionFilter !== 'all-regions'
+        ? {
+            school: {
+              province: regionFilter,
+            },
+          }
+        : {}),
+      ...(schoolFilter && schoolFilter !== 'all-schools'
+        ? {
+            id: schoolFilter,
+          }
+        : {}),
     };
 
     const [
@@ -205,6 +228,67 @@ export class DashboardService {
         weekly: this.getMockAnalyticsWeekly(),
         monthly: this.getMockAnalyticsMonthly(),
       },
+    };
+  }
+
+  async getSuperAdminFilters(_actor: JwtUser) {
+    const [tenants, academicYears, terms] = await prisma.$transaction([
+      prisma.tenant.findMany({
+        where: {
+          code: { not: 'platform' },
+        },
+        include: {
+          school: true,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      }),
+      prisma.academicYear.findMany({
+        where: {
+          isActive: true,
+        },
+        distinct: ['name'],
+        orderBy: {
+          startDate: 'desc',
+        },
+      }),
+      prisma.term.findMany({
+        where: {
+          isActive: true,
+        },
+        distinct: ['name'],
+        orderBy: {
+          sequence: 'asc',
+        },
+      }),
+    ]);
+
+    const regions = Array.from(
+      new Set(
+        tenants
+          .map((t) => t.school?.province)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    ).sort();
+
+    return {
+      schools: tenants.map((t) => ({
+        id: t.id,
+        name: t.school?.displayName ?? t.name,
+        province: t.school?.province ?? null,
+        isActive: t.isActive,
+      })),
+      regions,
+      academicYears: academicYears.map((ay) => ({
+        id: ay.id,
+        name: ay.name,
+      })),
+      terms: terms.map((term) => ({
+        id: term.id,
+        name: term.name,
+        sequence: term.sequence,
+      })),
     };
   }
 

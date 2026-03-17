@@ -22,6 +22,13 @@ dashboardRoutes.get(
 );
 
 dashboardRoutes.get(
+  '/dashboard/super-admin/filters',
+  authenticate,
+  requirePermissions([PERMISSIONS.TENANTS_READ]),
+  asyncHandler((req, res) => dashboardController.getSuperAdminFilters(req, res)),
+);
+
+dashboardRoutes.get(
   '/dashboard/school-admin',
   authenticate,
   enforceTenant,
