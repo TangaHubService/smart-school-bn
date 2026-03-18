@@ -1,7 +1,5 @@
 import { Router } from 'express';
 
-import { Router } from 'express';
-
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
