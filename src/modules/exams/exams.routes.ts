@@ -12,6 +12,7 @@ import {
   bulkExamMarksSchema,
   createExamSchema,
   createGradingSchemeSchema,
+  marksGridSaveSchema,
   resultsActionSchema,
 } from './exams.schemas';
 
@@ -56,6 +57,19 @@ examsRoutes.get(
   '/exams/:examId',
   requirePermissions([PERMISSIONS.EXAMS_READ]),
   asyncHandler((req, res) => examsController.getExamDetail(req, res)),
+);
+
+examsRoutes.get(
+  '/classes/marks-grid',
+  requirePermissions([PERMISSIONS.EXAMS_READ]),
+  asyncHandler((req, res) => examsController.getMarksGrid(req, res)),
+);
+
+examsRoutes.post(
+  '/classes/marks-grid',
+  requirePermissions([PERMISSIONS.EXAM_MARKS_MANAGE]),
+  validateBody(marksGridSaveSchema),
+  asyncHandler((req, res) => examsController.saveMarksGrid(req, res)),
 );
 
 examsRoutes.post(

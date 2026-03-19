@@ -12,6 +12,7 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:add-timetable-permissions": "ts-node prisma/scripts/add-timetable-permissions.ts",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:integration": "jest --config jest.integration.config.ts"

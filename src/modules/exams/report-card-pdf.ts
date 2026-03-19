@@ -50,6 +50,7 @@ interface ReportCardPayload {
     remark: string;
     exams: Array<{
       name: string;
+      examType?: 'CAT' | 'EXAM';
       marksObtained: number;
       totalMarks: number;
       percentage: number;
@@ -257,8 +258,8 @@ export async function buildReportCardPdfBuffer(
 
     const tableX = 48;
     let tableY = 210;
-    const columnWidths = [165, 130, 48, 48, 44, 34, 46];
-    const headers = ['SUBJECT', 'ASSESSMENTS', 'SCORE', 'MAX', '%', 'GR', 'REMARK'];
+    const columnWidths = [140, 42, 42, 48, 44, 34, 90];
+    const headers = ['SUBJECTS', 'TEST', 'EX', 'TOT', '%', 'GR', 'REMARK'];
     let cursorX = tableX;
 
     for (let index = 0; index < headers.length; index += 1) {
@@ -273,17 +274,15 @@ export async function buildReportCardPdfBuffer(
     tableY += 24;
 
     for (const subject of payload.subjects) {
-      const assessmentText = subject.exams
-        .map((exam) => `${exam.name}: ${exam.marksObtained}/${exam.totalMarks}`)
-        .join('\n');
-      const subjectScore = subject.exams.reduce((sum, exam) => sum + exam.marksObtained, 0);
-      const subjectMax = subject.exams.reduce((sum, exam) => sum + exam.totalMarks, 0);
-      const rowHeight = Math.max(
-        28,
-        doc.heightOfString(assessmentText, {
-          width: columnWidths[1] - 12,
-        }) + 10,
-      );
+      const catExam = subject.exams.find((e) => e.examType === 'CAT');
+      const examExam = subject.exams.find((e) => e.examType === 'EXAM');
+      const testVal = catExam?.marksObtained ?? null;
+      const examVal = examExam?.marksObtained ?? null;
+      const testStr = testVal != null ? String(testVal) : '-';
+      const examStr = examVal != null ? String(examVal) : '-';
+      const total = (testVal ?? 0) + (examVal ?? 0);
+      const totalStr = total > 0 ? String(total) : '-';
+      const rowHeight = 28;
 
       cursorX = tableX;
       drawCell(doc, cursorX, tableY, columnWidths[0], rowHeight, subject.subjectName, {
@@ -291,17 +290,17 @@ export async function buildReportCardPdfBuffer(
         bold: true,
       });
       cursorX += columnWidths[0];
-      drawCell(doc, cursorX, tableY, columnWidths[1], rowHeight, assessmentText, {
-        size: 8.2,
+      drawCell(doc, cursorX, tableY, columnWidths[1], rowHeight, testStr, {
+        size: 9.2,
+        align: 'center',
       });
       cursorX += columnWidths[1];
-      drawCell(doc, cursorX, tableY, columnWidths[2], rowHeight, subjectScore.toFixed(1), {
+      drawCell(doc, cursorX, tableY, columnWidths[2], rowHeight, examStr, {
         size: 9.2,
-        bold: true,
         align: 'center',
       });
       cursorX += columnWidths[2];
-      drawCell(doc, cursorX, tableY, columnWidths[3], rowHeight, String(subjectMax), {
+      drawCell(doc, cursorX, tableY, columnWidths[3], rowHeight, totalStr, {
         size: 9.2,
         bold: true,
         align: 'center',

@@ -130,6 +130,8 @@ academicRoutes.get(
     PERMISSIONS.CLASS_ROOM_MANAGE,
     PERMISSIONS.COURSES_MANAGE,
     PERMISSIONS.PARENTS_MANAGE,
+    PERMISSIONS.EXAMS_READ,
+    PERMISSIONS.REPORT_CARDS_READ,
   ]),
   asyncHandler((req, res) => academicsController.listClassRooms(req, res)),
 );

@@ -14,6 +14,8 @@ import {
   CreateExamInput,
   CreateGradingSchemeInput,
   ListExamsQueryInput,
+  MarksGridQueryInput,
+  MarksGridSaveInput,
   ParentReportCardsQueryInput,
   ReportCardsQueryInput,
   ResultsActionInput,
@@ -436,6 +438,238 @@ export class ExamsService {
     };
   }
 
+  async getMarksGrid(tenantId: string, query: MarksGridQueryInput, actor: JwtUser) {
+    const scope = await this.getResultScope(tenantId, query.termId, query.classRoomId);
+    let exams = await prisma.exam.findMany({
+      where: {
+        tenantId,
+        termId: query.termId,
+        classRoomId: query.classRoomId,
+        isActive: true,
+      },
+      include: {
+        subject: { select: { id: true, code: true, name: true } },
+        marks: { select: { studentId: true, marksObtained: true } },
+      },
+    });
+
+    if (this.isTeacherOnly(actor)) {
+      const courses = await prisma.course.findMany({
+        where: {
+          tenantId,
+          academicYearId: scope.academicYear.id,
+          classRoomId: query.classRoomId,
+          isActive: true,
+          teacherUserId: actor.sub,
+        },
+        select: { subjectId: true },
+      });
+      const allowedSubjectIds = new Set(courses.map((c) => c.subjectId).filter(Boolean) as string[]);
+      if (allowedSubjectIds.size > 0) {
+        exams = exams.filter((e) => allowedSubjectIds.has(e.subjectId));
+      }
+    }
+
+    const students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
+
+    const subjectMap = new Map<
+      string,
+      { id: string; code: string; name: string }
+    >();
+    const examBySubjectAndType = new Map<
+      string,
+      { examId: string; totalMarks: number; marks: Map<string, number> }
+    >();
+    for (const exam of exams) {
+      const keyCat = `${exam.subjectId}:CAT`;
+      const keyExam = `${exam.subjectId}:EXAM`;
+      const key = exam.examType === 'CAT' ? keyCat : keyExam;
+      if (!subjectMap.has(exam.subjectId)) {
+        subjectMap.set(exam.subjectId, { id: exam.subject.id, code: exam.subject.code, name: exam.subject.name });
+      }
+      const marksMap = new Map<string, number>();
+      for (const m of exam.marks) {
+        marksMap.set(m.studentId, m.marksObtained);
+      }
+      examBySubjectAndType.set(key, { examId: exam.id, totalMarks: exam.totalMarks, marks: marksMap });
+    }
+
+    const subjectIds = Array.from(subjectMap.keys()).sort();
+    const subjects = subjectIds.map((id) => subjectMap.get(id)!);
+
+    const studentRows = students.map((student, index) => {
+      const subjectMarks = subjectIds.map((subjectId) => {
+        const cat = examBySubjectAndType.get(`${subjectId}:CAT`);
+        const exam = examBySubjectAndType.get(`${subjectId}:EXAM`);
+        const testMarks = cat?.marks.get(student.id) ?? null;
+        const examMarks = exam?.marks.get(student.id) ?? null;
+        const test = testMarks ?? 0;
+        const examVal = examMarks ?? 0;
+        const total = test + examVal;
+        return {
+          subjectId,
+          testMarks: testMarks ?? null,
+          examMarks: examMarks ?? null,
+          total,
+        };
+      });
+      const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
+      return {
+        index: index + 1,
+        studentId: student.id,
+        studentCode: student.studentCode,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        subjectMarks,
+        total: rowTotal,
+      };
+    });
+
+    const withRank = studentRows
+      .map((r) => ({ ...r, rank: 0 }))
+      .sort((a, b) => b.total - a.total);
+    let rank = 1;
+    for (const r of withRank) {
+      r.rank = rank++;
+    }
+
+    return {
+      academicYear: scope.academicYear,
+      term: scope.term,
+      classRoom: scope.classRoom,
+      subjects,
+      students: withRank,
+    };
+  }
+
+  async saveMarksGrid(
+    tenantId: string,
+    input: MarksGridSaveInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    await this.getResultScope(tenantId, input.termId, input.classRoomId);
+    await this.ensureResultsUnlocked(tenantId, input.termId, input.classRoomId);
+
+    const term = await prisma.term.findFirst({
+      where: { id: input.termId, tenantId, isActive: true },
+      include: { academicYear: true },
+    });
+    if (!term) throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
+
+    const defaultScheme = await this.getGradingSchemeForUse(tenantId);
+    const existingExams = await prisma.exam.findMany({
+      where: {
+        tenantId,
+        termId: input.termId,
+        classRoomId: input.classRoomId,
+        isActive: true,
+      },
+      select: { id: true, subjectId: true, examType: true },
+    });
+    const examKey = (subjectId: string, type: 'CAT' | 'EXAM') =>
+      existingExams.find((e) => e.subjectId === subjectId && e.examType === type)?.id;
+
+    const toUpsert: Array<{ examId: string; studentId: string; marksObtained: number }> = [];
+    const needCreate: Array<{ subjectId: string; examType: 'CAT' | 'EXAM' }> = [];
+    const createdExamIds: string[] = [];
+
+    for (const entry of input.entries) {
+      const testVal = entry.testMarks ?? null;
+      const examVal = entry.examMarks ?? null;
+      let catExamId = examKey(entry.subjectId, 'CAT');
+      let examExamId = examKey(entry.subjectId, 'EXAM');
+      if (testVal != null && !catExamId) {
+        needCreate.push({ subjectId: entry.subjectId, examType: 'CAT' });
+      }
+      if (examVal != null && !examExamId) {
+        needCreate.push({ subjectId: entry.subjectId, examType: 'EXAM' });
+      }
+    }
+
+    const uniqueCreate = Array.from(
+      new Map(needCreate.map((n) => [`${n.subjectId}:${n.examType}`, n])).values(),
+    );
+    for (const { subjectId, examType } of uniqueCreate) {
+      const subject = await prisma.subject.findFirst({
+        where: { id: subjectId, tenantId, isActive: true },
+        select: { id: true, name: true },
+      });
+      if (!subject) continue;
+      const created = await prisma.exam.create({
+        data: {
+          tenantId,
+          academicYearId: term.academicYearId,
+          termId: input.termId,
+          classRoomId: input.classRoomId,
+          subjectId,
+          gradingSchemeId: defaultScheme.id,
+          examType,
+          name: examType === 'CAT' ? 'Test' : 'Exam',
+          totalMarks: 100,
+          weight: 100,
+          teacherUserId: actor.sub,
+          createdByUserId: actor.sub,
+          updatedByUserId: actor.sub,
+        },
+      });
+      createdExamIds.push(created.id);
+      if (examType === 'CAT') {
+        existingExams.push({ id: created.id, subjectId, examType: 'CAT' });
+      } else {
+        existingExams.push({ id: created.id, subjectId, examType: 'EXAM' });
+      }
+    }
+
+    for (const entry of input.entries) {
+      const catExamId = existingExams.find((e) => e.subjectId === entry.subjectId && e.examType === 'CAT')?.id;
+      const examExamId = existingExams.find((e) => e.subjectId === entry.subjectId && e.examType === 'EXAM')?.id;
+      if (entry.testMarks != null && catExamId) {
+        toUpsert.push({ examId: catExamId, studentId: entry.studentId, marksObtained: entry.testMarks });
+      }
+      if (entry.examMarks != null && examExamId) {
+        toUpsert.push({ examId: examExamId, studentId: entry.studentId, marksObtained: entry.examMarks });
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const u of toUpsert) {
+        await tx.examMark.upsert({
+          where: {
+            tenantId_examId_studentId: {
+              tenantId,
+              examId: u.examId,
+              studentId: u.studentId,
+            },
+          },
+          update: { marksObtained: u.marksObtained, updatedByUserId: actor.sub },
+          create: {
+            tenantId,
+            examId: u.examId,
+            studentId: u.studentId,
+            marksObtained: u.marksObtained,
+            enteredByUserId: actor.sub,
+            updatedByUserId: actor.sub,
+          },
+        });
+      }
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.EXAM_MARKS_SAVED,
+      entity: 'Exam',
+      entityId: input.classRoomId,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { termId: input.termId, entriesCount: input.entries.length },
+    });
+
+    return { savedCount: toUpsert.length, createdExamsCount: uniqueCreate.length };
+  }
+
   async listConductGradesForEntry(
     tenantId: string,
     query: ConductGradesQueryInput,
@@ -797,6 +1031,7 @@ export class ExamsService {
         tenantId,
         studentId,
         ...(query.termId ? { termId: query.termId } : {}),
+        ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
       },
       include: this.resultSnapshotInclude,
       orderBy: [{ term: { startDate: 'desc' } }, { createdAt: 'desc' }],

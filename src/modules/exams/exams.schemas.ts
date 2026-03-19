@@ -93,6 +93,7 @@ export const bulkConductGradesSchema = z
 
 export const reportCardsQuerySchema = z.object({
   termId: z.string().uuid().optional(),
+  academicYearId: z.string().uuid().optional(),
 });
 
 export const conductGradesQuerySchema = z.object({
@@ -105,6 +106,31 @@ export const parentReportCardsQuerySchema = z.object({
   termId: z.string().uuid().optional(),
 });
 
+export const marksGridQuerySchema = z.object({
+  termId: z.string().uuid(),
+  classRoomId: z.string().uuid(),
+});
+
+export const marksGridSaveSchema = z
+  .object({
+    termId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    entries: z
+      .array(
+        z
+          .object({
+            studentId: z.string().uuid(),
+            subjectId: z.string().uuid(),
+            testMarks: z.number().int().min(0).max(500).nullable().optional(),
+            examMarks: z.number().int().min(0).max(500).nullable().optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(2000),
+  })
+  .strict();
+
 export type CreateGradingSchemeInput = z.infer<typeof createGradingSchemeSchema>;
 export type CreateExamInput = z.infer<typeof createExamSchema>;
 export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
@@ -114,3 +140,5 @@ export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
 export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;
 export type BulkConductGradesInput = z.infer<typeof bulkConductGradesSchema>;
 export type ConductGradesQueryInput = z.infer<typeof conductGradesQuerySchema>;
+export type MarksGridQueryInput = z.infer<typeof marksGridQuerySchema>;
+export type MarksGridSaveInput = z.infer<typeof marksGridSaveSchema>;

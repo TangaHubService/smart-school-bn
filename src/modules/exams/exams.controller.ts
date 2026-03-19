@@ -5,6 +5,8 @@ import { ExamsService } from './exams.service';
 import {
   conductGradesQuerySchema,
   listExamsQuerySchema,
+  marksGridQuerySchema,
+  marksGridSaveSchema,
   parentReportCardsQuerySchema,
   reportCardsQuerySchema,
 } from './exams.schemas';
@@ -53,6 +55,18 @@ export class ExamsController {
 
   async bulkSaveMarks(req: Request, res: Response) {
     const result = await examsService.bulkSaveMarks(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async getMarksGrid(req: Request, res: Response) {
+    const query = marksGridQuerySchema.parse(req.query);
+    const result = await examsService.getMarksGrid(req.tenantId!, query, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async saveMarksGrid(req: Request, res: Response) {
+    const body = marksGridSaveSchema.parse(req.body);
+    const result = await examsService.saveMarksGrid(req.tenantId!, body, req.user!, buildContext(req));
     return sendSuccess(req, res, result);
   }
 
