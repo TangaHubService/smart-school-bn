@@ -48,6 +48,8 @@ const envSchema = z.object({
   PAYPACK_BASE_URL: z.string().url().default('https://payments.paypack.rw/api'),
   PAYPACK_WEBHOOK_SECRET: z.string().optional(),
   PAYPACK_WEBHOOK_MODE: z.string().default('development'),
+  ACADEMY_CATALOG_TENANT_ID: z.string().uuid().optional(),
+  ACADEMY_TRIAL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
 });
 
 const parsed = envSchema.safeParse(process.env);

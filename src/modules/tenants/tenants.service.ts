@@ -23,6 +23,23 @@ export class TenantsService {
   private readonly auditService = new AuditService();
   private readonly emailService = new EmailService();
 
+  private assertSuperAdminCatalog(actor: JwtUser) {
+    if (!actor.roles.includes('SUPER_ADMIN')) {
+      throw new AppError(403, 'FORBIDDEN', 'Only super admins can manage the academy catalog tenant');
+    }
+  }
+
+  private async setExclusiveAcademyCatalog(tx: Prisma.TransactionClient, tenantId: string) {
+    await tx.tenant.updateMany({
+      where: { isAcademyCatalog: true },
+      data: { isAcademyCatalog: false },
+    });
+    await tx.tenant.update({
+      where: { id: tenantId },
+      data: { isAcademyCatalog: true },
+    });
+  }
+
   async listTenants(input: ListTenantsQueryInput, _actor: JwtUser) {
     const where: Prisma.TenantWhereInput = {
       code: { not: 'platform' },
@@ -90,6 +107,7 @@ export class TenantsService {
         name: tenant.name,
         domain: tenant.domain,
         isActive: tenant.isActive,
+        isAcademyCatalog: tenant.isAcademyCatalog,
         createdAt: tenant.createdAt,
         school: tenant.school,
         activeUsers: tenant.users.length,
@@ -103,6 +121,9 @@ export class TenantsService {
     actor: JwtUser,
     context: RequestAuditContext,
   ) {
+    if (input.isAcademyCatalog) {
+      this.assertSuperAdminCatalog(actor);
+    }
     try {
       const result = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.create({
@@ -197,11 +218,20 @@ export class TenantsService {
           };
         }
 
+        if (input.isAcademyCatalog) {
+          await this.setExclusiveAcademyCatalog(tx, tenant.id);
+        }
+
         return {
           tenant,
           school,
           schoolAdminUser,
         };
+      });
+
+      const createdFlags = await prisma.tenant.findUniqueOrThrow({
+        where: { id: result.tenant.id },
+        select: { isAcademyCatalog: true },
       });
 
       await this.auditService.log({
@@ -225,6 +255,7 @@ export class TenantsService {
           code: result.tenant.code,
           name: result.tenant.name,
           domain: result.tenant.domain,
+          isAcademyCatalog: createdFlags.isAcademyCatalog,
         },
         school: {
           id: result.school.id,
@@ -298,6 +329,7 @@ export class TenantsService {
       name: tenant.name,
       domain: tenant.domain,
       isActive: tenant.isActive,
+      isAcademyCatalog: tenant.isAcademyCatalog,
       createdAt: tenant.createdAt,
       updatedAt: tenant.updatedAt,
       school: tenant.school,
@@ -475,6 +507,13 @@ export class TenantsService {
       throw new AppError(404, 'TENANT_NOT_FOUND', 'School not found');
     }
 
+    if (
+      input.isAcademyCatalog !== undefined &&
+      input.isAcademyCatalog !== existing.isAcademyCatalog
+    ) {
+      this.assertSuperAdminCatalog(actor);
+    }
+
     try {
       const result = await prisma.$transaction(async (tx) => {
         const tenant = await tx.tenant.update({
@@ -502,6 +541,15 @@ export class TenantsService {
             timezone: 'Africa/Kigali',
           },
         });
+
+        if (input.isAcademyCatalog === true) {
+          await this.setExclusiveAcademyCatalog(tx, tenantId);
+        } else if (input.isAcademyCatalog === false) {
+          await tx.tenant.update({
+            where: { id: tenantId },
+            data: { isAcademyCatalog: false },
+          });
+        }
 
         return { tenant, school };
       });
@@ -531,12 +579,18 @@ export class TenantsService {
         },
       });
 
+      const refreshed = await prisma.tenant.findUniqueOrThrow({
+        where: { id: tenantId },
+        select: { isAcademyCatalog: true },
+      });
+
       return {
         id: result.tenant.id,
         code: result.tenant.code,
         name: result.tenant.name,
         domain: result.tenant.domain,
         isActive: result.tenant.isActive,
+        isAcademyCatalog: refreshed.isAcademyCatalog,
         school: {
           id: result.school.id,
           displayName: result.school.displayName,

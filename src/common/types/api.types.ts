@@ -9,6 +9,10 @@ export interface ApiMeta {
   requestId: string;
   timestamp: string;
   pagination: PaginationMeta | null;
+  academyCatalog?: {
+    resolved: boolean;
+    publicProgramCount: number;
+  };
 }
 
 export interface ApiError {

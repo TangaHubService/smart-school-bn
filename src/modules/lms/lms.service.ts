@@ -23,6 +23,8 @@ import {
   ListMyCoursesQueryInput,
   PublishLessonInput,
   UploadedAssetInput,
+  CreateAcademyProgramInput,
+  UpdateAcademyProgramInput,
 } from './lms.schemas';
 
 type TxClient = Prisma.TransactionClient;
@@ -1208,7 +1210,11 @@ export class LmsService {
 
     // 2. Get Program enrollments (Academy)
     const programEnrollments = await prisma.programEnrollment.findMany({
-      where: { tenantId, userId: actor.sub, isActive: true },
+      where: {
+        userId: actor.sub,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       include: { program: { select: { courseId: true } } },
     });
 
@@ -1235,16 +1241,23 @@ export class LmsService {
     }
 
     const skip = (query.page - 1) * query.pageSize;
-    const where: Prisma.CourseWhereInput = {
-      tenantId,
-      isActive: true,
-      OR: [
-        ...enrollmentPairs.map((pair) => ({
+    const orBlocks: Prisma.CourseWhereInput[] = [];
+    if (enrollmentPairs.length) {
+      orBlocks.push({
+        tenantId,
+        OR: enrollmentPairs.map((pair) => ({
           classRoomId: pair.classRoomId,
           academicYearId: pair.academicYearId,
         })),
-        ...(academyCourseIds.length ? [{ id: { in: academyCourseIds } }] : []),
-      ],
+      });
+    }
+    if (academyCourseIds.length) {
+      orBlocks.push({ id: { in: academyCourseIds } });
+    }
+
+    const where: Prisma.CourseWhereInput = {
+      isActive: true,
+      OR: orBlocks,
     };
 
     const [totalItems, items] = await prisma.$transaction([
@@ -1808,6 +1821,186 @@ export class LmsService {
         : null,
       gradedBy: submission.gradedByUser ?? null,
     };
+  }
+
+  private async assertCourseInTenant(tenantId: string, courseId: string) {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found for this school');
+    }
+  }
+
+  private mapAcademyProgram(p: {
+    id: string;
+    tenantId: string;
+    title: string;
+    description: string | null;
+    thumbnail: string | null;
+    price: number;
+    durationDays: number;
+    isActive: boolean;
+    listedInPublicCatalog: boolean;
+    courseId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    course?: { id: string; title: string } | null;
+  }) {
+    return {
+      id: p.id,
+      tenantId: p.tenantId,
+      title: p.title,
+      description: p.description,
+      thumbnail: p.thumbnail,
+      price: p.price,
+      durationDays: p.durationDays,
+      isActive: p.isActive,
+      listedInPublicCatalog: p.listedInPublicCatalog,
+      courseId: p.courseId,
+      createdAt: p.createdAt.toISOString(),
+      updatedAt: p.updatedAt.toISOString(),
+      linkedCourse: p.course ? { id: p.course.id, title: p.course.title } : null,
+    };
+  }
+
+  async listAcademyPrograms(tenantId: string, _actor: JwtUser) {
+    const items = await prisma.program.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        course: { select: { id: true, title: true } },
+      },
+    });
+    return items.map((row) => this.mapAcademyProgram(row));
+  }
+
+  async createAcademyProgram(
+    tenantId: string,
+    input: CreateAcademyProgramInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    if (input.courseId) {
+      await this.assertCourseInTenant(tenantId, input.courseId);
+    }
+
+    try {
+      const created = await prisma.program.create({
+        data: {
+          tenantId,
+          title: input.title,
+          description: input.description?.trim() ? input.description.trim() : null,
+          thumbnail: input.thumbnail?.trim() ? input.thumbnail.trim() : null,
+          price: input.price,
+          durationDays: input.durationDays,
+          isActive: input.isActive ?? true,
+          listedInPublicCatalog: input.listedInPublicCatalog ?? true,
+          courseId: input.courseId ?? null,
+        },
+        include: { course: { select: { id: true, title: true } } },
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.ACADEMY_PROGRAM_CREATED,
+        entity: 'Program',
+        entityId: created.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { title: created.title, price: created.price },
+      });
+
+      return this.mapAcademyProgram(created);
+    } catch (error) {
+      this.handleUniqueError(error, 'A program with this title already exists for your school');
+      throw error;
+    }
+  }
+
+  async updateAcademyProgram(
+    tenantId: string,
+    programId: string,
+    input: UpdateAcademyProgramInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const existing = await prisma.program.findFirst({
+      where: { id: programId, tenantId },
+    });
+    if (!existing) {
+      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
+    }
+
+    if (input.courseId !== undefined && input.courseId) {
+      await this.assertCourseInTenant(tenantId, input.courseId);
+    }
+
+    const data: Prisma.ProgramUpdateInput = {};
+    if (input.title !== undefined) {
+      data.title = input.title;
+    }
+    if (input.description !== undefined) {
+      data.description =
+        input.description === null ? null : input.description.trim() ? input.description.trim() : null;
+    }
+    if (input.thumbnail !== undefined) {
+      data.thumbnail =
+        input.thumbnail === null || input.thumbnail === ''
+          ? null
+          : input.thumbnail.trim();
+    }
+    if (input.price !== undefined) {
+      data.price = input.price;
+    }
+    if (input.durationDays !== undefined) {
+      data.durationDays = input.durationDays;
+    }
+    if (input.isActive !== undefined) {
+      data.isActive = input.isActive;
+    }
+    if (input.listedInPublicCatalog !== undefined) {
+      data.listedInPublicCatalog = input.listedInPublicCatalog;
+    }
+    if (input.courseId !== undefined) {
+      if (input.courseId === null) {
+        data.course = { disconnect: true };
+      } else {
+        data.course = { connect: { id: input.courseId } };
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new AppError(400, 'NO_CHANGES', 'No fields to update');
+    }
+
+    try {
+      const updated = await prisma.program.update({
+        where: { id: programId },
+        data,
+        include: { course: { select: { id: true, title: true } } },
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.ACADEMY_PROGRAM_UPDATED,
+        entity: 'Program',
+        entityId: programId,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { title: updated.title },
+      });
+
+      return this.mapAcademyProgram(updated);
+    } catch (error) {
+      this.handleUniqueError(error, 'A program with this title already exists for your school');
+      throw error;
+    }
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {

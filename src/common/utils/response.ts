@@ -1,6 +1,6 @@
 import { Response } from 'express';
 
-import { ApiEnvelope, PaginationMeta } from '../types/api.types';
+import { ApiEnvelope, ApiMeta, PaginationMeta } from '../types/api.types';
 
 export function sendSuccess<T>(
   req: Express.Request,
@@ -8,6 +8,7 @@ export function sendSuccess<T>(
   data: T,
   statusCode = 200,
   pagination: PaginationMeta | null = null,
+  metaExtensions: Partial<Pick<ApiMeta, 'academyCatalog'>> = {},
 ): Response<ApiEnvelope<T>> {
   return res.status(statusCode).json({
     data,
@@ -16,6 +17,7 @@ export function sendSuccess<T>(
       requestId: req.requestId,
       timestamp: new Date().toISOString(),
       pagination,
+      ...metaExtensions,
     },
   });
 }

@@ -11,7 +11,15 @@ import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { normalizePermissions } from '../../common/utils/permission-utils';
 import { ttlToSeconds } from '../../common/utils/time';
 import { AuditService } from '../audit/audit.service';
+import { grantCatalogTrialEnrollments } from '../public-academy/academy-trial';
+import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { LoginInput, LogoutInput, RefreshInput } from './auth.schemas';
+
+const PUBLIC_LEARNER_PERMISSIONS = [
+  'students.my_courses.read',
+  'assessments.submit',
+  'files.upload',
+];
 
 export class AuthService {
   private readonly auditService = new AuditService();
@@ -28,16 +36,27 @@ export class AuthService {
     const { firstName, lastName, email, password } = input;
     const normalizedEmail = email.toLowerCase();
 
-    // 1. Find Public Academy Tenant
-    const academyTenant = await prisma.tenant.findUnique({
-      where: { code: 'PUBLIC_ACADEMY' },
-    });
-
-    if (!academyTenant || !academyTenant.isActive) {
-      throw new AppError(500, 'AUTH_ACADEMY_NOT_CONFIGURED', 'Public Academy is not correctly configured.');
+    const catalogTenantId = await resolveAcademyCatalogTenantId();
+    if (!catalogTenantId) {
+      throw new AppError(
+        503,
+        'AUTH_ACADEMY_NOT_CONFIGURED',
+        'No academy catalog school is set. In Super Admin → Schools, enable “Public academy catalog school” for one school, or set ACADEMY_CATALOG_TENANT_ID in server environment.',
+      );
     }
 
-    // 2. Check if user already exists in this tenant
+    const academyTenant = await prisma.tenant.findFirst({
+      where: { id: catalogTenantId, isActive: true },
+    });
+
+    if (!academyTenant) {
+      throw new AppError(
+        503,
+        'AUTH_ACADEMY_NOT_CONFIGURED',
+        'Academy catalog tenant is missing or inactive. Check ACADEMY_CATALOG_TENANT_ID and that the school is active.',
+      );
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: {
         tenantId_email: {
@@ -51,21 +70,26 @@ export class AuthService {
       throw new AppError(409, 'AUTH_USER_EXISTS', 'An account already exists with this email.');
     }
 
-    // 3. Find PUBLIC_LEARNER role
-    const learnerRole = await prisma.role.findUnique({
+    const learnerRole = await prisma.role.upsert({
       where: {
         tenantId_name: {
           tenantId: academyTenant.id,
           name: 'PUBLIC_LEARNER',
         },
       },
+      update: {
+        permissions: PUBLIC_LEARNER_PERMISSIONS,
+      },
+      create: {
+        tenantId: academyTenant.id,
+        name: 'PUBLIC_LEARNER',
+        description: 'Public academy learner',
+        isSystem: true,
+        permissions: PUBLIC_LEARNER_PERMISSIONS,
+      },
     });
 
-    if (!learnerRole) {
-      throw new AppError(500, 'AUTH_ROLE_NOT_FOUND', 'Public learner role not found.');
-    }
-
-    // 4. Create User
+    // Create User
     const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
 
     const user = await prisma.$transaction(async (tx) => {
@@ -111,6 +135,8 @@ export class AuthService {
         },
       });
     });
+
+    await grantCatalogTrialEnrollments(user.id, academyTenant.id);
 
     return this.completeLogin(academyTenant.id, user, context);
   }

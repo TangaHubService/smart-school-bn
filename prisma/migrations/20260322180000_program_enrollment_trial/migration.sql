@@ -1,0 +1,1 @@
+ALTER TABLE "ProgramEnrollment" ADD COLUMN "isTrial" BOOLEAN NOT NULL DEFAULT false;

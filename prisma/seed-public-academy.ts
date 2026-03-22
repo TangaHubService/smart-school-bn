@@ -17,7 +17,16 @@ async function main() {
     },
   });
 
-  console.log(`Created/Updated Tenant: ${academyTenant.name} (${academyTenant.id})`);
+  await prisma.tenant.updateMany({
+    where: { id: { not: academyTenant.id }, isAcademyCatalog: true },
+    data: { isAcademyCatalog: false },
+  });
+  await prisma.tenant.update({
+    where: { id: academyTenant.id },
+    data: { isAcademyCatalog: true },
+  });
+
+  console.log(`Created/Updated Tenant: ${academyTenant.name} (${academyTenant.id}) — academy catalog`);
 
   // Create PUBLIC_LEARNER role
   const publicLearnerRole = await prisma.role.upsert({

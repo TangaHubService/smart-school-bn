@@ -127,13 +127,14 @@ enum GovScopeLevel {
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  code      String   @unique
-  name      String
-  domain    String?  @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  code               String   @unique
+  name               String
+  domain             String?  @unique
+  isActive           Boolean  @default(true)
+  isAcademyCatalog   Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   school        School?
   users         User[]
@@ -171,8 +172,9 @@ model Tenant {
   conductActions   ConductAction[]
   conductFeedbacks ConductFeedback[]
   conductGrades    ConductGrade[]
-  programs         Program[]
-  payments         Payment[]
+  programs             Program[]
+  payments             Payment[]
+  paymentsAsBuyer      Payment[]            @relation("PaymentBuyerTenant")
   programEnrollments ProgramEnrollment[]
   timetableSlots  TimetableSlot[]
   announcements   Announcement[]
@@ -1149,17 +1151,18 @@ enum PaymentStatus {
 }
 
 model Program {
-  id               String   @id @default(uuid())
-  tenantId         String
-  title            String
-  description      String?
-  thumbnail        String?
-  price            Float
-  durationDays     Int      @default(30)
-  isActive         Boolean  @default(true)
-  courseId         String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  tenantId               String
+  title                  String
+  description            String?
+  thumbnail              String?
+  price                  Float
+  durationDays           Int      @default(30)
+  isActive               Boolean  @default(true)
+  listedInPublicCatalog  Boolean  @default(true)
+  courseId               String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   course           Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
@@ -1168,11 +1171,13 @@ model Program {
 
   @@unique([tenantId, title])
   @@index([tenantId, isActive])
+  @@index([tenantId, listedInPublicCatalog])
 }
 
 model Payment {
   id                 String          @id @default(uuid())
   tenantId           String
+  buyerTenantId      String?
   userId             String
   programId          String
   amount             Float
@@ -1186,11 +1191,13 @@ model Payment {
   updatedAt          DateTime        @updatedAt
 
   tenant             Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  buyerTenant        Tenant?         @relation("PaymentBuyerTenant", fields: [buyerTenantId], references: [id], onDelete: SetNull)
   user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   program            Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, status])
   @@index([userId, status])
+  @@index([buyerTenantId])
 }
 
 model ProgramEnrollment {
@@ -1200,6 +1207,7 @@ model ProgramEnrollment {
   programId String
   expiresAt DateTime?
   isActive  Boolean  @default(true)
+  isTrial   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -10,12 +10,14 @@ import { LmsController } from './lms.controller';
 import {
   assignCourseTeacherSchema,
   assignTeacherBySubjectSchema,
+  createAcademyProgramSchema,
   createAssignmentSchema,
   createCourseSchema,
   createLessonSchema,
   createSubmissionSchema,
   gradeSubmissionSchema,
   publishLessonSchema,
+  updateAcademyProgramSchema,
 } from './lms.schemas';
 
 const lmsController = new LmsController();
@@ -29,6 +31,26 @@ lmsRoutes.post(
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(createCourseSchema),
   asyncHandler((req, res) => lmsController.createCourse(req, res)),
+);
+
+lmsRoutes.get(
+  '/academy-programs',
+  requirePermissions([PERMISSIONS.COURSES_READ]),
+  asyncHandler((req, res) => lmsController.listAcademyPrograms(req, res)),
+);
+
+lmsRoutes.post(
+  '/academy-programs',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(createAcademyProgramSchema),
+  asyncHandler((req, res) => lmsController.createAcademyProgram(req, res)),
+);
+
+lmsRoutes.patch(
+  '/academy-programs/:programId',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(updateAcademyProgramSchema),
+  asyncHandler((req, res) => lmsController.updateAcademyProgram(req, res)),
 );
 
 lmsRoutes.get(

@@ -31,6 +31,7 @@ export const createTenantSchema = z.object({
     lastName: z.string().trim().min(2).max(80),
     password: z.string().min(8).max(128),
   }).optional(),
+  isAcademyCatalog: z.boolean().optional(),
 });
 
 export const inviteTenantAdminSchema = z.object({
@@ -52,6 +53,7 @@ export const updateTenantSchema = z.object({
     email: z.string().trim().email().nullable().optional(),
     phone: z.string().trim().max(40).nullable().optional(),
   }),
+  isAcademyCatalog: z.boolean().optional(),
 });
 
 export const updateTenantStatusSchema = z.object({
