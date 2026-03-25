@@ -124,6 +124,7 @@ describe('AuthService', () => {
     const result = await authService.login(
       {
         loginAs: 'student',
+        schoolCode: 'SMART',
         studentId: 'STU-001',
       },
       {

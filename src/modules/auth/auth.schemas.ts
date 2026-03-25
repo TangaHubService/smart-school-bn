@@ -37,3 +37,29 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Enter a valid email'),
+});
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  email: z.string().email('Enter a valid email'),
+  otp: z.string().min(1, 'OTP is required'),
+  newPassword: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Must include a capital letter')
+    .regex(/[a-z]/, 'Must include a small letter')
+    .regex(/[0-9]/, 'Must include a number')
+    .regex(/[^A-Za-z0-9]/, 'Must include a special character'),
+});
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export const verifyOtpSchema = z.object({
+  email: z.string().trim().email(),
+  otp: z.string().length(6, 'OTP must be 6 digits'),
+});
+
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

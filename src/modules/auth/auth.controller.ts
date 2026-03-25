@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { AuthService } from './auth.service';
-import { LoginInput, LogoutInput, RefreshInput, RegisterInput } from './auth.schemas';
+import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, ResetPasswordInput, VerifyOtpInput } from './auth.schemas';
 
 const authService = new AuthService();
 
@@ -42,6 +42,21 @@ export class AuthController {
       req.body as RegisterInput,
       buildContext(req),
     );
+    return sendSuccess(req, res, result);
+  }
+
+  async forgotPassword(req: Request, res: Response): Promise<Response> {
+    const result = await authService.forgotPassword(req.body as ForgotPasswordInput, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async verifyOtp(req: Request, res: Response): Promise<Response> {
+    const result = await authService.verifyOtp(req.body as VerifyOtpInput, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async resetPassword(req: Request, res: Response): Promise<Response> {
+    const result = await authService.resetPassword(req.body as ResetPasswordInput, buildContext(req));
     return sendSuccess(req, res, result);
   }
 }

@@ -336,6 +336,7 @@ describe('results integration flow', () => {
         termId: 'term-1',
         classRoomId: 'class-1',
         subjectId: 'subject-1',
+        examType: 'EXAM',
         name: 'Mid-term Mathematics',
         totalMarks: 100,
         weight: 100,

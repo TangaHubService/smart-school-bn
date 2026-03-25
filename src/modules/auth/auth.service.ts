@@ -11,9 +11,10 @@ import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { normalizePermissions } from '../../common/utils/permission-utils';
 import { ttlToSeconds } from '../../common/utils/time';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../notifications/email.service';
 import { grantCatalogTrialEnrollments } from '../public-academy/academy-trial';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
-import { LoginInput, LogoutInput, RefreshInput } from './auth.schemas';
+import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, ResetPasswordInput, VerifyOtpInput } from './auth.schemas';
 
 const PUBLIC_LEARNER_PERMISSIONS = [
   'students.my_courses.read',
@@ -23,6 +24,7 @@ const PUBLIC_LEARNER_PERMISSIONS = [
 
 export class AuthService {
   private readonly auditService = new AuditService();
+  private readonly emailService = new EmailService();
 
   async login(input: LoginInput, context: RequestAuditContext) {
     if (input.loginAs === 'student') {
@@ -575,5 +577,148 @@ export class AuthService {
     ];
 
     return { roles, permissions };
+  }
+
+  async forgotPassword(input: ForgotPasswordInput, context: RequestAuditContext) {
+    const { email } = input;
+    const normalized = email.toLowerCase().trim();
+
+    // 1. Find user
+    const user = await prisma.user.findFirst({
+      where: {
+        email: normalized,
+        deletedAt: null,
+      },
+    });
+
+    if (!user) {
+      // Return success anyway to avoid user enumeration
+      return { message: 'If your account exists, an OTP has been sent.' };
+    }
+
+    // 2. Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // 3. Store OTP
+    await prisma.passwordResetToken.upsert({
+      where: {
+        tenantId_email: {
+          tenantId: user.tenantId,
+          email: user.email,
+        },
+      },
+      update: {
+        otp,
+        expiresAt,
+      },
+      create: {
+        tenantId: user.tenantId,
+        email: user.email,
+        otp,
+        expiresAt,
+      },
+    });
+
+    // 4. Log event (Audit)
+    await this.auditService.log({
+      tenantId: user.tenantId,
+      actorUserId: user.id,
+      event: AUDIT_EVENT.USER_PASSWORD_RESET_REQUESTED,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { email: user.email },
+    });
+
+    // 5. Send Email
+    await this.emailService.sendPasswordResetOtp({
+      toEmail: user.email,
+      otp,
+      expiresAt,
+    }).catch((err) => {
+      console.error(`[AuthService] Failed to send OTP to ${user.email}:`, err);
+    });
+
+    return { message: 'OTP sent successfully.' };
+  }
+
+  async verifyOtp(input: VerifyOtpInput, context: RequestAuditContext) {
+    const { email, otp } = input;
+    const normalized = email.toLowerCase().trim();
+
+    const tokenRecord = await prisma.passwordResetToken.findFirst({
+      where: {
+        email: normalized,
+        otp,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!tokenRecord) {
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid or expired OTP.');
+    }
+
+    return { message: 'OTP is valid.' };
+  }
+
+  async resetPassword(input: ResetPasswordInput, context: RequestAuditContext) {
+    const { email, otp, newPassword } = input;
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // 1. Find valid token
+    const tokenRecord = await prisma.passwordResetToken.findFirst({
+      where: {
+        email: normalizedEmail,
+        otp,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        tenant: true,
+      },
+    });
+
+    if (!tokenRecord) {
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid or expired OTP');
+    }
+
+    // 2. Find user in that tenant
+    const user = await prisma.user.findUnique({
+      where: {
+        tenantId_email: {
+          tenantId: tokenRecord.tenantId,
+          email: normalizedEmail,
+        },
+      },
+    });
+
+    if (!user) {
+      throw new AppError(404, 'AUTH_USER_NOT_FOUND', 'User not found');
+    }
+
+    // 3. Update password
+    const passwordHash = await bcrypt.hash(newPassword, env.BCRYPT_ROUNDS);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      prisma.passwordResetToken.delete({
+        where: { id: tokenRecord.id },
+      }),
+    ]);
+
+    // 4. Log event
+    await this.auditService.log({
+      tenantId: user.tenantId,
+      actorUserId: user.id,
+      event: AUDIT_EVENT.USER_PASSWORD_RESET_SUCCESS,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return { message: 'Password reset successfully' };
   }
 }

@@ -178,6 +178,7 @@ model Tenant {
   programEnrollments ProgramEnrollment[]
   timetableSlots  TimetableSlot[]
   announcements   Announcement[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([isActive])
 }
@@ -1269,4 +1270,17 @@ model Announcement {
 
   @@index([tenantId, publishedAt])
   @@index([tenantId, audience])
+}
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tenantId  String
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, email])
+  @@index([tenantId, email, otp])
 }

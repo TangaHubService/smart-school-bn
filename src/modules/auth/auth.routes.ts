@@ -5,7 +5,7 @@ import { enforceTenant } from '../../common/middleware/tenant.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { AuthController } from './auth.controller';
-import { loginSchema, logoutSchema, refreshSchema, registerSchema } from './auth.schemas';
+import { forgotPasswordSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, resetPasswordSchema, verifyOtpSchema } from './auth.schemas';
 
 const authController = new AuthController();
 
@@ -33,4 +33,22 @@ authRoutes.post(
   enforceTenant,
   validateBody(logoutSchema),
   asyncHandler((req, res) => authController.logout(req, res)),
+);
+
+authRoutes.post(
+  '/forgot-password',
+  validateBody(forgotPasswordSchema),
+  asyncHandler((req, res) => authController.forgotPassword(req, res)),
+);
+
+authRoutes.post(
+  '/verify-otp',
+  validateBody(verifyOtpSchema),
+  asyncHandler((req, res) => authController.verifyOtp(req, res)),
+);
+
+authRoutes.post(
+  '/reset-password',
+  validateBody(resetPasswordSchema),
+  asyncHandler((req, res) => authController.resetPassword(req, res)),
 );
