@@ -18,6 +18,7 @@ interface ReportCardPayload {
     phone?: string | null;
     district?: string | null;
     country?: string | null;
+    logoUrl?: string | null;
   };
   academicYear: { name: string };
   term: { name: string };
@@ -164,6 +165,23 @@ function formatBands(rules: GradingBand[]) {
   return [...rules].sort((left, right) => right.max - left.max || right.min - left.min);
 }
 
+async function loadLogoBuffer(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      return null;
+    }
+    const mime = res.headers.get('content-type') ?? '';
+    if (mime && !mime.startsWith('image/')) {
+      return null;
+    }
+    const arr = await res.arrayBuffer();
+    return Buffer.from(arr);
+  } catch {
+    return null;
+  }
+}
+
 export async function buildReportCardPdfBuffer(
   payload: ReportCardPayload,
   options: ReportCardPdfOptions,
@@ -174,6 +192,9 @@ export async function buildReportCardPdfBuffer(
     margin: 1,
     width: 160,
   });
+
+  const logoUrl = payload.school?.logoUrl?.trim();
+  const logoBuffer = logoUrl ? await loadLogoBuffer(logoUrl) : null;
 
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ margin: 32, size: 'A4' });
@@ -204,6 +225,20 @@ export async function buildReportCardPdfBuffer(
     const leftMetaX = 54;
     const leftMetaY = 54;
     const leftMetaWidth = 210;
+
+    if (logoBuffer) {
+      try {
+        const logoX = pageWidth - outerX - 56;
+        doc.image(logoBuffer, logoX, leftMetaY - 6, {
+          width: 52,
+          height: 52,
+          fit: [52, 52],
+        });
+      } catch {
+        // ignore invalid image data for PDF
+      }
+    }
+
     drawText(
       doc,
       [

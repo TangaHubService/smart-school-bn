@@ -17,6 +17,7 @@ import {
   MarksGridQueryInput,
   MarksGridSaveInput,
   ParentReportCardsQueryInput,
+  MyExamScheduleQueryInput,
   ReportCardsQueryInput,
   ResultsActionInput,
 } from './exams.schemas';
@@ -39,6 +40,7 @@ type ReportCardPayload = {
     phone?: string | null;
     district?: string | null;
     country?: string | null;
+    logoUrl?: string | null;
   };
   academicYear: { id: string; name: string };
   term: { id: string; name: string };
@@ -1090,6 +1092,61 @@ export class ExamsService {
     };
   }
 
+  async listMyExamSchedule(tenantId: string, actor: JwtUser, query: MyExamScheduleQueryInput) {
+    const student = await prisma.student.findFirst({
+      where: { tenantId, userId: actor.sub, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!student) {
+      throw new AppError(403, 'STUDENT_PROFILE_NOT_FOUND', 'Student profile not found');
+    }
+
+    const currentYear = await prisma.academicYear.findFirst({
+      where: { tenantId, isCurrent: true, isActive: true },
+      select: { id: true },
+    });
+
+    const enrollmentScope = currentYear ? { academicYearId: currentYear.id } : {};
+
+    const classRows = await prisma.studentEnrollment.findMany({
+      where: {
+        tenantId,
+        studentId: student.id,
+        isActive: true,
+        ...enrollmentScope,
+      },
+      select: { classRoomId: true },
+      distinct: ['classRoomId'],
+    });
+    const classIds = classRows.map((r) => r.classRoomId).filter(Boolean) as string[];
+
+    if (!classIds.length) {
+      return { items: [] };
+    }
+
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+
+    const where: Prisma.ExamWhereInput = {
+      tenantId,
+      isActive: true,
+      classRoomId: { in: classIds },
+      ...(currentYear ? { academicYearId: currentYear.id } : {}),
+      ...(query.upcomingOnly ? { examDate: { gte: startOfToday } } : {}),
+    };
+
+    const items = await prisma.exam.findMany({
+      where,
+      include: this.examListInclude,
+      orderBy: [{ examDate: 'asc' }, { name: 'asc' }],
+      take: 200,
+    });
+
+    return {
+      items: items.map((item) => this.mapExamSummary(item)),
+    };
+  }
+
   async getParentReportCards(
     tenantId: string,
     actor: JwtUser,
@@ -1423,6 +1480,7 @@ export class ExamsService {
           phone: true,
           district: true,
           country: true,
+          logoUrl: true,
           tenant: {
             select: {
               code: true,
@@ -1451,6 +1509,7 @@ export class ExamsService {
         phone: school?.phone ?? null,
         district: school?.district ?? null,
         country: school?.country ?? null,
+        logoUrl: school?.logoUrl ?? null,
       },
       schoolName: school?.displayName ?? 'Smart School Rwanda',
     };
@@ -1503,6 +1562,7 @@ export class ExamsService {
       phone: string | null;
       district: string | null;
       country: string | null;
+      logoUrl?: string | null;
     };
     academicYear: { id: string; name: string };
     term: { id: string; name: string };

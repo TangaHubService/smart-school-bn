@@ -18,11 +18,22 @@ import {
   ListMyAssessmentsQueryInput,
   PublishAssessmentInput,
   RegradeAttemptInput,
+  ReplaceAssessmentAssigneesInput,
   SaveAttemptAnswersInput,
+  StartAssessmentAttemptInput,
+  UpdateAssessmentPortalInput,
   UpdateQuestionInput,
 } from './assessments.schemas';
 
 type TxClient = Prisma.TransactionClient;
+
+function isOpenEndedQuestionType(type: AssessmentQuestionType): boolean {
+  return (
+    type === AssessmentQuestionType.OPEN_TEXT ||
+    type === AssessmentQuestionType.SHORT_ANSWER ||
+    type === AssessmentQuestionType.ESSAY
+  );
+}
 
 export class AssessmentsService {
   private readonly auditService = new AuditService();
@@ -40,6 +51,9 @@ export class AssessmentsService {
       await this.ensureLessonInCourse(tenantId, input.lessonId, input.courseId);
     }
 
+    const accessCode =
+      input.accessCode && input.accessCode.trim().length > 0 ? input.accessCode.trim() : null;
+
     const created: any = await prisma.assessment.create({
       data: {
         tenantId,
@@ -53,6 +67,8 @@ export class AssessmentsService {
         maxAttempts: input.maxAttempts,
         isPublished: input.isPublished,
         publishedAt: input.isPublished ? new Date() : null,
+        accessCode,
+        portalAssignOnly: input.portalAssignOnly ?? false,
         createdByUserId: actor.sub,
         updatedByUserId: actor.sub,
       },
@@ -263,7 +279,7 @@ export class AssessmentsService {
         question.options.map((option: any) => [option.sequence, option]),
       );
 
-      if (input.type === AssessmentQuestionType.OPEN_TEXT) {
+      if (isOpenEndedQuestionType(input.type)) {
         await tx.assessmentOption.deleteMany({
           where: {
             tenantId,
@@ -443,6 +459,131 @@ export class AssessmentsService {
     return this.mapAssessmentSummary(updated);
   }
 
+  async updateAssessmentPortal(
+    tenantId: string,
+    assessmentId: string,
+    input: UpdateAssessmentPortalInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
+    this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
+
+    const accessCode =
+      input.accessCode === undefined
+        ? undefined
+        : input.accessCode && input.accessCode.trim().length > 0
+          ? input.accessCode.trim()
+          : null;
+
+    const updated: any = await prisma.assessment.update({
+      where: { id: assessment.id },
+      data: {
+        ...(accessCode !== undefined ? { accessCode } : {}),
+        ...(input.portalAssignOnly !== undefined ? { portalAssignOnly: input.portalAssignOnly } : {}),
+        updatedByUserId: actor.sub,
+      },
+      include: this.assessmentSummaryInclude,
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.ASSESSMENT_UPDATED,
+      entity: 'Assessment',
+      entityId: updated.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        portal: true,
+        hasAccessCode: Boolean(updated.accessCode),
+        portalAssignOnly: updated.portalAssignOnly,
+      },
+    });
+
+    return this.mapAssessmentSummary(updated);
+  }
+
+  async replaceAssessmentAssignees(
+    tenantId: string,
+    assessmentId: string,
+    input: ReplaceAssessmentAssigneesInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
+    this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
+
+    const course = await prisma.course.findFirst({
+      where: { id: assessment.courseId, tenantId, isActive: true },
+      select: { classRoomId: true, academicYearId: true },
+    });
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    const studentIds = [...new Set(input.studentIds)];
+    if (studentIds.length) {
+      const valid = await prisma.studentEnrollment.findMany({
+        where: {
+          tenantId,
+          classRoomId: course.classRoomId,
+          academicYearId: course.academicYearId,
+          studentId: { in: studentIds },
+          isActive: true,
+        },
+        select: { studentId: true },
+      });
+      const validSet = new Set(valid.map((v) => v.studentId));
+      const missing = studentIds.filter((id) => !validSet.has(id));
+      if (missing.length) {
+        throw new AppError(
+          400,
+          'ASSESSMENT_ASSIGNEE_INVALID',
+          'Some students are not enrolled in this assessment course class for the current academic year',
+          { missingStudentIds: missing.slice(0, 20) },
+        );
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.assessmentStudentAssignment.deleteMany({
+        where: { tenantId, assessmentId },
+      });
+      if (studentIds.length) {
+        await tx.assessmentStudentAssignment.createMany({
+          data: studentIds.map((studentId) => ({
+            tenantId,
+            assessmentId,
+            studentId,
+          })),
+        });
+      }
+    });
+
+    const updated: any = await prisma.assessment.findFirst({
+      where: { id: assessmentId, tenantId },
+      include: this.assessmentSummaryInclude,
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.ASSESSMENT_UPDATED,
+      entity: 'Assessment',
+      entityId: assessmentId,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        assigneesReplaced: studentIds.length,
+      },
+    });
+
+    return this.mapAssessmentSummary(updated!);
+  }
+
   async listAssessmentResults(
     tenantId: string,
     assessmentId: string,
@@ -505,39 +646,54 @@ export class AssessmentsService {
       };
     }
 
-    const where: any = {
-      tenantId,
-      isPublished: true,
-      OR: enrollmentPairs.map((pair) => ({
-        course: {
-          classRoomId: pair.classRoomId,
-          academicYearId: pair.academicYearId,
-        },
-      })),
-    };
-
-    if (query.q) {
-      where.AND = [
-        {
+    const searchFilter = query.q
+      ? {
           OR: [
             {
               title: {
                 contains: query.q,
-                mode: 'insensitive',
+                mode: 'insensitive' as const,
               },
             },
             {
               course: {
                 title: {
                   contains: query.q,
-                  mode: 'insensitive',
+                  mode: 'insensitive' as const,
+                },
+              },
+            },
+          ],
+        }
+      : null;
+
+    const where: any = {
+      tenantId,
+      isPublished: true,
+      AND: [
+        {
+          OR: enrollmentPairs.map((pair) => ({
+            course: {
+              classRoomId: pair.classRoomId,
+              academicYearId: pair.academicYearId,
+            },
+          })),
+        },
+        {
+          OR: [
+            { portalAssignOnly: false },
+            {
+              studentAssignments: {
+                some: {
+                  studentId: student.id,
                 },
               },
             },
           ],
         },
-      ];
-    }
+        ...(searchFilter ? [searchFilter] : []),
+      ],
+    };
 
     const skip = (query.page - 1) * query.pageSize;
     const [totalItems, items]: [number, any[]] = await prisma.$transaction([
@@ -563,7 +719,7 @@ export class AssessmentsService {
     return {
       student: this.mapStudentProfile(student),
       items: items.map((assessment) => ({
-        ...this.mapAssessmentSummary(assessment),
+        ...this.mapAssessmentSummary(assessment, { forStudent: true }),
         latestAttempt: assessment.attempts[0] ? this.mapAttemptSummary(assessment.attempts[0]) : null,
       })),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
@@ -590,12 +746,28 @@ export class AssessmentsService {
         id: assessmentId,
         tenantId,
         isPublished: true,
-        OR: enrollmentPairs.map((pair) => ({
-          course: {
-            classRoomId: pair.classRoomId,
-            academicYearId: pair.academicYearId,
+        AND: [
+          {
+            OR: enrollmentPairs.map((pair) => ({
+              course: {
+                classRoomId: pair.classRoomId,
+                academicYearId: pair.academicYearId,
+              },
+            })),
           },
-        })),
+          {
+            OR: [
+              { portalAssignOnly: false },
+              {
+                studentAssignments: {
+                  some: {
+                    studentId: student.id,
+                  },
+                },
+              },
+            ],
+          },
+        ],
       },
       include: {
         ...this.assessmentSummaryInclude,
@@ -615,7 +787,7 @@ export class AssessmentsService {
 
     return {
       student: this.mapStudentProfile(student),
-      ...this.mapAssessmentSummary(assessment),
+      ...this.mapAssessmentSummary(assessment, { forStudent: true }),
       latestAttempt: assessment.attempts[0] ? this.mapAttemptSummary(assessment.attempts[0]) : null,
     };
   }
@@ -623,12 +795,15 @@ export class AssessmentsService {
   async startAttempt(
     tenantId: string,
     assessmentId: string,
+    input: StartAssessmentAttemptInput | undefined,
     actor: JwtUser,
     context: RequestAuditContext,
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const assessment = await this.getAssessmentForStudent(tenantId, assessmentId);
     this.ensureStudentAssignedToCourse(student, assessment.course.classRoomId, assessment.course.academicYearId);
+    await this.ensureStudentPortalAccess(tenantId, assessment.id, assessment.portalAssignOnly, student.id);
+    this.ensureAccessCode(assessment.accessCode, input?.accessCode);
     this.ensureAssessmentOpen(assessment.dueAt);
 
     const attempts: any[] = await prisma.assessmentAttempt.findMany({
@@ -786,7 +961,7 @@ export class AssessmentsService {
       attempt.answers.map((answer: any) => [answer.questionId, answer]),
     );
     const grading = attempt.assessment.questions.map((question: any) => {
-      if (question.type === AssessmentQuestionType.OPEN_TEXT) {
+      if (isOpenEndedQuestionType(question.type)) {
         const answer = answerByQuestionId.get(question.id);
 
         return {
@@ -1074,6 +1249,7 @@ export class AssessmentsService {
       select: {
         questions: true,
         attempts: true,
+        studentAssignments: true,
       },
     },
   };
@@ -1297,6 +1473,19 @@ export class AssessmentsService {
           select: {
             questions: true,
             attempts: true,
+            studentAssignments: true,
+          },
+        },
+        studentAssignments: {
+          include: {
+            student: {
+              select: {
+                id: true,
+                studentCode: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
           },
         },
       },
@@ -1426,6 +1615,40 @@ export class AssessmentsService {
     }
   }
 
+  private async ensureStudentPortalAccess(
+    tenantId: string,
+    assessmentId: string,
+    portalAssignOnly: boolean,
+    studentId: string,
+  ) {
+    if (!portalAssignOnly) {
+      return;
+    }
+
+    const row = await prisma.assessmentStudentAssignment.findFirst({
+      where: {
+        tenantId,
+        assessmentId,
+        studentId,
+      },
+      select: { id: true },
+    });
+
+    if (!row) {
+      throw new AppError(403, 'ASSESSMENT_NOT_ASSIGNED', 'You are not assigned to this assessment');
+    }
+  }
+
+  private ensureAccessCode(expected: string | null, provided: string | undefined) {
+    if (!expected) {
+      return;
+    }
+    const ok = provided && provided.trim() === expected;
+    if (!ok) {
+      throw new AppError(403, 'ASSESSMENT_CODE_INVALID', 'A valid exam access code is required');
+    }
+  }
+
   private ensureAssessmentOpen(dueAt: Date | null) {
     if (dueAt && dueAt < new Date()) {
       throw new AppError(400, 'ASSESSMENT_CLOSED', 'Assessment due date has passed');
@@ -1485,8 +1708,8 @@ export class AssessmentsService {
         throw new AppError(400, 'ASSESSMENT_TEXT_RESPONSE_INVALID', 'MCQ questions do not accept text answers');
       }
 
-      if (question.type === AssessmentQuestionType.OPEN_TEXT && answer.selectedOptionId) {
-        throw new AppError(400, 'ASSESSMENT_OPTION_INVALID', 'Open text questions do not accept selected options');
+      if (isOpenEndedQuestionType(question.type) && answer.selectedOptionId) {
+        throw new AppError(400, 'ASSESSMENT_OPTION_INVALID', 'Written-response questions do not accept selected options');
       }
 
       if (
@@ -1554,8 +1777,10 @@ export class AssessmentsService {
 
   private mapAssessmentSummary(
     assessment: any,
+    options?: { forStudent?: boolean },
   ) {
-    return {
+    const assignedStudentCount = assessment._count?.studentAssignments ?? 0;
+    const common = {
       id: assessment.id,
       type: assessment.type,
       title: assessment.title,
@@ -1565,6 +1790,7 @@ export class AssessmentsService {
       maxAttempts: assessment.maxAttempts,
       isPublished: assessment.isPublished,
       publishedAt: assessment.publishedAt,
+      portalAssignOnly: assessment.portalAssignOnly,
       createdAt: assessment.createdAt,
       updatedAt: assessment.updatedAt,
       course: {
@@ -1578,7 +1804,20 @@ export class AssessmentsService {
       counts: {
         questions: assessment._count.questions,
         attempts: assessment._count.attempts,
+        assignedStudents: assignedStudentCount,
       },
+    };
+
+    if (options?.forStudent) {
+      return {
+        ...common,
+        requiresAccessCode: Boolean(assessment.accessCode),
+      };
+    }
+
+    return {
+      ...common,
+      accessCode: assessment.accessCode,
     };
   }
 
@@ -1605,8 +1844,17 @@ export class AssessmentsService {
   }
 
   private mapAssessmentDetail(assessment: any) {
+    const assignedStudents =
+      assessment.studentAssignments?.map((row: any) => ({
+        id: row.student.id,
+        studentCode: row.student.studentCode,
+        firstName: row.student.firstName,
+        lastName: row.student.lastName,
+      })) ?? [];
+
     return {
       ...this.mapAssessmentSummary(assessment),
+      assignedStudents,
       questions: assessment.questions.map((question: any) => this.mapQuestionForTeacher(question)),
     };
   }

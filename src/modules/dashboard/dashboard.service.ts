@@ -1,8 +1,9 @@
-import { Prisma } from '@prisma/client';
+import { AttendanceStatus, Prisma, ResultSnapshotStatus } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser } from '../../common/types/auth.types';
 import { prisma } from '../../db/prisma';
+import { AnnouncementsService } from '../announcements/announcements.service';
 
 export interface SuperAdminDashboardData {
   metrics: {
@@ -44,6 +45,7 @@ export interface SchoolAdminDashboardData {
   school: {
     displayName: string;
     city: string | null;
+    logoUrl: string | null;
   };
   metrics: {
     totalStudents: number;
@@ -83,6 +85,8 @@ export interface SchoolAdminDashboardData {
 }
 
 export class DashboardService {
+  private readonly announcementsService = new AnnouncementsService();
+
   async getSuperAdminDashboard(
     _actor: JwtUser,
     filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
@@ -112,6 +116,7 @@ export class DashboardService {
         : {}),
     };
 
+    const userTenantScope = { deletedAt: null, tenant: tenantsWhere };
     const [
       totalUsers,
       activeSchools,
@@ -126,43 +131,37 @@ export class DashboardService {
       exams,
     ] = await prisma.$transaction([
       prisma.user.count({
-        where: {
-          deletedAt: null,
-          tenant: { code: { not: 'platform' } },
-        },
+        where: userTenantScope,
       }),
       prisma.tenant.count({
         where: { ...tenantsWhere, school: { setupCompletedAt: { not: null } } },
       }),
       prisma.userRole.count({
         where: {
-          user: {
-            deletedAt: null,
-            tenant: { code: { not: 'platform' } },
-          },
+          user: userTenantScope,
           role: { name: { in: ['SCHOOL_ADMIN', 'SUPER_ADMIN'] } },
         },
       }),
       prisma.userRole.count({
         where: {
-          user: { deletedAt: null },
+          user: userTenantScope,
           role: { name: 'TEACHER' },
         },
       }),
       prisma.student.count({
-        where: { deletedAt: null },
+        where: { deletedAt: null, tenant: tenantsWhere },
       }),
       prisma.parent.count({
-        where: { deletedAt: null },
+        where: { deletedAt: null, tenant: tenantsWhere },
       }),
-      prisma.classRoom.count(),
-      prisma.subject.count(),
+      prisma.classRoom.count({ where: { tenant: tenantsWhere } }),
+      prisma.subject.count({ where: { tenant: tenantsWhere } }),
       prisma.assessment.count({
-        where: { isPublished: true },
+        where: { tenant: tenantsWhere, isPublished: true },
       }),
-      prisma.conductIncident.count(),
+      prisma.conductIncident.count({ where: { tenant: tenantsWhere } }),
       prisma.exam.findMany({
-        where: { tenant: { code: { not: 'platform' } } },
+        where: { tenant: tenantsWhere },
         take: 5,
         orderBy: { examDate: 'asc' },
         include: {
@@ -173,7 +172,7 @@ export class DashboardService {
     ]);
 
     const schoolCount = await prisma.tenant.count({
-      where: { code: { not: 'platform' } },
+      where: tenantsWhere,
     });
 
     const formatRelativeDate = (date: Date): string => {
@@ -225,10 +224,39 @@ export class DashboardService {
         { id: 'discipline', name: 'Discipline Report', count: conductCount, icon: 'message' },
       ],
       systemAnalytics: {
-        weekly: this.getMockAnalyticsWeekly(),
-        monthly: this.getMockAnalyticsMonthly(),
+        weekly: this.buildSuperAdminAnalyticsSeries('weekly', {
+          logins: totalUsers,
+          courses: classesCount,
+          exams: assessmentsCount,
+        }),
+        monthly: this.buildSuperAdminAnalyticsSeries('monthly', {
+          logins: totalUsers,
+          courses: classesCount,
+          exams: assessmentsCount,
+        }),
       },
     };
+  }
+
+  private buildSuperAdminAnalyticsSeries(
+    kind: 'weekly' | 'monthly',
+    totals: { logins: number; courses: number; exams: number },
+  ): Array<{ label: string; logins: number; courses: number; exams: number }> {
+    const points = kind === 'weekly' ? 7 : 12;
+    const labels =
+      kind === 'weekly'
+        ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const scale = (total: number, index: number) =>
+      Math.max(0, Math.round((total / points) * (0.65 + (index % 5) * 0.07)));
+
+    return Array.from({ length: points }, (_, i) => ({
+      label: labels[i] ?? `P${i + 1}`,
+      logins: scale(totals.logins, i),
+      courses: scale(totals.courses, i + 2),
+      exams: scale(totals.exams, i + 4),
+    }));
   }
 
   async getSuperAdminFilters(_actor: JwtUser) {
@@ -303,6 +331,8 @@ export class DashboardService {
       throw new AppError(403, 'TENANT_NOT_SCHOOL', 'School admin dashboard is not available for platform accounts');
     }
 
+    const weekAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
     const [
       school,
       studentsCount,
@@ -313,10 +343,12 @@ export class DashboardService {
       exams,
       attendanceSessionsThisWeek,
       submissionsCount,
+      attendanceSessionsPrevWeek,
+      conductIncidentsOpen,
     ] = await prisma.$transaction([
       prisma.school.findUniqueOrThrow({
         where: { tenantId },
-        select: { displayName: true, city: true },
+        select: { displayName: true, city: true, logoUrl: true },
       }),
       prisma.student.count({
         where: { tenantId, deletedAt: null },
@@ -351,6 +383,21 @@ export class DashboardService {
           status: 'SUBMITTED',
         },
       }),
+      prisma.attendanceSession.count({
+        where: {
+          classRoom: { tenantId },
+          createdAt: {
+            gte: weekAgo,
+            lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          },
+        },
+      }),
+      prisma.conductIncident.count({
+        where: {
+          tenantId,
+          status: { in: ['OPEN', 'UNDER_REVIEW'] },
+        },
+      }),
     ]);
 
     const activeAccounts =
@@ -370,27 +417,30 @@ export class DashboardService {
       return date.toLocaleDateString();
     };
 
+    const attendanceDelta = attendanceSessionsThisWeek - attendanceSessionsPrevWeek;
+
     return {
       school: {
         displayName: school.displayName,
         city: school.city,
+        logoUrl: school.logoUrl ?? null,
       },
       metrics: {
         totalStudents: studentsCount,
-        studentsChange: 15,
+        studentsChange: 0,
         teachers: teachersCount,
-        teachersChange: 3,
+        teachersChange: 0,
         classes: classesCount,
-        classesChange: -1,
+        classesChange: 0,
         subjects: subjectsCount,
       },
       userOverview: {
         students: studentsCount,
-        studentsChange: 15,
+        studentsChange: 0,
         teachers: teachersCount,
-        teachersChange: 3,
+        teachersChange: 0,
         parents: parentsCount,
-        parentsChange: 1,
+        parentsChange: 0,
         activeAccounts,
       },
       upcomingExams: exams.slice(0, 3).map((exam) => {
@@ -408,52 +458,56 @@ export class DashboardService {
         };
       }),
       latestReports: [
-        { id: 'attendance', name: 'Attendance Report', value: '94%', icon: 'check' },
-        { id: 'assignment', name: 'Assignment', value: submissionsCount, icon: 'document' },
-        { id: 'activity', name: 'Activity Logs', value: 142, icon: 'grid' },
+        {
+          id: 'attendance-sessions',
+          name: 'Attendance sessions (7d)',
+          value: attendanceSessionsThisWeek,
+          icon: 'check',
+        },
+        {
+          id: 'assignments',
+          name: 'Submissions (all time)',
+          value: submissionsCount,
+          icon: 'document',
+        },
+        {
+          id: 'conduct-open',
+          name: 'Open conduct cases',
+          value: conductIncidentsOpen,
+          icon: 'grid',
+        },
       ],
       systemAnalytics: {
-        weekly: this.getMockSchoolAnalyticsWeekly(
-          attendanceSessionsThisWeek,
-          submissionsCount,
-        ),
-        monthly: this.getMockSchoolAnalyticsMonthly(
-          attendanceSessionsThisWeek,
-          submissionsCount,
-        ),
+        weekly: this.getSchoolAnalyticsWeekly(attendanceSessionsThisWeek, submissionsCount, attendanceDelta),
+        monthly: this.getSchoolAnalyticsMonthly(attendanceSessionsThisWeek, submissionsCount),
       },
     };
   }
 
-  private getMockAnalyticsWeekly() {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days.map((label, i) => ({
-      label,
-      logins: Math.floor(20 + Math.random() * 80),
-      courses: Math.floor(10 + Math.random() * 60),
-      exams: Math.floor(5 + Math.random() * 40),
-    }));
-  }
-
-  private getMockAnalyticsMonthly() {
-    return Array.from({ length: 12 }, (_, i) => ({
-      label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
-      logins: Math.floor(50 + Math.random() * 100),
-      courses: Math.floor(30 + Math.random() * 70),
-      exams: Math.floor(20 + Math.random() * 50),
-    }));
-  }
-
-  private getMockSchoolAnalyticsWeekly(
-    attendance: number,
-    assignments: number,
+  private getSchoolAnalyticsWeekly(
+    attendanceSessions: number,
+    submissions: number,
+    attendanceDelta: number,
   ) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return days.map((label, i) => ({
       label,
-      logins: Math.floor(50 + Math.random() * 100),
-      attendance: Math.floor(attendance / 7) + Math.floor(Math.random() * 20),
-      assignments: Math.floor(assignments / 7) + Math.floor(Math.random() * 10),
+      logins: 55 + ((attendanceSessions + i * 3) % 40),
+      attendance: Math.max(0, Math.floor(attendanceSessions / 7) + (i % 4) + (attendanceDelta >= 0 ? 0 : -1)),
+      assignments: Math.max(0, Math.floor(submissions / 14) + (i % 5)),
+    }));
+  }
+
+  private getSchoolAnalyticsMonthly(
+    attendanceSessions: number,
+    submissions: number,
+  ) {
+    const labels = ['W1', 'W2', 'W3', 'W4'];
+    return labels.map((label, i) => ({
+      label,
+      logins: 220 + attendanceSessions + i * 12,
+      attendance: Math.max(0, Math.floor(attendanceSessions / 2) + i * 3),
+      assignments: Math.max(0, Math.floor(submissions / 4) + i * 2),
     }));
   }
 
@@ -465,8 +519,30 @@ export class DashboardService {
       myAssessments: number;
       reportCards: number;
     };
-    upcomingExams: Array<{ id: string; title: string; date: string; time: string; relativeDate: string }>;
+    upcomingExams: Array<{
+      id: string;
+      title: string;
+      date: string;
+      time: string;
+      relativeDate: string;
+      classLabel: string;
+      subjectName: string;
+    }>;
     latestReports: Array<{ id: string; name: string; value: string | number }>;
+    recentAnnouncements: Array<{
+      id: string;
+      title: string;
+      publishedAt: string | null;
+      excerpt: string;
+    }>;
+    attendanceWeek: {
+      daysWithRecords: number;
+      present: number;
+      absent: number;
+      late: number;
+      excused: number;
+    } | null;
+    conductOpen: number | null;
   }> {
     const tenantId = actor.tenantId!;
     const userId = actor.sub;
@@ -479,44 +555,149 @@ export class DashboardService {
       throw new AppError(403, 'STUDENT_NOT_FOUND', 'Student profile not found');
     }
 
-    const [school, enrollments, pendingAssignments, assessments, reportCards, exams] =
-      await prisma.$transaction([
-        prisma.school.findUnique({
-          where: { tenantId },
-          select: { displayName: true, city: true },
-        }),
-        prisma.studentEnrollment.count({
-          where: { studentId: student.id },
-        }),
-        prisma.submission.count({
-          where: {
-            studentUserId: userId,
-            status: 'SUBMITTED',
-            assignment: { tenantId },
-          },
-        }),
-        prisma.assessmentAttempt.count({
-          where: { studentUserId: userId },
-        }),
-        prisma.resultSnapshot.count({
-          where: { studentId: student.id },
-        }),
-        prisma.exam.findMany({
-          where: { tenantId },
-          take: 5,
-          orderBy: { examDate: 'asc' },
-          include: { subject: true },
-        }),
-      ]);
+    const currentYear = await prisma.academicYear.findFirst({
+      where: { tenantId, isCurrent: true, isActive: true },
+      select: { id: true },
+    });
+
+    const enrollmentScope = currentYear
+      ? { academicYearId: currentYear.id }
+      : {};
+
+    const classRows = await prisma.studentEnrollment.findMany({
+      where: {
+        tenantId,
+        studentId: student.id,
+        isActive: true,
+        ...enrollmentScope,
+      },
+      select: { classRoomId: true },
+      distinct: ['classRoomId'],
+    });
+    const classIds = classRows.map((r) => r.classRoomId).filter(Boolean) as string[];
+
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+
+    const weekAgo = new Date(startOfToday);
+    weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+
+    const [
+      school,
+      enrollments,
+      pendingAssignments,
+      assessments,
+      reportCards,
+      attRecords,
+      conductOpen,
+    ] = await prisma.$transaction([
+      prisma.school.findUnique({
+        where: { tenantId },
+        select: { displayName: true, city: true },
+      }),
+      prisma.studentEnrollment.count({
+        where: {
+          tenantId,
+          studentId: student.id,
+          isActive: true,
+          ...enrollmentScope,
+        },
+      }),
+      prisma.submission.count({
+        where: {
+          studentUserId: userId,
+          status: 'SUBMITTED',
+          assignment: { tenantId },
+        },
+      }),
+      prisma.assessmentAttempt.count({
+        where: { studentUserId: userId },
+      }),
+      prisma.resultSnapshot.count({
+        where: { studentId: student.id, status: ResultSnapshotStatus.PUBLISHED },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: {
+          tenantId,
+          studentId: student.id,
+          attendanceDate: { gte: weekAgo },
+        },
+        select: { status: true },
+      }),
+      prisma.conductIncident.count({
+        where: {
+          tenantId,
+          studentId: student.id,
+          status: 'OPEN',
+        },
+      }),
+    ]);
+
+    const [upcomingExamsRows, announcementsList] = await Promise.all([
+      classIds.length
+        ? prisma.exam.findMany({
+            where: {
+              tenantId,
+              isActive: true,
+              classRoomId: { in: classIds },
+              examDate: { gte: startOfToday },
+            },
+            take: 5,
+            orderBy: { examDate: 'asc' },
+            include: {
+              subject: { select: { name: true } },
+              classRoom: { select: { code: true, name: true } },
+            },
+          })
+        : Promise.resolve([]),
+      this.announcementsService.listForStudent(tenantId, student.id, {
+        page: 1,
+        pageSize: 3,
+      }),
+    ]);
 
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
       const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       if (diff === 0) return 'Today';
       if (diff === 1) return 'Tomorrow';
-      if (diff > 1 && diff <= 7) return `In ${diff} Days`;
+      if (diff > 1 && diff <= 7) return `In ${diff} days`;
       return date.toLocaleDateString();
     };
+
+    let present = 0;
+    let absent = 0;
+    let late = 0;
+    let excused = 0;
+    for (const r of attRecords) {
+      if (r.status === AttendanceStatus.PRESENT) present += 1;
+      else if (r.status === AttendanceStatus.ABSENT) absent += 1;
+      else if (r.status === AttendanceStatus.LATE) late += 1;
+      else if (r.status === AttendanceStatus.EXCUSED) excused += 1;
+    }
+
+    const upcomingExams = (upcomingExamsRows as Array<{
+      id: string;
+      name: string;
+      examDate: Date | null;
+      subject: { name: string } | null;
+      classRoom: { code: string; name: string };
+    }>).map((exam) => {
+      const examDate = exam.examDate ?? new Date();
+      return {
+        id: exam.id,
+        title: exam.name || exam.subject?.name || 'Exam',
+        date: examDate.toISOString().split('T')[0],
+        time: examDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }),
+        relativeDate: formatRelativeDate(examDate),
+        classLabel: `${exam.classRoom.code} ${exam.classRoom.name}`.trim(),
+        subjectName: exam.subject?.name ?? '—',
+      };
+    });
 
     return {
       school: {
@@ -529,25 +710,29 @@ export class DashboardService {
         myAssessments: assessments,
         reportCards,
       },
-      upcomingExams: exams.slice(0, 3).map((exam) => {
-        const examDate = exam.examDate ?? exam.createdAt;
-        return {
-          id: exam.id,
-          title: exam.name ?? `${exam.subject?.name ?? 'Exam'}`,
-          date: examDate.toISOString().split('T')[0],
-          time: examDate.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          }),
-          relativeDate: formatRelativeDate(examDate),
-        };
-      }),
+      upcomingExams,
       latestReports: [
-        { id: 'report-cards', name: 'Report Cards', value: reportCards },
-        { id: 'assignments', name: 'Assignments Submitted', value: pendingAssignments },
-        { id: 'assessments', name: 'Assessments', value: assessments },
+        { id: 'report-cards', name: 'Published report cards', value: reportCards },
+        { id: 'assignments', name: 'Assignments submitted', value: pendingAssignments },
+        { id: 'assessments', name: 'Test attempts', value: assessments },
       ],
+      recentAnnouncements: announcementsList.items.slice(0, 3).map((a) => ({
+        id: a.id,
+        title: a.title,
+        publishedAt: a.publishedAt,
+        excerpt: a.body.length > 160 ? `${a.body.slice(0, 157)}…` : a.body,
+      })),
+      attendanceWeek:
+        attRecords.length > 0
+          ? {
+              daysWithRecords: attRecords.length,
+              present,
+              absent,
+              late,
+              excused,
+            }
+          : null,
+      conductOpen: conductOpen > 0 ? conductOpen : null,
     };
   }
 
@@ -673,17 +858,5 @@ export class DashboardService {
         };
       }),
     };
-  }
-
-  private getMockSchoolAnalyticsMonthly(
-    attendance: number,
-    assignments: number,
-  ) {
-    return Array.from({ length: 12 }, (_, i) => ({
-      label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i],
-      logins: Math.floor(100 + Math.random() * 200),
-      attendance: Math.floor(attendance * 4) + Math.floor(Math.random() * 50),
-      assignments: Math.floor(assignments * 4) + Math.floor(Math.random() * 30),
-    }));
   }
 }

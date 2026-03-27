@@ -22,6 +22,7 @@ export const schoolSetupSchema = z.object({
       village: z.string().trim().max(100).optional(),
       country: z.string().trim().max(100).default('Rwanda'),
       timezone: z.string().trim().max(80).default('Africa/Kigali'),
+      logoUrl: z.string().trim().url().optional().or(z.literal('')),
     })
     .optional(),
   academicYear: z

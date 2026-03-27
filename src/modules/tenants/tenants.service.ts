@@ -12,6 +12,7 @@ import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../notifications/email.service';
 import {
+  AssignSchoolAdminInput,
   CreateTenantInput,
   InviteTenantAdminInput,
   ListTenantsQueryInput,
@@ -323,6 +324,26 @@ export class TenantsService {
       throw new AppError(404, 'TENANT_NOT_FOUND', 'School not found');
     }
 
+    const schoolAdmins = await prisma.user.findMany({
+      where: {
+        tenantId: tenant.id,
+        deletedAt: null,
+        userRoles: {
+          some: {
+            role: { name: 'SCHOOL_ADMIN' },
+          },
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+
     return {
       id: tenant.id,
       code: tenant.code,
@@ -341,6 +362,90 @@ export class TenantsService {
         expiresAt: invite.expiresAt,
       })),
       users: tenant.users,
+      schoolAdmins,
+    };
+  }
+
+  async assignSchoolAdmin(
+    tenantId: string,
+    input: AssignSchoolAdminInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        roles: {
+          where: { name: 'SCHOOL_ADMIN' },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!tenant || tenant.code === 'platform') {
+      throw new AppError(404, 'TENANT_NOT_FOUND', 'School not found');
+    }
+
+    const schoolAdminRole = tenant.roles[0];
+    if (!schoolAdminRole) {
+      throw new AppError(500, 'TENANT_ROLE_BOOTSTRAP_FAILED', 'SCHOOL_ADMIN role was not created');
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        id: input.userId,
+        tenantId,
+        deletedAt: null,
+      },
+      select: { id: true, email: true },
+    });
+
+    if (!user) {
+      throw new AppError(404, 'USER_NOT_FOUND', 'User not found in this school');
+    }
+
+    const existing = await prisma.userRole.findFirst({
+      where: {
+        tenantId,
+        userId: user.id,
+        roleId: schoolAdminRole.id,
+      },
+    });
+
+    if (existing) {
+      throw new AppError(409, 'SCHOOL_ADMIN_ALREADY_ASSIGNED', 'This user is already a school administrator');
+    }
+
+    await prisma.userRole.create({
+      data: {
+        tenantId,
+        userId: user.id,
+        roleId: schoolAdminRole.id,
+        assignedById: actor.sub,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SCHOOL_ADMIN_ASSIGNED,
+      entity: 'UserRole',
+      entityId: user.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        email: user.email,
+      },
+    });
+
+    return {
+      userId: user.id,
+      email: user.email,
     };
   }
 

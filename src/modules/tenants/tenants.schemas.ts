@@ -39,6 +39,10 @@ export const inviteTenantAdminSchema = z.object({
   expiresInDays: z.number().int().min(1).max(14).optional().default(7),
 });
 
+export const assignSchoolAdminSchema = z.object({
+  userId: z.string().uuid(),
+});
+
 export const updateTenantSchema = z.object({
   code: z
     .string()
@@ -71,3 +75,4 @@ export type InviteTenantAdminInput = z.infer<typeof inviteTenantAdminSchema>;
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
 export type UpdateTenantStatusInput = z.infer<typeof updateTenantStatusSchema>;
 export type ListTenantsQueryInput = z.infer<typeof listTenantsQuerySchema>;
+export type AssignSchoolAdminInput = z.infer<typeof assignSchoolAdminSchema>;

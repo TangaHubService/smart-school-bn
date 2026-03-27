@@ -68,6 +68,8 @@ enum AssessmentType {
 enum AssessmentQuestionType {
   MCQ_SINGLE
   OPEN_TEXT
+  SHORT_ANSWER
+  ESSAY
 }
 
 enum AssessmentAttemptStatus {
@@ -163,6 +165,7 @@ model Tenant {
   assessmentOptions   AssessmentOption[]
   assessmentAttempts  AssessmentAttempt[]
   assessmentAnswers   AssessmentAnswer[]
+  assessmentStudentAssignments AssessmentStudentAssignment[]
   gradingSchemes GradingScheme[]
   exams         Exam[]
   examMarks     ExamMark[]
@@ -179,6 +182,7 @@ model Tenant {
   timetableSlots  TimetableSlot[]
   announcements   Announcement[]
   passwordResetTokens PasswordResetToken[]
+  schoolSubscription SchoolSubscription?
 
   @@index([isActive])
 }
@@ -200,6 +204,7 @@ model School {
   village            String?
   country            String    @default("Rwanda")
   timezone           String    @default("Africa/Kigali")
+  logoUrl            String?
   setupCompletedAt   DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -267,6 +272,7 @@ model User {
   assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
   payments                 Payment[]
   programEnrollments       ProgramEnrollment[]
+  authoredSystemAnnouncements SystemAnnouncement[] @relation("SystemAnnouncementAuthor")
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
@@ -471,6 +477,7 @@ model Student {
   attendanceRecords AttendanceRecord[]
   submissions Submission[]
   assessmentAttempts AssessmentAttempt[]
+  assessmentStudentAssignments AssessmentStudentAssignment[]
   examMarks      ExamMark[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
@@ -771,6 +778,10 @@ model Assessment {
   maxAttempts     Int      @default(1)
   isPublished     Boolean  @default(false)
   publishedAt     DateTime?
+  /// When set, students must enter this code to start an attempt (exam portal).
+  accessCode      String?
+  /// When true, only students listed in AssessmentStudentAssignment may take this assessment (still must match course class enrollment).
+  portalAssignOnly Boolean @default(false)
   createdByUserId String
   updatedByUserId String
   createdAt       DateTime @default(now())
@@ -783,10 +794,26 @@ model Assessment {
   updatedByUser User      @relation("AssessmentUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
   questions     AssessmentQuestion[]
   attempts      AssessmentAttempt[]
+  studentAssignments AssessmentStudentAssignment[]
 
   @@index([tenantId, courseId, isPublished, dueAt])
   @@index([tenantId, lessonId])
   @@index([tenantId, createdByUserId, isPublished])
+}
+
+model AssessmentStudentAssignment {
+  id            String   @id @default(uuid())
+  tenantId      String
+  assessmentId  String
+  studentId     String
+  createdAt     DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, assessmentId, studentId])
+  @@index([tenantId, assessmentId])
 }
 
 model AssessmentQuestion {
@@ -1249,6 +1276,7 @@ model TimetableSlot {
   @@unique([tenantId, academicYearId, termId, classRoomId, dayOfWeek, periodNumber])
   @@index([tenantId, academicYearId, termId, classRoomId])
   @@index([tenantId, academicYearId, classRoomId])
+  @@index([tenantId, academicYearId, termId, dayOfWeek, periodNumber])
 }
 
 model Announcement {
@@ -1283,4 +1311,78 @@ model PasswordResetToken {
 
   @@unique([tenantId, email])
   @@index([tenantId, email, otp])
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum SystemAnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SystemAnnouncementTarget {
+  ALL_SCHOOLS
+  SPECIFIC_SCHOOLS
+  SPECIFIC_ROLES
+  SCHOOLS_AND_ROLES
+}
+
+model SubscriptionPlan {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  description  String?
+  maxStudents  Int?
+  maxStaff     Int?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscriptions SchoolSubscription[]
+}
+
+model SchoolSubscription {
+  id                  String             @id @default(uuid())
+  tenantId            String             @unique
+  planId              String
+  status              SubscriptionStatus @default(TRIALING)
+  trialEndsAt         DateTime?
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  cancelAtPeriodEnd   Boolean            @default(false)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+model SystemAnnouncement {
+  id               String                   @id @default(uuid())
+  authorUserId     String
+  title            String
+  body             String
+  status           SystemAnnouncementStatus @default(DRAFT)
+  targetType       SystemAnnouncementTarget
+  targetTenantIds  String[]                 @default([])
+  targetRoleNames  String[]                 @default([])
+  publishedAt      DateTime?
+  expiresAt        DateTime?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  author User @relation("SystemAnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([status, publishedAt])
 }

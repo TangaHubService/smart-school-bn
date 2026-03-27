@@ -7,6 +7,7 @@ import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { TenantsController } from './tenants.controller';
 import {
+  assignSchoolAdminSchema,
   createTenantSchema,
   inviteTenantAdminSchema,
   updateTenantStatusSchema,
@@ -45,6 +46,14 @@ tenantsRoutes.post(
   requirePermissions([PERMISSIONS.TENANTS_CREATE]),
   validateBody(inviteTenantAdminSchema),
   asyncHandler((req, res) => tenantsController.inviteSchoolAdmin(req, res)),
+);
+
+tenantsRoutes.post(
+  '/:id/school-admins',
+  authenticate,
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  validateBody(assignSchoolAdminSchema),
+  asyncHandler((req, res) => tenantsController.assignSchoolAdmin(req, res)),
 );
 
 tenantsRoutes.patch(

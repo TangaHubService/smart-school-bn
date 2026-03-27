@@ -22,6 +22,15 @@ export const createGovAuditorSchema = z
   })
   .strict();
 
+export const updateGovAuditorSchema = z
+  .object({
+    firstName: z.string().trim().min(2).max(80).optional(),
+    lastName: z.string().trim().min(2).max(80).optional(),
+    phone: z.string().trim().max(40).nullable().optional(),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  })
+  .strict();
+
 export const assignGovAuditorScopeSchema = z
   .object({
     scopeLevel: govScopeLevelSchema,
@@ -130,6 +139,7 @@ export const addGovFeedbackSchema = z
   .strict();
 
 export type CreateGovAuditorInput = z.infer<typeof createGovAuditorSchema>;
+export type UpdateGovAuditorInput = z.infer<typeof updateGovAuditorSchema>;
 export type AssignGovAuditorScopeInput = z.infer<typeof assignGovAuditorScopeSchema>;
 export type UpdateGovAuditorScopeInput = z.infer<typeof updateGovAuditorScopeSchema>;
 export type ListGovAuditorsQueryInput = z.infer<typeof listGovAuditorsQuerySchema>;

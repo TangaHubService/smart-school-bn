@@ -96,6 +96,8 @@ function buildAssessmentSummaryRow() {
     maxAttempts: 1,
     isPublished: false,
     publishedAt: null,
+    accessCode: null,
+    portalAssignOnly: false,
     createdByUserId: 'teacher-1',
     updatedByUserId: 'teacher-1',
     createdAt: new Date('2026-03-06T08:00:00.000Z'),
@@ -123,6 +125,7 @@ function buildAssessmentSummaryRow() {
     _count: {
       questions: 0,
       attempts: 0,
+      studentAssignments: 0,
     },
   };
 }
@@ -169,6 +172,7 @@ function buildAssessmentDetailRow() {
     _count: {
       questions: 1,
       attempts: 0,
+      studentAssignments: 0,
     },
   };
 }
@@ -187,6 +191,8 @@ function buildStudentAssessmentRow() {
     maxAttempts: 1,
     isPublished: true,
     publishedAt: new Date('2026-03-06T08:12:00.000Z'),
+    accessCode: null,
+    portalAssignOnly: false,
     createdByUserId: 'teacher-1',
     updatedByUserId: 'teacher-1',
     createdAt: new Date('2026-03-06T08:00:00.000Z'),
@@ -342,6 +348,7 @@ describe('assessments integration flow', () => {
     const startedAttempt = await service.startAttempt(
       'tenant-1',
       'assessment-1',
+      undefined,
       studentActor,
       context,
     );

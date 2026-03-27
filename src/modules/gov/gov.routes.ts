@@ -10,6 +10,7 @@ import {
   addGovFeedbackSchema,
   assignGovAuditorScopeSchema,
   createGovAuditorSchema,
+  updateGovAuditorSchema,
   updateGovAuditorScopeSchema,
 } from './gov.schemas';
 
@@ -30,6 +31,13 @@ govRoutes.get(
   '/gov/admin/auditors',
   requirePermissions([PERMISSIONS.GOV_AUDITORS_MANAGE]),
   asyncHandler((req, res) => govController.listAuditors(req, res)),
+);
+
+govRoutes.patch(
+  '/gov/admin/auditors/:auditorUserId',
+  requirePermissions([PERMISSIONS.GOV_AUDITORS_MANAGE]),
+  validateBody(updateGovAuditorSchema),
+  asyncHandler((req, res) => govController.updateAuditor(req, res)),
 );
 
 govRoutes.get(
@@ -62,6 +70,24 @@ govRoutes.get(
   '/gov/schools',
   requirePermissions([PERMISSIONS.GOV_SCHOOLS_READ]),
   asyncHandler((req, res) => govController.listSchools(req, res)),
+);
+
+govRoutes.get(
+  '/gov/me/scopes',
+  requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
+  asyncHandler((req, res) => govController.listMyScopes(req, res)),
+);
+
+govRoutes.get(
+  '/gov/schools/:tenantId/courses',
+  requirePermissions([PERMISSIONS.GOV_SCHOOLS_READ]),
+  asyncHandler((req, res) => govController.listSchoolCourses(req, res)),
+);
+
+govRoutes.get(
+  '/gov/schools/:tenantId/reports/conduct-summary',
+  requirePermissions([PERMISSIONS.GOV_SCHOOLS_READ]),
+  asyncHandler((req, res) => govController.getSchoolConductReportSummary(req, res)),
 );
 
 govRoutes.get(

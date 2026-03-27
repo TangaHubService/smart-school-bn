@@ -7,6 +7,7 @@ import {
   listExamsQuerySchema,
   marksGridQuerySchema,
   marksGridSaveSchema,
+  myExamScheduleQuerySchema,
   parentReportCardsQuerySchema,
   reportCardsQuerySchema,
 } from './exams.schemas';
@@ -105,6 +106,12 @@ export class ExamsController {
   async getMyReportCards(req: Request, res: Response) {
     const query = reportCardsQuerySchema.parse(req.query);
     const result = await examsService.getMyReportCards(req.tenantId!, req.user!, query);
+    return sendSuccess(req, res, result);
+  }
+
+  async listMyExamSchedule(req: Request, res: Response) {
+    const query = myExamScheduleQuerySchema.parse(req.query);
+    const result = await examsService.listMyExamSchedule(req.tenantId!, req.user!, query);
     return sendSuccess(req, res, result);
   }
 

@@ -4,6 +4,7 @@ import { AppError } from '../../common/errors/app-error';
 import { JwtUser } from '../../common/types/auth.types';
 import { buildPagination } from '../../common/utils/pagination';
 import { prisma } from '../../db/prisma';
+import { SystemAnnouncementsService } from '../system-announcements/system-announcements.service';
 import {
   CreateAnnouncementInput,
   ListAnnouncementsQueryInput,
@@ -21,6 +22,8 @@ const announcementInclude = {
 };
 
 export class AnnouncementsService {
+  private readonly systemAnnouncements = new SystemAnnouncementsService();
+
   async list(
     tenantId: string,
     query: ListAnnouncementsQueryInput,
@@ -63,6 +66,11 @@ export class AnnouncementsService {
       }),
     ]);
 
+    const systemBroadcasts = await this.systemAnnouncements.listVisibleForViewer(
+      tenantId,
+      actor?.roles ?? [],
+    );
+
     return {
       items: items.map((a) => ({
         id: a.id,
@@ -77,6 +85,7 @@ export class AnnouncementsService {
         updatedAt: a.updatedAt.toISOString(),
         author: a.author,
       })),
+      systemBroadcasts,
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -133,6 +142,8 @@ export class AnnouncementsService {
       }),
     ]);
 
+    const systemBroadcasts = await this.systemAnnouncements.listVisibleForViewer(tenantId, ['STUDENT']);
+
     return {
       items: items.map((a) => ({
         id: a.id,
@@ -143,6 +154,7 @@ export class AnnouncementsService {
         expiresAt: a.expiresAt?.toISOString() ?? null,
         author: a.author,
       })),
+      systemBroadcasts,
       pagination: buildPagination(page, pageSize, totalItems),
     };
   }

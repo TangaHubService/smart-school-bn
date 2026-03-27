@@ -1571,6 +1571,38 @@ async function main() {
     });
   }
 
+  const defaultPlan = await prisma.subscriptionPlan.upsert({
+    where: { code: 'standard' },
+    update: {},
+    create: {
+      code: 'standard',
+      name: 'Standard',
+      description: 'Default school subscription',
+      maxStudents: 5000,
+      maxStaff: 500,
+      sortOrder: 1,
+    },
+  });
+
+  const tenantsForSubscription = await prisma.tenant.findMany({
+    where: { code: { not: 'platform' } },
+    select: { id: true },
+  });
+
+  for (const t of tenantsForSubscription) {
+    await prisma.schoolSubscription.upsert({
+      where: { tenantId: t.id },
+      update: {},
+      create: {
+        tenantId: t.id,
+        planId: defaultPlan.id,
+        status: 'ACTIVE',
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
   await prisma.auditLog.create({
     data: {
       tenantId: schoolTenant.id,

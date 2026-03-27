@@ -48,11 +48,16 @@ const assessmentQuestionSchema = z
       }
     }
 
-    if (value.type === AssessmentQuestionType.OPEN_TEXT && value.options.length > 0) {
+    if (
+      (value.type === AssessmentQuestionType.OPEN_TEXT ||
+        value.type === AssessmentQuestionType.SHORT_ANSWER ||
+        value.type === AssessmentQuestionType.ESSAY) &&
+      value.options.length > 0
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options'],
-        message: 'Open text questions do not use options',
+        message: 'Written-response questions do not use options',
       });
     }
   });
@@ -72,6 +77,30 @@ export const createAssessmentSchema = z
     timeLimitMinutes: z.number().int().min(1).max(240).optional(),
     maxAttempts: z.number().int().min(1).max(5).default(1),
     isPublished: z.boolean().default(false),
+    accessCode: z.string().trim().min(4).max(64).optional().nullable(),
+    portalAssignOnly: z.boolean().optional(),
+  })
+  .strict();
+
+export const updateAssessmentPortalSchema = z
+  .object({
+    accessCode: z.string().trim().min(4).max(64).nullable().optional(),
+    portalAssignOnly: z.boolean().optional(),
+  })
+  .strict()
+  .refine((data) => data.accessCode !== undefined || data.portalAssignOnly !== undefined, {
+    message: 'Provide at least one of accessCode or portalAssignOnly',
+  });
+
+export const replaceAssessmentAssigneesSchema = z
+  .object({
+    studentIds: z.array(z.string().uuid()).max(500),
+  })
+  .strict();
+
+export const startAssessmentAttemptSchema = z
+  .object({
+    accessCode: z.string().trim().min(1).max(64).optional(),
   })
   .strict();
 
@@ -143,6 +172,9 @@ export const listAssessmentAttemptsQuerySchema = z.object({
 });
 
 export type CreateAssessmentInput = z.infer<typeof createAssessmentSchema>;
+export type UpdateAssessmentPortalInput = z.infer<typeof updateAssessmentPortalSchema>;
+export type ReplaceAssessmentAssigneesInput = z.infer<typeof replaceAssessmentAssigneesSchema>;
+export type StartAssessmentAttemptInput = z.infer<typeof startAssessmentAttemptSchema>;
 export type AddQuestionInput = z.infer<typeof addQuestionSchema>;
 export type UpdateQuestionInput = z.infer<typeof updateQuestionSchema>;
 export type PublishAssessmentInput = z.infer<typeof publishAssessmentSchema>;

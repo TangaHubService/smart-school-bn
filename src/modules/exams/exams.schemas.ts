@@ -96,6 +96,13 @@ export const reportCardsQuerySchema = z.object({
   academicYearId: z.string().uuid().optional(),
 });
 
+export const myExamScheduleQuerySchema = z.object({
+  upcomingOnly: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+});
+
 export const conductGradesQuerySchema = z.object({
   termId: z.string().uuid(),
   classRoomId: z.string().uuid(),
@@ -137,6 +144,7 @@ export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
 export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
 export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
+export type MyExamScheduleQueryInput = z.infer<typeof myExamScheduleQuerySchema>;
 export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;
 export type BulkConductGradesInput = z.infer<typeof bulkConductGradesSchema>;
 export type ConductGradesQueryInput = z.infer<typeof conductGradesQuerySchema>;

@@ -36,6 +36,7 @@ export class SchoolsService {
           village: input.school?.village,
           country: input.school?.country,
           timezone: input.school?.timezone,
+          logoUrl: input.school?.logoUrl,
           setupCompletedAt: input.markSetupComplete ? new Date() : undefined,
         },
         create: {
@@ -54,6 +55,7 @@ export class SchoolsService {
           village: input.school?.village,
           country: input.school?.country ?? 'Rwanda',
           timezone: input.school?.timezone ?? 'Africa/Kigali',
+          logoUrl: input.school?.logoUrl,
           setupCompletedAt: input.markSetupComplete ? new Date() : null,
         },
       });

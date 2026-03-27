@@ -6,6 +6,9 @@ import {
   listAssessmentResultsQuerySchema,
   listAssessmentsQuerySchema,
   listMyAssessmentsQuerySchema,
+  replaceAssessmentAssigneesSchema,
+  startAssessmentAttemptSchema,
+  updateAssessmentPortalSchema,
 } from './assessments.schemas';
 
 const assessmentsService = new AssessmentsService();
@@ -94,6 +97,32 @@ export class AssessmentsController {
     return sendSuccess(req, res, result);
   }
 
+  async updateAssessmentPortal(req: Request, res: Response): Promise<Response> {
+    const body = updateAssessmentPortalSchema.parse(req.body ?? {});
+    const result = await assessmentsService.updateAssessmentPortal(
+      req.tenantId!,
+      req.params.id,
+      body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async replaceAssessmentAssignees(req: Request, res: Response): Promise<Response> {
+    const body = replaceAssessmentAssigneesSchema.parse(req.body ?? {});
+    const result = await assessmentsService.replaceAssessmentAssignees(
+      req.tenantId!,
+      req.params.id,
+      body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async listResults(req: Request, res: Response): Promise<Response> {
     const query = listAssessmentResultsQuerySchema.parse(req.query);
     const result = await assessmentsService.listAssessmentResults(
@@ -124,9 +153,11 @@ export class AssessmentsController {
   }
 
   async startAttempt(req: Request, res: Response): Promise<Response> {
+    const body = startAssessmentAttemptSchema.parse(req.body ?? {});
     const result = await assessmentsService.startAttempt(
       req.tenantId!,
       req.params.id,
+      body,
       req.user!,
       buildContext(req),
     );

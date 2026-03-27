@@ -132,6 +132,12 @@ examsRoutes.get(
 );
 
 examsRoutes.get(
+  '/students/me/exam-schedule',
+  requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
+  asyncHandler((req, res) => examsController.listMyExamSchedule(req, res)),
+);
+
+examsRoutes.get(
   '/students/me/report-cards/:snapshotId/pdf',
   requirePermissions([PERMISSIONS.REPORT_CARDS_MY_READ]),
   asyncHandler((req, res) => examsController.downloadMyReportCardPdf(req, res)),

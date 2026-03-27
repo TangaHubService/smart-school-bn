@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { TenantsService } from './tenants.service';
-import { listTenantsQuerySchema } from './tenants.schemas';
+import { assignSchoolAdminSchema, listTenantsQuerySchema } from './tenants.schemas';
 
 const tenantsService = new TenantsService();
 
@@ -40,6 +40,18 @@ export class TenantsController {
     const result = await tenantsService.inviteSchoolAdmin(
       req.params.id,
       req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async assignSchoolAdmin(req: Request, res: Response): Promise<Response> {
+    const body = assignSchoolAdminSchema.parse(req.body);
+    const result = await tenantsService.assignSchoolAdmin(
+      req.params.id,
+      body,
       req.user!,
       buildContext(req),
     );

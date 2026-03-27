@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
+import { conductSchoolReportQuerySchema } from '../reports/reports.schemas';
 import { GovService } from './gov.service';
 import {
   listGovAuditorsQuerySchema,
   listGovIncidentsQuerySchema,
   listGovSchoolsQuerySchema,
+  updateGovAuditorSchema,
 } from './gov.schemas';
 
 const govService = new GovService();
@@ -32,6 +34,18 @@ export class GovController {
   async listAuditors(req: Request, res: Response): Promise<Response> {
     const query = listGovAuditorsQuerySchema.parse(req.query);
     const result = await govService.listAuditors(query, req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async updateAuditor(req: Request, res: Response): Promise<Response> {
+    const body = updateGovAuditorSchema.parse(req.body);
+    const result = await govService.updateAuditor(
+      req.params.auditorUserId,
+      body,
+      req.user!,
+      buildContext(req),
+    );
 
     return sendSuccess(req, res, result);
   }
@@ -79,6 +93,25 @@ export class GovController {
 
   async getSchoolDetail(req: Request, res: Response): Promise<Response> {
     const result = await govService.getSchoolDetail(req.user!, req.params.tenantId);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listMyScopes(req: Request, res: Response): Promise<Response> {
+    const result = await govService.listMyScopes(req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listSchoolCourses(req: Request, res: Response): Promise<Response> {
+    const result = await govService.listSchoolCourses(req.user!, req.params.tenantId);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async getSchoolConductReportSummary(req: Request, res: Response): Promise<Response> {
+    const query = conductSchoolReportQuerySchema.parse(req.query);
+    const result = await govService.getSchoolConductReportSummary(req.user!, req.params.tenantId, query);
 
     return sendSuccess(req, res, result);
   }
