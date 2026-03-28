@@ -1,4 +1,5 @@
 import {
+  Prisma,
   SystemAnnouncementStatus,
   SystemAnnouncementTarget,
 } from '@prisma/client';
@@ -87,7 +88,8 @@ export class SystemAnnouncementsService {
   }
 
   async list(actor: JwtUser, query: ListQuery) {
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    const roles = actor.roles ?? [];
+    if (!roles.includes('SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Only super admins can manage system announcements');
     }
 
@@ -98,42 +100,53 @@ export class SystemAnnouncementsService {
         ? { status: query.status }
         : {};
 
-    const [totalItems, rows] = await prisma.$transaction([
-      prisma.systemAnnouncement.count({ where }),
-      prisma.systemAnnouncement.findMany({
-        where,
-        include: {
-          author: {
-            select: { id: true, firstName: true, lastName: true, email: true },
+    try {
+      const [totalItems, rows] = await prisma.$transaction([
+        prisma.systemAnnouncement.count({ where }),
+        prisma.systemAnnouncement.findMany({
+          where,
+          include: {
+            author: {
+              select: { id: true, firstName: true, lastName: true, email: true },
+            },
           },
-        },
-        orderBy: { updatedAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-    ]);
+          orderBy: { updatedAt: 'desc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+      ]);
 
-    return {
-      items: rows.map((a) => ({
-        id: a.id,
-        title: a.title,
-        body: a.body,
-        status: a.status,
-        targetType: a.targetType,
-        targetTenantIds: a.targetTenantIds,
-        targetRoleNames: a.targetRoleNames,
-        publishedAt: a.publishedAt?.toISOString() ?? null,
-        expiresAt: a.expiresAt?.toISOString() ?? null,
-        createdAt: a.createdAt.toISOString(),
-        updatedAt: a.updatedAt.toISOString(),
-        author: a.author,
-      })),
-      pagination: buildPagination(page, pageSize, totalItems),
-    };
+      return {
+        items: rows.map((a) => ({
+          id: a.id,
+          title: a.title,
+          body: a.body,
+          status: a.status,
+          targetType: a.targetType,
+          targetTenantIds: a.targetTenantIds,
+          targetRoleNames: a.targetRoleNames,
+          publishedAt: a.publishedAt?.toISOString() ?? null,
+          expiresAt: a.expiresAt?.toISOString() ?? null,
+          createdAt: a.createdAt.toISOString(),
+          updatedAt: a.updatedAt.toISOString(),
+          author: a.author,
+        })),
+        pagination: buildPagination(page, pageSize, totalItems),
+      };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021') {
+        throw new AppError(
+          503,
+          'SCHEMA_NOT_READY',
+          'System announcements are not available until database migrations are applied (SystemAnnouncement table missing).',
+        );
+      }
+      throw e;
+    }
   }
 
   async create(actor: JwtUser, input: CreateInput, context: RequestAuditContext) {
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Only super admins can create system announcements');
     }
 
@@ -187,7 +200,7 @@ export class SystemAnnouncementsService {
     input: UpdateInput,
     context: RequestAuditContext,
   ) {
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Only super admins can update system announcements');
     }
 

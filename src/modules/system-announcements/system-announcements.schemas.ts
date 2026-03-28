@@ -16,6 +16,6 @@ export const updateSystemAnnouncementSchema = createSystemAnnouncementSchema.par
 
 export const listSystemAnnouncementsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(200).default(20),
   status: z.nativeEnum(SystemAnnouncementStatus).optional(),
 });
