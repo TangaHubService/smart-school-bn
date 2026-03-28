@@ -1,5 +1,9 @@
--- CreateEnum
-CREATE TYPE "InviteStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED');
+-- CreateEnum (idempotent: type may already exist from db push / partial apply)
+DO $$ BEGIN
+    CREATE TYPE "InviteStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable
 CREATE TABLE "School" (
