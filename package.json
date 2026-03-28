@@ -11,6 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:deploy:sh": "bash prisma/scripts/migrate-deploy.sh",
+    "prisma:migrate:psql": "bash prisma/scripts/apply-migrations-psql.sh",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:add-timetable-permissions": "ts-node prisma/scripts/add-timetable-permissions.ts",
     "test": "jest --passWithNoTests",
