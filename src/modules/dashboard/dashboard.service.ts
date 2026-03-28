@@ -87,15 +87,15 @@ export interface SchoolAdminDashboardData {
 export class DashboardService {
   private readonly announcementsService = new AnnouncementsService();
 
-  async getSuperAdminDashboard(
-    _actor: JwtUser,
-    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
-  ): Promise<SuperAdminDashboardData> {
+  private buildSuperAdminTenantsWhere(
+    filters?: { status?: string; region?: string; school?: string },
+    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district',
+  ): Prisma.TenantWhereInput {
     const statusFilter = filters?.status;
     const regionFilter = filters?.region;
     const schoolFilter = filters?.school;
 
-    const tenantsWhere: Prisma.TenantWhereInput = {
+    return {
       code: { not: 'platform' },
       ...(statusFilter === 'inactive'
         ? { isActive: false }
@@ -103,11 +103,13 @@ export class DashboardService {
           ? {}
           : { isActive: true }),
       ...(regionFilter && regionFilter !== 'all-regions'
-        ? {
-            school: {
-              province: regionFilter,
-            },
-          }
+        ? regionStrategy === 'district-only'
+          ? { school: { district: regionFilter } }
+          : {
+              school: {
+                OR: [{ province: regionFilter }, { district: regionFilter }],
+              },
+            }
         : {}),
       ...(schoolFilter && schoolFilter !== 'all-schools'
         ? {
@@ -115,6 +117,32 @@ export class DashboardService {
           }
         : {}),
     };
+  }
+
+  async getSuperAdminDashboard(
+    _actor: JwtUser,
+    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
+  ): Promise<SuperAdminDashboardData> {
+    for (const regionStrategy of ['province-or-district', 'district-only'] as const) {
+      try {
+        return await this.computeSuperAdminDashboard(filters, regionStrategy);
+      } catch (e: unknown) {
+        const isMissingColumn =
+          e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2022';
+        if (isMissingColumn && regionStrategy === 'province-or-district') {
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw new Error('Super admin dashboard: exhausted region strategies');
+  }
+
+  private async computeSuperAdminDashboard(
+    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
+    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district',
+  ): Promise<SuperAdminDashboardData> {
+    const tenantsWhere = this.buildSuperAdminTenantsWhere(filters, regionStrategy);
 
     const userTenantScope = { deletedAt: null, tenant: tenantsWhere };
     const [
@@ -260,42 +288,107 @@ export class DashboardService {
   }
 
   async getSuperAdminFilters(_actor: JwtUser) {
+    try {
+      return await this.loadSuperAdminFilterOptionsPreferProvince();
+    } catch (e: unknown) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2022') {
+        return this.loadSuperAdminFilterOptionsDistrictOnly();
+      }
+      throw e;
+    }
+  }
+
+  /** Loads School columns that may not exist until later migrations (e.g. province, logoUrl). */
+  private async loadSuperAdminFilterOptionsPreferProvince() {
     const [tenants, academicYears, terms] = await prisma.$transaction([
       prisma.tenant.findMany({
-        where: {
-          code: { not: 'platform' },
-        },
+        where: { code: { not: 'platform' } },
         include: {
-          school: true,
+          school: {
+            select: {
+              displayName: true,
+              province: true,
+              district: true,
+              city: true,
+            },
+          },
         },
-        orderBy: {
-          name: 'asc',
-        },
+        orderBy: { name: 'asc' },
       }),
       prisma.academicYear.findMany({
-        where: {
-          isActive: true,
-        },
+        where: { isActive: true },
         distinct: ['name'],
-        orderBy: {
-          startDate: 'desc',
-        },
+        orderBy: { startDate: 'desc' },
       }),
       prisma.term.findMany({
-        where: {
-          isActive: true,
-        },
+        where: { isActive: true },
         distinct: ['name'],
-        orderBy: {
-          sequence: 'asc',
+        orderBy: { sequence: 'asc' },
+      }),
+    ]);
+
+    const regions = Array.from(
+      new Set(
+        tenants.flatMap((t) => {
+          const s = t.school;
+          if (!s) return [];
+          return [s.province, s.district].filter((v): v is string => Boolean(v));
+        }),
+      ),
+    ).sort();
+
+    return {
+      schools: tenants.map((t) => ({
+        id: t.id,
+        name: t.school?.displayName ?? t.name,
+        province: t.school?.province ?? t.school?.district ?? null,
+        isActive: t.isActive,
+      })),
+      regions,
+      academicYears: academicYears.map((ay) => ({
+        id: ay.id,
+        name: ay.name,
+      })),
+      terms: terms.map((term) => ({
+        id: term.id,
+        name: term.name,
+        sequence: term.sequence,
+      })),
+    };
+  }
+
+  /** Fallback when School is missing columns added after sprint1 (e.g. province). */
+  private async loadSuperAdminFilterOptionsDistrictOnly() {
+    const [tenants, academicYears, terms] = await prisma.$transaction([
+      prisma.tenant.findMany({
+        where: { code: { not: 'platform' } },
+        include: {
+          school: {
+            select: {
+              displayName: true,
+              district: true,
+              city: true,
+            },
+          },
         },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.academicYear.findMany({
+        where: { isActive: true },
+        distinct: ['name'],
+        orderBy: { startDate: 'desc' },
+      }),
+      prisma.term.findMany({
+        where: { isActive: true },
+        distinct: ['name'],
+        orderBy: { sequence: 'asc' },
       }),
     ]);
 
     const regions = Array.from(
       new Set(
         tenants
-          .map((t) => t.school?.province)
+          .map((t) => t.school?.district)
           .filter((v): v is string => Boolean(v)),
       ),
     ).sort();
@@ -304,7 +397,7 @@ export class DashboardService {
       schools: tenants.map((t) => ({
         id: t.id,
         name: t.school?.displayName ?? t.name,
-        province: t.school?.province ?? null,
+        province: null,
         isActive: t.isActive,
       })),
       regions,
