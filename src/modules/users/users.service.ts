@@ -14,7 +14,14 @@ export class UsersService {
       include: {
         tenant: {
           include: {
-            school: true,
+            // Explicit columns only: avoids P2022 when DB is behind migrations (e.g. missing School.logoUrl).
+            school: {
+              select: {
+                id: true,
+                displayName: true,
+                setupCompletedAt: true,
+              },
+            },
           },
         },
         userRoles: {
