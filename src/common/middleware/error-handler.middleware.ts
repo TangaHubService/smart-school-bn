@@ -4,6 +4,10 @@ import { ZodError } from 'zod';
 import { AppError } from '../errors/app-error';
 import { sendError } from '../utils/response';
 
+function requestRoute(req: Request): string {
+  return `${req.method} ${req.originalUrl || req.url}`;
+}
+
 export function errorHandlerMiddleware(
   error: unknown,
   req: Request,
@@ -11,6 +15,7 @@ export function errorHandlerMiddleware(
   _next: NextFunction,
 ): void {
   const logger = (req as Request & { log?: { error: (payload: unknown, message?: string) => void } }).log;
+  const route = requestRoute(req);
 
   if (error instanceof AppError) {
     logger?.error(
@@ -19,8 +24,9 @@ export function errorHandlerMiddleware(
         code: error.code,
         details: error.details ?? null,
         requestId: req.requestId,
+        route,
       },
-      'Request failed with application error',
+      `${route} — ${error.code}: ${error.message}`,
     );
     sendError(req, res, error.statusCode, error.code, error.message, error.details);
     return;
@@ -31,8 +37,9 @@ export function errorHandlerMiddleware(
       {
         err: error,
         requestId: req.requestId,
+        route,
       },
-      'Request validation failed',
+      `${route} — validation failed`,
     );
     sendError(
       req,
@@ -49,8 +56,9 @@ export function errorHandlerMiddleware(
     {
       err: error,
       requestId: req.requestId,
+      route,
     },
-    'Unhandled request error',
+    `${route} — unhandled error`,
   );
 
   sendError(

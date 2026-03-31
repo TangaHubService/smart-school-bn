@@ -1,10 +1,14 @@
 import { Server, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
 
+import { rootLogger } from '../../config/logger';
+
+const socketLog = rootLogger.child({ module: 'socket.io' });
+
 let io: Server;
 
 export const initSocket = (server: HttpServer) => {
-  console.log('Socket.io initializing...');
+  socketLog.info('Initializing WebSocket server');
   io = new Server(server, {
     cors: {
       origin: '*', // Adjust this in production
@@ -13,16 +17,16 @@ export const initSocket = (server: HttpServer) => {
   });
 
   io.on('connection', (socket: Socket) => {
-    console.log('Socket Client connected:', socket.id);
+    socketLog.info({ socketId: socket.id }, 'Client connected');
 
     // Client joins a transaction room
     socket.on('joinTransaction', ({ transactionId }) => {
       socket.join(transactionId);
-      console.log(`Socket Client joined room: ${transactionId}`);
+      socketLog.info({ socketId: socket.id, transactionId }, 'Client joined transaction room');
     });
 
     socket.on('disconnect', () => {
-      console.log('Socket Client disconnected:', socket.id);
+      socketLog.info({ socketId: socket.id }, 'Client disconnected');
     });
   });
 

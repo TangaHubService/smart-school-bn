@@ -45,7 +45,13 @@ type ReportCardPayload = {
   academicYear: { id: string; name: string };
   term: { id: string; name: string };
   classRoom: { id: string; code: string; name: string };
-  student: { id: string; studentCode: string; firstName: string; lastName: string };
+  student: {
+    id: string;
+    studentCode: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth?: string | null;
+  };
   gradingScheme: { id: string; name: string; version: number; rules?: GradingBand[] };
   metadata?: {
     teacherComment?: string;
@@ -1270,10 +1276,7 @@ export class ExamsService {
 
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload, {
-        verificationCode: this.buildVerificationCode(snapshot.id),
-        verificationUrl: this.buildVerificationUrl(snapshot.id),
-      }),
+      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
     };
   }
 
@@ -1301,10 +1304,7 @@ export class ExamsService {
 
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload, {
-        verificationCode: this.buildVerificationCode(snapshot.id),
-        verificationUrl: this.buildVerificationUrl(snapshot.id),
-      }),
+      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
     };
   }
 
@@ -1347,10 +1347,7 @@ export class ExamsService {
 
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload, {
-        verificationCode: this.buildVerificationCode(snapshot.id),
-        verificationUrl: this.buildVerificationUrl(snapshot.id),
-      }),
+      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
     };
   }
 
@@ -1430,6 +1427,7 @@ export class ExamsService {
             studentCode: true,
             firstName: true,
             lastName: true,
+            dateOfBirth: true,
           },
         },
       },
@@ -1567,7 +1565,13 @@ export class ExamsService {
     academicYear: { id: string; name: string };
     term: { id: string; name: string };
     classRoom: { id: string; code: string; name: string };
-    student: { id: string; studentCode: string; firstName: string; lastName: string };
+    student: {
+      id: string;
+      studentCode: string;
+      firstName: string;
+      lastName: string;
+      dateOfBirth?: Date | null;
+    };
     exams: Array<any>;
     gradingScheme: { id: string; name: string; version: number; rules: Prisma.JsonValue };
     conduct?: { grade: string; remark?: string | null };
@@ -1660,7 +1664,15 @@ export class ExamsService {
         academicYear: params.academicYear,
         term: params.term,
         classRoom: params.classRoom,
-        student: params.student,
+        student: {
+          id: params.student.id,
+          studentCode: params.student.studentCode,
+          firstName: params.student.firstName,
+          lastName: params.student.lastName,
+          dateOfBirth: params.student.dateOfBirth
+            ? params.student.dateOfBirth.toISOString()
+            : null,
+        },
         gradingScheme: {
           id: params.gradingScheme.id,
           name: params.gradingScheme.name,

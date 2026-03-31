@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 
+import { rootLogger } from '../../config/logger';
 import { prisma } from '../../db/prisma';
 
 interface AuditLogInput {
@@ -36,7 +37,16 @@ export class AuditService {
         },
       });
     } catch (error) {
-      console.error('Failed to write audit log', error);
+      rootLogger.error(
+        {
+          err: error,
+          event: input.event,
+          entity: input.entity,
+          entityId: input.entityId,
+          tenantId: input.tenantId,
+        },
+        'Audit log write failed',
+      );
     }
   }
 }

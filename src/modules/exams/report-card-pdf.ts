@@ -1,5 +1,4 @@
 import PDFDocument from 'pdfkit';
-import QRCode from 'qrcode';
 
 type GradingBand = {
   min: number;
@@ -23,7 +22,12 @@ interface ReportCardPayload {
   academicYear: { name: string };
   term: { name: string };
   classRoom: { code: string; name: string };
-  student: { studentCode: string; firstName: string; lastName: string };
+  student: {
+    studentCode: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth?: string | null;
+  };
   gradingScheme?: {
     name: string;
     version: number;
@@ -59,11 +63,6 @@ interface ReportCardPayload {
   }>;
 }
 
-interface ReportCardPdfOptions {
-  verificationCode: string;
-  verificationUrl: string;
-}
-
 function drawBox(
   doc: PDFKit.PDFDocument,
   x: number,
@@ -71,12 +70,14 @@ function drawBox(
   width: number,
   height: number,
   fillColor?: string,
+  lineWidth = 0.5,
 ) {
   doc.save();
+  doc.lineWidth(lineWidth);
   if (fillColor) {
-    doc.rect(x, y, width, height).fillAndStroke(fillColor, '#111827');
+    doc.rect(x, y, width, height).fillAndStroke(fillColor, '#000000');
   } else {
-    doc.rect(x, y, width, height).stroke('#111827');
+    doc.rect(x, y, width, height).stroke('#000000');
   }
   doc.restore();
 }
@@ -98,7 +99,7 @@ function drawText(
   doc
     .font(options.bold ? 'Helvetica-Bold' : 'Helvetica')
     .fontSize(options.size ?? 10)
-    .fillColor(options.color ?? '#111827')
+    .fillColor(options.color ?? '#000000')
     .text(text, x, y, {
       width,
       align: options.align ?? 'left',
@@ -121,17 +122,18 @@ function drawCell(
     color?: string;
     paddingX?: number;
     paddingY?: number;
+    lineWidth?: number;
   } = {},
 ) {
-  drawBox(doc, x, y, width, height, options.fillColor);
+  drawBox(doc, x, y, width, height, options.fillColor, options.lineWidth ?? 0.5);
   drawText(
     doc,
     text,
-    x + (options.paddingX ?? 6),
-    y + (options.paddingY ?? 5),
-    width - (options.paddingX ?? 6) * 2,
+    x + (options.paddingX ?? 4),
+    y + (options.paddingY ?? 4),
+    width - (options.paddingX ?? 4) * 2,
     {
-      size: options.size ?? 9,
+      size: options.size ?? 8.5,
       bold: options.bold,
       align: options.align,
       color: options.color,
@@ -141,393 +143,298 @@ function drawCell(
 
 function displayValue(value?: string | number | null) {
   if (value == null || value === '') {
-    return 'N/A';
+    return '—';
   }
   return String(value);
 }
 
-function deriveSchoolLevel(classLabel: string) {
-  const match = classLabel.match(/(\d+)/);
-  const gradeNumber = match ? Number(match[1]) : null;
-  if (!gradeNumber) {
-    return 'SCHOOL';
+function formatBorn(iso?: string | null): string {
+  if (!iso) {
+    return '';
   }
-  if (gradeNumber <= 3) {
-    return 'LOWER PRIMARY';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '';
   }
-  if (gradeNumber <= 6) {
-    return 'UPPER PRIMARY';
-  }
-  return 'SECONDARY';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function formatBands(rules: GradingBand[]) {
-  return [...rules].sort((left, right) => right.max - left.max || right.min - left.min);
+/** Double horizontal rules (full width), like the official form */
+function drawDoubleRule(doc: PDFKit.PDFDocument, x: number, y: number, width: number) {
+  doc.save();
+  doc.lineWidth(0.75);
+  doc.strokeColor('#000000');
+  doc.moveTo(x, y).lineTo(x + width, y).stroke();
+  doc.moveTo(x, y + 2.5).lineTo(x + width, y + 2.5).stroke();
+  doc.restore();
 }
 
-async function loadLogoBuffer(url: string): Promise<Buffer | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      return null;
-    }
-    const mime = res.headers.get('content-type') ?? '';
-    if (mime && !mime.startsWith('image/')) {
-      return null;
-    }
-    const arr = await res.arrayBuffer();
-    return Buffer.from(arr);
-  } catch {
-    return null;
-  }
-}
-
-export async function buildReportCardPdfBuffer(
-  payload: ReportCardPayload,
-  options: ReportCardPdfOptions,
+function drawOuterFrame(
+  doc: PDFKit.PDFDocument,
+  outerX: number,
+  margin: number,
+  contentW: number,
+  pageHeight: number,
 ) {
-  const qrBuffer = await QRCode.toBuffer(options.verificationUrl, {
-    type: 'png',
-    errorCorrectionLevel: 'M',
-    margin: 1,
-    width: 160,
-  });
+  doc.save();
+  doc.lineWidth(1.25);
+  doc.strokeColor('#000000');
+  doc.rect(outerX, margin, contentW, pageHeight - margin * 2).stroke();
+  doc.restore();
+}
 
-  const logoUrl = payload.school?.logoUrl?.trim();
-  const logoBuffer = logoUrl ? await loadLogoBuffer(logoUrl) : null;
-
+/**
+ * Official-style report card: full page width, bordered grid, no QR/verification.
+ * Layout matches the MoE / Smart School Rwanda paper form.
+ */
+export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 32, size: 'A4' });
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 0,
+    });
     const chunks: Buffer[] = [];
     const pageWidth = doc.page.width;
     const pageHeight = doc.page.height;
-    const outerX = 32;
-    const outerY = 32;
-    const outerWidth = pageWidth - outerX * 2;
-    const outerHeight = pageHeight - outerY * 2;
+    const margin = 14;
+    const contentW = pageWidth - margin * 2;
+    const outerX = margin;
     const school = payload.school ?? {};
-    const rules = formatBands(payload.gradingScheme?.rules ?? []);
-    const studentName = `${payload.student.firstName} ${payload.student.lastName}`;
-    const schoolTitle = school.displayName ?? payload.schoolName;
-    const schoolCode = displayValue(school.registrationNumber ?? school.code);
-    const levelLabel = deriveSchoolLevel(payload.classRoom.name || payload.classRoom.code);
+    const studentName = `${payload.student.firstName} ${payload.student.lastName}`.trim();
+    const schoolTitle = (school.displayName ?? payload.schoolName).toUpperCase();
+    const schoolCodeOrPhone = displayValue(school.phone ?? school.registrationNumber ?? school.code);
+    const district = displayValue(school.district);
     const teacherComment = payload.metadata?.teacherComment ?? payload.totals.remark;
-    const generatedAt = payload.metadata?.generatedAt
-      ? new Date(payload.metadata.generatedAt)
-      : new Date();
+    const conductText = payload.conduct
+      ? `${payload.conduct.grade}${payload.conduct.remark ? ` (${payload.conduct.remark})` : ''}`
+      : '';
 
     doc.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
-    drawBox(doc, outerX, outerY, outerWidth, outerHeight);
+    let y = margin;
 
-    const leftMetaX = 54;
-    const leftMetaY = 54;
-    const leftMetaWidth = 210;
+    const innerPad = 10;
+    drawOuterFrame(doc, outerX, margin, contentW, pageHeight);
 
-    if (logoBuffer) {
-      try {
-        const logoX = pageWidth - outerX - 56;
-        doc.image(logoBuffer, logoX, leftMetaY - 6, {
-          width: 52,
-          height: 52,
-          fit: [52, 52],
+    const innerX = outerX + innerPad;
+    const innerW = contentW - innerPad * 2;
+    y += innerPad;
+
+    // —— Header: left block | right block (screenshot) ——
+    const headMid = innerW * 0.52;
+    const leftW = headMid;
+    const rightW = innerW - headMid;
+    const headH = 11;
+    drawText(doc, 'REPUBLIC OF RWANDA', innerX, y, leftW, { size: 9.5, bold: true });
+    drawText(doc, 'MINISTRY OF EDUCATION', innerX + headMid, y, rightW, {
+      size: 9.5,
+      bold: true,
+      align: 'right',
+    });
+    y += headH + 2;
+    drawText(doc, schoolTitle, innerX, y, leftW, { size: 10, bold: true });
+    drawText(doc, `School Year: ${payload.academicYear.name}`, innerX, y, innerW, {
+      size: 10,
+      bold: true,
+      align: 'right',
+    });
+    y += headH + 2;
+    drawText(doc, district, innerX, y, leftW, { size: 10, bold: true });
+    drawText(doc, payload.term.name, innerX, y, innerW, { size: 10, bold: true, align: 'right' });
+    y += headH + 2;
+    drawText(doc, schoolCodeOrPhone, innerX, y, leftW, { size: 10, bold: true });
+    y += headH + 6;
+
+    // REPORT CARD between double rules (full inner width)
+    drawDoubleRule(doc, innerX, y, innerW);
+    y += 6;
+    drawText(doc, 'REPORT CARD', innerX, y, innerW, { size: 14, bold: true, align: 'center' });
+    y += 18;
+    drawDoubleRule(doc, innerX, y, innerW);
+    y += 10;
+
+    // —— Student info: bordered rows (screenshot) ——
+    const bornStr = formatBorn(payload.student.dateOfBirth);
+    const row1H = 22;
+    const split = innerW * 0.58;
+    drawCell(doc, innerX, y, split, row1H, `Student Name: ${studentName}`, {
+      size: 9.5,
+      bold: false,
+      paddingY: 5,
+    });
+    drawCell(doc, innerX + split, y, innerW - split, row1H, `Class: ${(payload.classRoom.name || payload.classRoom.code).toUpperCase()}`, {
+      size: 9.5,
+      bold: false,
+      paddingY: 5,
+    });
+    y += row1H;
+
+    const row2H = 22;
+    const bornPart = bornStr ? `${bornStr}` : '';
+    const row2Text = `Born: ${bornPart || '        '} at ${'        '}    N. Students: ${payload.totals.classSize}    Conduct: ${conductText || '        '}`;
+    drawCell(doc, innerX, y, innerW, row2H, row2Text, { size: 9, paddingY: 5 });
+    y += row2H;
+
+    const row3H = 20;
+    drawCell(doc, innerX, y, innerW, row3H, `ID No.: ${payload.student.studentCode}`, {
+      size: 9.5,
+      paddingY: 4,
+    });
+    y += row3H + 4;
+
+    // —— Grades table: column widths fill innerW exactly ——
+    const weights = [2.35, 0.72, 0.72, 0.72, 0.72, 0.72, 0.72, 0.78, 2.35];
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const colW = weights.map((w) => (w / wSum) * innerW);
+    const tableX = innerX;
+    const headerH = 22;
+    const rowH = 21;
+    const headerFill = '#eeeeee';
+
+    const headers = ['SUBJECTS', 'TEST', 'EX', 'TOT', 'TEST', 'EX', 'TOT', 'Rank', 'Comments'];
+    let cx = tableX;
+    for (let i = 0; i < headers.length; i += 1) {
+      drawCell(doc, cx, y, colW[i], headerH, headers[i], {
+        fillColor: headerFill,
+        bold: true,
+        size: 8.5,
+        align: i === 0 ? 'left' : 'center',
+      });
+      cx += colW[i];
+    }
+    y += headerH;
+
+    let sumTest = 0;
+    let sumEx = 0;
+    let sumTot = 0;
+
+    for (const subject of payload.subjects) {
+      const exams = subject.exams ?? [];
+      const catExam = exams.find((e) => e.examType === 'CAT');
+      const examExam = exams.find((e) => e.examType === 'EXAM');
+      const testVal = catExam?.marksObtained ?? null;
+      const examVal = examExam?.marksObtained ?? null;
+      const testStr = testVal != null ? String(testVal) : '—';
+      const examStr = examVal != null ? String(examVal) : '—';
+      const tot =
+        testVal != null || examVal != null ? (testVal ?? 0) + (examVal ?? 0) : null;
+      const totStr =
+        tot != null && tot > 0
+          ? String(tot)
+          : testVal == null && examVal == null
+            ? '—'
+            : String(tot ?? 0);
+
+      if (testVal != null) {
+        sumTest += testVal;
+      }
+      if (examVal != null) {
+        sumEx += examVal;
+      }
+      if (tot != null) {
+        sumTot += tot;
+      }
+
+      const cells = [
+        subject.subjectName,
+        testStr,
+        examStr,
+        totStr,
+        '—',
+        '—',
+        '—',
+        '—',
+        subject.remark || subject.grade,
+      ];
+      cx = tableX;
+      for (let i = 0; i < cells.length; i += 1) {
+        drawCell(doc, cx, y, colW[i], rowH, cells[i], {
+          size: i === 0 ? 8.5 : 8.2,
+          bold: i === 0,
+          align: i === 0 ? 'left' : 'center',
         });
-      } catch {
-        // ignore invalid image data for PDF
+        cx += colW[i];
+      }
+      y += rowH;
+
+      if (y > pageHeight - margin - 180) {
+        doc.addPage();
+        drawOuterFrame(doc, outerX, margin, contentW, pageHeight);
+        y = margin + innerPad;
       }
     }
 
-    drawText(
-      doc,
-      [
-        'REPUBLIC OF RWANDA',
-        'MINISTRY OF EDUCATION',
-        `DISTRICT : ${displayValue(school.district)}`,
-        `School : ${schoolTitle}`,
-        `School Code : ${schoolCode}`,
-        `E-mail : ${displayValue(school.email)}`,
-        `Phone : ${displayValue(school.phone)}`,
-      ].join('\n'),
-      leftMetaX,
-      leftMetaY,
-      leftMetaWidth,
-      { size: 9.5, lineGap: 1.2 },
-    );
-
-    drawBox(doc, 250, 42, 250, 60);
-    drawText(doc, 'STUDENT REPORT CARD:', 250, 55, 250, {
-      size: 16,
-      bold: true,
-      align: 'center',
-    });
-    drawText(doc, levelLabel, 250, 76, 250, {
-      size: 14,
-      bold: true,
-      align: 'center',
-    });
-
-    const infoY = 150;
-    drawBox(doc, 48, infoY, 500, 48);
-    drawText(doc, `Names: ${studentName}`, 58, infoY + 10, 270, {
-      size: 11,
-      bold: true,
-    });
-    drawText(doc, `Registration ID: ${payload.student.studentCode}`, 58, infoY + 28, 270, {
-      size: 10.5,
-      bold: true,
-    });
-    drawText(
-      doc,
-      [
-        `Academic Year: ${payload.academicYear.name}`,
-        `Level: ${levelLabel.replace('LOWER ', '').replace('UPPER ', '')}`,
-        `Class: ${payload.classRoom.name}`,
-      ].join('\n'),
-      368,
-      infoY + 8,
-      168,
-      { size: 10.5, bold: true, align: 'left' },
-    );
-
-    const tableX = 48;
-    let tableY = 210;
-    const columnWidths = [140, 42, 42, 48, 44, 34, 90];
-    const headers = ['SUBJECTS', 'TEST', 'EX', 'TOT', '%', 'GR', 'REMARK'];
-    let cursorX = tableX;
-
-    for (let index = 0; index < headers.length; index += 1) {
-      drawCell(doc, cursorX, tableY, columnWidths[index], 24, headers[index], {
-        fillColor: '#f3f4f6',
+    const totalCells = ['Total', String(sumTest), String(sumEx), String(sumTot), '—', '—', '—', '', ''];
+    cx = tableX;
+    for (let i = 0; i < totalCells.length; i += 1) {
+      drawCell(doc, cx, y, colW[i], rowH, totalCells[i], {
+        fillColor: '#f0f0f0',
         bold: true,
-        size: 9.5,
-        align: index === 0 ? 'left' : 'center',
+        size: 8.5,
+        align: i === 0 ? 'left' : 'center',
       });
-      cursorX += columnWidths[index];
+      cx += colW[i];
     }
-    tableY += 24;
+    y += rowH;
 
-    for (const subject of payload.subjects) {
-      const catExam = subject.exams.find((e) => e.examType === 'CAT');
-      const examExam = subject.exams.find((e) => e.examType === 'EXAM');
-      const testVal = catExam?.marksObtained ?? null;
-      const examVal = examExam?.marksObtained ?? null;
-      const testStr = testVal != null ? String(testVal) : '-';
-      const examStr = examVal != null ? String(examVal) : '-';
-      const total = (testVal ?? 0) + (examVal ?? 0);
-      const totalStr = total > 0 ? String(total) : '-';
-      const rowHeight = 28;
-
-      cursorX = tableX;
-      drawCell(doc, cursorX, tableY, columnWidths[0], rowHeight, subject.subjectName, {
-        size: 9.5,
-        bold: true,
-      });
-      cursorX += columnWidths[0];
-      drawCell(doc, cursorX, tableY, columnWidths[1], rowHeight, testStr, {
-        size: 9.2,
-        align: 'center',
-      });
-      cursorX += columnWidths[1];
-      drawCell(doc, cursorX, tableY, columnWidths[2], rowHeight, examStr, {
-        size: 9.2,
-        align: 'center',
-      });
-      cursorX += columnWidths[2];
-      drawCell(doc, cursorX, tableY, columnWidths[3], rowHeight, totalStr, {
-        size: 9.2,
-        bold: true,
-        align: 'center',
-      });
-      cursorX += columnWidths[3];
-      drawCell(doc, cursorX, tableY, columnWidths[4], rowHeight, subject.averagePercentage.toFixed(1), {
-        size: 9.2,
-        align: 'center',
-      });
-      cursorX += columnWidths[4];
-      drawCell(doc, cursorX, tableY, columnWidths[5], rowHeight, subject.grade, {
-        size: 9.5,
-        bold: true,
-        align: 'center',
-      });
-      cursorX += columnWidths[5];
-      drawCell(doc, cursorX, tableY, columnWidths[6], rowHeight, subject.remark, {
-        size: 8.6,
-        align: 'center',
-      });
-      tableY += rowHeight;
-    }
-
-    const summaryRows: Array<[string, string]> = [
-      ['Total', `${payload.totals.totalMarksObtained.toFixed(1)} / ${payload.totals.totalMarksPossible}`],
-      ['Percentage', `${payload.totals.averagePercentage.toFixed(1)} %`],
-      ['Final Grade', payload.totals.grade],
-      ['Position', `${payload.totals.position} out of ${payload.totals.classSize}`],
+    const avgCells = [
+      'Average',
+      '—',
+      '—',
+      `${payload.totals.averagePercentage.toFixed(1)}%`,
+      '—',
+      '—',
+      '—',
+      `${payload.totals.position}/${payload.totals.classSize}`,
+      `Grade ${payload.totals.grade} · Lates: — · Absences: —`,
     ];
-    if (payload.conduct) {
-      summaryRows.push(['Conduct', `${payload.conduct.grade}${payload.conduct.remark ? ` - ${payload.conduct.remark}` : ''}`]);
+    cx = tableX;
+    for (let i = 0; i < avgCells.length; i += 1) {
+      drawCell(doc, cx, y, colW[i], rowH, avgCells[i], {
+        fillColor: '#fafafa',
+        bold: i === 0,
+        size: 7.8,
+        align: i === 0 ? 'left' : 'center',
+      });
+      cx += colW[i];
     }
+    y += rowH + 6;
 
-    for (const [label, value] of summaryRows) {
-      drawCell(doc, tableX, tableY, 180, 22, label, {
-        fillColor: '#f3f4f6',
-        bold: true,
-        size: 9.5,
-      });
-      drawCell(doc, tableX + 180, tableY, 335, 22, value, {
-        bold: true,
-        size: 9.5,
-        align: 'center',
-      });
-      tableY += 22;
-    }
-
-    drawCell(doc, tableX, tableY, 330, 92, `Comment\n\n${teacherComment}`, {
-      size: 9.3,
-      paddingY: 6,
-    });
-    drawCell(
-      doc,
-      tableX + 330,
-      tableY,
-      185,
-      92,
-      [
-        'Verification',
-        '',
-        `Code: ${options.verificationCode}`,
-        `Issued: ${generatedAt.toLocaleDateString('en-RW')}`,
-        '',
-        'Scan the QR code below to validate this report card.',
-      ].join('\n'),
-      {
-        size: 9,
-        paddingY: 6,
-      },
-    );
-    tableY += 92;
-
-    drawCell(
-      doc,
-      tableX,
-      tableY,
-      257.5,
-      24,
-      `Class Teacher Signature: ${displayValue(payload.metadata?.classTeacherName)}`,
-      { size: 9.2, bold: true },
-    );
-    drawCell(doc, tableX + 257.5, tableY, 257.5, 24, 'Parent Signature:', {
-      size: 9.2,
+    // Footer: Observations (left) | Teacher (top right) / Parent (bottom right)
+    const leftObsW = colW[0] + colW[1] + colW[2] + colW[3] + colW[4] + colW[5] + colW[6];
+    const rightSigW = colW[7] + colW[8];
+    const headSig = 20;
+    drawCell(doc, tableX, y, leftObsW, headSig, 'Observations', {
       bold: true,
+      size: 9,
+      paddingY: 5,
     });
-    tableY += 36;
-
-    const gradingScaleWidth = 380;
-    drawBox(doc, tableX, tableY, gradingScaleWidth, 86);
-    drawText(doc, 'Grading scale', tableX + 8, tableY + 10, 110, {
-      size: 11,
+    drawCell(doc, tableX + leftObsW, y, rightSigW, headSig, 'Teacher Signature', {
       bold: true,
+      size: 9,
+      align: 'center',
+      paddingY: 5,
     });
+    y += headSig;
 
-    if (rules.length) {
-      const labelColumnWidth = 96;
-      const bandColumnWidth = (gradingScaleWidth - labelColumnWidth) / rules.length;
-      const bandStartX = tableX + labelColumnWidth;
-      const rangeY = tableY;
-      const gradeY = tableY + 28;
-      const remarkY = tableY + 56;
+    const bodyH = 56;
+    drawCell(doc, tableX, y, leftObsW, bodyH, teacherComment, { size: 8.5, paddingY: 6 });
+    drawCell(doc, tableX + leftObsW, y, rightSigW, bodyH, displayValue(payload.metadata?.classTeacherName), {
+      size: 8,
+      align: 'center',
+      paddingY: 22,
+    });
+    y += bodyH;
 
-      drawCell(doc, tableX, rangeY, labelColumnWidth, 28, 'Range', {
-        fillColor: '#f3f4f6',
-        bold: true,
-      });
-      drawCell(doc, tableX, gradeY, labelColumnWidth, 28, 'Grade', {
-        fillColor: '#f3f4f6',
-        bold: true,
-      });
-      drawCell(doc, tableX, remarkY, labelColumnWidth, 30, 'Remark', {
-        fillColor: '#f3f4f6',
-        bold: true,
-      });
-
-      rules.forEach((rule, index) => {
-        const x = bandStartX + bandColumnWidth * index;
-        drawCell(doc, x, rangeY, bandColumnWidth, 28, `${rule.min}-${rule.max}`, {
-          size: 8.6,
-          align: 'center',
-        });
-        drawCell(doc, x, gradeY, bandColumnWidth, 28, rule.grade, {
-          size: 9.2,
-          bold: true,
-          align: 'center',
-        });
-        drawCell(doc, x, remarkY, bandColumnWidth, 30, rule.remark ?? '', {
-          size: 7.8,
-          align: 'center',
-        });
-      });
-    }
-
-    const qrBoxX = tableX + gradingScaleWidth + 16;
-    drawBox(doc, qrBoxX, tableY, 119, 158);
-    drawText(doc, 'Scan to verify', qrBoxX + 10, tableY + 10, 99, {
-      size: 10,
+    const parentRowH = 30;
+    drawCell(doc, tableX, y, leftObsW, parentRowH, '', {});
+    drawCell(doc, tableX + leftObsW, y, rightSigW, parentRowH, 'Parent Signature', {
       bold: true,
+      size: 9,
       align: 'center',
-    });
-    doc.image(qrBuffer, qrBoxX + 14, tableY + 30, {
-      fit: [92, 92],
-      align: 'center',
-      valign: 'center',
-    });
-    drawText(doc, options.verificationCode, qrBoxX + 10, tableY + 124, 99, {
-      size: 8.5,
-      bold: true,
-      align: 'center',
-    });
-    drawText(doc, 'Generated by Smart School Rwanda', qrBoxX + 8, tableY + 140, 103, {
-      size: 7.5,
-      align: 'center',
-      color: '#475569',
-    });
-
-    const footerY = pageHeight - 122;
-    drawBox(doc, 48, footerY, 500, 84);
-    drawText(doc, 'Final decision', 56, footerY + 10, 100, {
-      size: 11,
-      bold: true,
-    });
-    drawText(
-      doc,
-      [
-        'Abbreviations',
-        'GR : Grade',
-        '% : Percentage',
-        'MAX : Maximum marks',
-        'TOT : Total marks',
-      ].join('\n'),
-      170,
-      footerY + 10,
-      160,
-      {
-        size: 9.2,
-        bold: true,
-      },
-    );
-    drawText(doc, 'HEADTEACHER', 360, footerY + 10, 90, {
-      size: 11,
-      bold: true,
-      align: 'center',
-    });
-    drawText(doc, schoolTitle, 340, footerY + 48, 130, {
-      size: 9.8,
-      bold: true,
-      align: 'center',
-    });
-    drawText(doc, 'Signature', 474, footerY + 10, 60, {
-      size: 11,
-      align: 'center',
+      paddingY: 8,
     });
 
     doc.end();

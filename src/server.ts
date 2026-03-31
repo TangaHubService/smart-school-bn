@@ -1,5 +1,6 @@
 import { createServer } from 'http';
 import { env } from './config/env';
+import { rootLogger } from './config/logger';
 import { prisma } from './db/prisma';
 import { createApp } from './app';
 import { initSocket } from './common/utils/socket-server';
@@ -11,11 +12,14 @@ const httpServer = createServer(app);
 initSocket(httpServer);
 
 const server = httpServer.listen(env.PORT, () => {
-  console.log(`smart-school-bn listening on port ${env.PORT}`);
+  rootLogger.info(
+    { port: env.PORT, env: env.NODE_ENV, version: env.APP_VERSION },
+    `HTTP server listening on port ${env.PORT}`,
+  );
 });
 
 async function shutdown(signal: string) {
-  console.log(`Received ${signal}. Shutting down...`);
+  rootLogger.info({ signal }, `Shutdown: received ${signal}, closing server`);
   server.close(async () => {
     await prisma.$disconnect();
     process.exit(0);

@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env';
+import { rootLogger } from '../../config/logger';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../common/errors/app-error';
@@ -637,7 +638,10 @@ export class AuthService {
       otp,
       expiresAt,
     }).catch((err) => {
-      console.error(`[AuthService] Failed to send OTP to ${user.email}:`, err);
+      rootLogger.error(
+        { err, email: user.email, flow: 'password_reset_otp' },
+        `Failed to send password reset OTP email to ${user.email}`,
+      );
     });
 
     return { message: 'OTP sent successfully.' };

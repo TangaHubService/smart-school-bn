@@ -1,16 +1,21 @@
+import type { Request } from 'express';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import pino from 'pino';
+import type { IncomingMessage } from 'http';
 import pinoHttp from 'pino-http';
 
 import { env } from './config/env';
+import { rootLogger } from './config/logger';
 import { errorHandlerMiddleware } from './common/middleware/error-handler.middleware';
 import { notFoundMiddleware } from './common/middleware/not-found.middleware';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
 import { apiRouter } from './routes';
 
-const logger = pino({ level: env.LOG_LEVEL });
+function httpRoute(req: IncomingMessage): string {
+  const r = req as Request;
+  return `${r.method} ${r.originalUrl || r.url}`;
+}
 
 function parseCorsOrigin(origin: string): boolean | string[] {
   if (origin.trim() === '*') {
@@ -30,12 +35,24 @@ export function createApp() {
   app.use(requestContextMiddleware);
   app.use(
     pinoHttp({
-      logger,
+      logger: rootLogger,
       genReqId: (req) => req.requestId,
-      customProps: (req) => ({
-        tenantId: req.user?.tenantId,
-        userId: req.user?.sub,
-      }),
+      quietReqLogger: true,
+      autoLogging: {
+        ignore: (req) => req.url?.startsWith('/health') ?? false,
+      },
+      customSuccessMessage: (req, res, responseTime) =>
+        `${httpRoute(req)} ${res.statusCode} ${responseTime}ms`,
+      customErrorMessage: (req, res, err) =>
+        `${httpRoute(req)} ${res.statusCode} ${err.message}`,
+      customProps: (req) => {
+        const r = req as Request;
+        return {
+          requestId: r.requestId,
+          tenantId: r.user?.tenantId,
+          userId: r.user?.sub,
+        };
+      },
     }),
   );
   app.use(helmet());

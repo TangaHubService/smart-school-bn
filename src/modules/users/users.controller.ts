@@ -12,7 +12,10 @@ export class UsersController {
       const result = await this.usersService.getMe(req.user!);
       return sendSuccess(req, res, result);
     } catch (error) {
-      console.error('Error in UsersController.getMe:', error);
+      req.log?.error(
+        { err: error, route: `${req.method} ${req.originalUrl || req.url}` },
+        `${req.method} ${req.originalUrl || req.url} — getMe failed`,
+      );
       throw error;
     }
   }
