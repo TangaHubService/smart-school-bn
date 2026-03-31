@@ -93,6 +93,23 @@ enum ExamType {
   EXAM
 }
 
+enum ExamAssessmentType {
+  QUIZ
+  TEST
+  ASSIGNMENT
+  ORAL
+  PRACTICAL
+  PROJECT
+  MIDTERM
+  EXAM
+}
+
+enum MarkStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
 enum ConductSeverity {
   LOW
   MODERATE
@@ -169,6 +186,7 @@ model Tenant {
   gradingSchemes GradingScheme[]
   exams         Exam[]
   examMarks     ExamMark[]
+  subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
   fileAssets    FileAsset[]
   conductIncidents ConductIncident[]
@@ -250,6 +268,8 @@ model User {
   updatedExams             Exam[]              @relation("ExamUpdatedBy")
   enteredExamMarks         ExamMark[]          @relation("ExamMarkEnteredBy")
   updatedExamMarks         ExamMark[]          @relation("ExamMarkUpdatedBy")
+  createdSubjectAssessmentPolicies SubjectAssessmentPolicy[] @relation("SubjectAssessmentPolicyCreatedBy")
+  updatedSubjectAssessmentPolicies SubjectAssessmentPolicy[] @relation("SubjectAssessmentPolicyUpdatedBy")
   lockedResultSnapshots    ResultSnapshot[]    @relation("ResultSnapshotLockedBy")
   publishedResultSnapshots ResultSnapshot[]    @relation("ResultSnapshotPublishedBy")
   createdLessons           Lesson[]            @relation("LessonCreatedBy")
@@ -357,6 +377,7 @@ model AcademicYear {
   attendanceSessions AttendanceSession[]
   courses Course[]
   exams   Exam[]
+  subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
   conductGrades   ConductGrade[]
   timetableSlots TimetableSlot[]
@@ -380,6 +401,7 @@ model Term {
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   exams        Exam[]
+  subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
   conductGrades   ConductGrade[]
   timetableSlots TimetableSlot[]
@@ -426,6 +448,7 @@ model ClassRoom {
   attendanceRecords AttendanceRecord[]
   courses Course[]
   exams   Exam[]
+  subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
   conductGrades    ConductGrade[]
@@ -450,6 +473,7 @@ model Subject {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   courses Course[]
   exams   Exam[]
+  subjectAssessmentPolicies SubjectAssessmentPolicy[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
@@ -999,6 +1023,7 @@ model Exam {
   gradingSchemeId String
   teacherUserId   String
   examType        ExamType @default(EXAM)
+  assessmentType  ExamAssessmentType?
   name            String
   description     String?
   totalMarks      Int      @default(100)
@@ -1032,7 +1057,8 @@ model ExamMark {
   tenantId        String
   examId          String
   studentId       String
-  marksObtained   Int
+  marksObtained   Int?
+  status          MarkStatus @default(PRESENT)
   enteredByUserId String
   updatedByUserId String
   createdAt       DateTime @default(now())
@@ -1047,6 +1073,34 @@ model ExamMark {
   @@unique([tenantId, examId, studentId])
   @@index([tenantId, examId, updatedAt])
   @@index([tenantId, studentId, updatedAt])
+}
+
+model SubjectAssessmentPolicy {
+  id               String   @id @default(uuid())
+  tenantId         String
+  academicYearId   String
+  termId           String
+  classRoomId      String
+  subjectId        String
+  continuousWeight Int      @default(40)
+  examWeight       Int      @default(60)
+  passMark         Int      @default(50)
+  createdByUserId  String
+  updatedByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  term         Term         @relation(fields: [termId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  createdByUser User        @relation("SubjectAssessmentPolicyCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedByUser User        @relation("SubjectAssessmentPolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, termId, classRoomId, subjectId])
+  @@index([tenantId, termId, classRoomId])
+  @@index([tenantId, academicYearId, createdAt])
 }
 
 model ResultSnapshot {

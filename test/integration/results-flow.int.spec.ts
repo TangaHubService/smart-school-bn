@@ -48,6 +48,12 @@ jest.mock('../../src/db/prisma', () => {
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    subjectAssessmentPolicy: {
+      findMany: jest.fn(),
+    },
+    conductGrade: {
+      findMany: jest.fn(),
+    },
     school: {
       findFirst: jest.fn(),
     },
@@ -353,8 +359,8 @@ describe('results integration flow', () => {
     mockedPrisma.examMark.findMany
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { studentId: 'student-1', marksObtained: 88 },
-        { studentId: 'student-2', marksObtained: 73 },
+        { studentId: 'student-1', marksObtained: 88, status: 'PRESENT' },
+        { studentId: 'student-2', marksObtained: 73, status: 'PRESENT' },
       ]);
     mockedPrisma.$transaction.mockImplementation(async (arg: any) => {
       if (Array.isArray(arg)) {
@@ -393,17 +399,21 @@ describe('results integration flow', () => {
 
     mockedPrisma.school.findFirst.mockResolvedValue({ displayName: 'GS Rwanda' });
     mockedPrisma.resultSnapshot.count.mockResolvedValue(0);
+    mockedPrisma.subjectAssessmentPolicy.findMany.mockResolvedValue([]);
+    mockedPrisma.conductGrade.findMany.mockResolvedValue([]);
     mockedPrisma.exam.findMany.mockResolvedValue([
       {
         id: 'exam-1',
         subjectId: 'subject-1',
+        examType: 'EXAM',
         name: 'Mid-term Mathematics',
         totalMarks: 100,
         weight: 100,
         subject: { id: 'subject-1', name: 'Mathematics', code: 'MATH' },
+        teacherUser: { firstName: 'Daily', lastName: 'Teacher' },
         marks: [
-          { studentId: 'student-1', marksObtained: 88 },
-          { studentId: 'student-2', marksObtained: 73 },
+          { studentId: 'student-1', marksObtained: 88, status: 'PRESENT' },
+          { studentId: 'student-2', marksObtained: 73, status: 'PRESENT' },
         ],
       },
     ]);

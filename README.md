@@ -31,6 +31,10 @@
 - Unit: `npm test`
 - Integration: `npm run test:integration`
 
+## Documentation
+- [Prisma migrations workflow](docs/PRISMA-WORKFLOW.md)
+- [Exams, marks, and report cards](docs/EXAMS-AND-REPORT-CARDS.md) — how CAT/EX marks flow into report card PDFs
+
 ## Notes
 - Access token is JWT (`Authorization: Bearer ...`)
 - Refresh token is opaque and hashed at rest

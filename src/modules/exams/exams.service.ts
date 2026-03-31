@@ -1,4 +1,4 @@
-import { Prisma, ResultSnapshotStatus } from '@prisma/client';
+import { MarkStatus, Prisma, ResultSnapshotStatus } from '@prisma/client';
 
 import { env } from '../../config/env';
 import { AppError } from '../../common/errors/app-error';
@@ -21,69 +21,18 @@ import {
   ReportCardsQueryInput,
   ResultsActionInput,
 } from './exams.schemas';
-import { buildReportCardPdfBuffer } from './report-card-pdf';
+import { buildReportCardPdfBuffer, type ReportCardPayload } from './report-card-pdf';
+import {
+  buildYearlyReportCardSubjects,
+  isYearlyAggregationTerm,
+  type ExamForTermRollup,
+} from './yearly-report-payload';
 
 type GradingBand = {
   min: number;
   max: number;
   grade: string;
   remark?: string;
-};
-
-type ReportCardPayload = {
-  schoolName: string;
-  school?: {
-    displayName?: string;
-    code?: string | null;
-    registrationNumber?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    district?: string | null;
-    country?: string | null;
-    logoUrl?: string | null;
-  };
-  academicYear: { id: string; name: string };
-  term: { id: string; name: string };
-  classRoom: { id: string; code: string; name: string };
-  student: {
-    id: string;
-    studentCode: string;
-    firstName: string;
-    lastName: string;
-    dateOfBirth?: string | null;
-  };
-  gradingScheme: { id: string; name: string; version: number; rules?: GradingBand[] };
-  metadata?: {
-    teacherComment?: string;
-    classTeacherName?: string | null;
-    generatedAt?: string;
-  };
-  subjects: Array<{
-    subjectId: string;
-    subjectName: string;
-    averagePercentage: number;
-    grade: string;
-    remark: string;
-    exams: Array<{
-      examId: string;
-      name: string;
-      examType?: 'CAT' | 'EXAM';
-      marksObtained: number;
-      totalMarks: number;
-      percentage: number;
-      weight: number;
-    }>;
-  }>;
-  conduct?: { grade: string; remark?: string | null };
-  totals: {
-    totalMarksObtained: number;
-    totalMarksPossible: number;
-    averagePercentage: number;
-    grade: string;
-    remark: string;
-    position: number;
-    classSize: number;
-  };
 };
 
 export class ExamsService {
@@ -339,9 +288,10 @@ export class ExamsService {
         firstName: student.firstName,
         lastName: student.lastName,
         marksObtained: markByStudentId.get(student.id)?.marksObtained ?? null,
+        status: markByStudentId.get(student.id)?.status ?? null,
       })),
       warnings: {
-        missingCount: students.filter((student) => !markByStudentId.has(student.id)).length,
+        missingCount: students.filter((student) => !this.isExamMarkComplete(markByStudentId.get(student.id))).length,
       },
     };
   }
@@ -364,6 +314,11 @@ export class ExamsService {
         throw new AppError(400, 'EXAM_MARK_STUDENT_INVALID', 'Student is not enrolled in this class for the exam academic year');
       }
 
+      const status = entry.status ?? MarkStatus.PRESENT;
+      if (entry.marksObtained != null && status !== MarkStatus.PRESENT) {
+        throw new AppError(400, 'EXAM_MARK_STATUS_CONFLICT', 'Numeric marks require status PRESENT');
+      }
+
       if (entry.marksObtained != null && entry.marksObtained > exam.totalMarks) {
         throw new AppError(400, 'EXAM_MARK_OUT_OF_RANGE', `Marks cannot exceed ${exam.totalMarks}`);
       }
@@ -378,8 +333,34 @@ export class ExamsService {
     await prisma.$transaction(async (tx) => {
       for (const entry of input.entries) {
         const existing = existingByStudentId.get(entry.studentId);
+        const status = entry.status ?? MarkStatus.PRESENT;
+
         if (entry.marksObtained == null) {
-          if (existing) {
+          if (status === MarkStatus.ABSENT || status === MarkStatus.EXCUSED) {
+            await tx.examMark.upsert({
+              where: {
+                tenantId_examId_studentId: {
+                  tenantId,
+                  examId,
+                  studentId: entry.studentId,
+                },
+              },
+              update: {
+                marksObtained: null,
+                status,
+                updatedByUserId: actor.sub,
+              },
+              create: {
+                tenantId,
+                examId,
+                studentId: entry.studentId,
+                marksObtained: null,
+                status,
+                enteredByUserId: actor.sub,
+                updatedByUserId: actor.sub,
+              },
+            });
+          } else if (existing) {
             await tx.examMark.delete({ where: { id: existing.id } });
           }
           continue;
@@ -395,6 +376,7 @@ export class ExamsService {
           },
           update: {
             marksObtained: entry.marksObtained,
+            status: MarkStatus.PRESENT,
             updatedByUserId: actor.sub,
           },
           create: {
@@ -402,6 +384,7 @@ export class ExamsService {
             examId,
             studentId: entry.studentId,
             marksObtained: entry.marksObtained,
+            status: MarkStatus.PRESENT,
             enteredByUserId: actor.sub,
             updatedByUserId: actor.sub,
           },
@@ -416,10 +399,12 @@ export class ExamsService {
 
     const refreshedMarks = await prisma.examMark.findMany({
       where: { tenantId, examId },
-      select: { studentId: true, marksObtained: true },
+      select: { studentId: true, marksObtained: true, status: true },
     });
-    const markByStudentId = new Map(refreshedMarks.map((mark) => [mark.studentId, mark.marksObtained]));
-    const missingStudentIds = students.filter((student) => !markByStudentId.has(student.id)).map((student) => student.id);
+    const markByStudentId = new Map(refreshedMarks.map((mark) => [mark.studentId, mark]));
+    const missingStudentIds = students
+      .filter((student) => !this.isExamMarkComplete(markByStudentId.get(student.id)))
+      .map((student) => student.id);
 
     await this.auditService.log({
       tenantId,
@@ -457,7 +442,7 @@ export class ExamsService {
       },
       include: {
         subject: { select: { id: true, code: true, name: true } },
-        marks: { select: { studentId: true, marksObtained: true } },
+        marks: { select: { studentId: true, marksObtained: true, status: true } },
       },
     });
 
@@ -480,45 +465,74 @@ export class ExamsService {
 
     const students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
 
-    const subjectMap = new Map<
-      string,
-      { id: string; code: string; name: string }
-    >();
-    const examBySubjectAndType = new Map<
-      string,
-      { examId: string; totalMarks: number; marks: Map<string, number> }
-    >();
+    const policies = await prisma.subjectAssessmentPolicy.findMany({
+      where: { tenantId, termId: query.termId, classRoomId: query.classRoomId },
+      select: { subjectId: true, continuousWeight: true, examWeight: true, passMark: true },
+    });
+    const policyBySubjectId = new Map(policies.map((p) => [p.subjectId, p]));
+
+    const subjectMap = new Map<string, { id: string; code: string; name: string }>();
+    const examsBySubjectId = new Map<string, typeof exams>();
     for (const exam of exams) {
-      const keyCat = `${exam.subjectId}:CAT`;
-      const keyExam = `${exam.subjectId}:EXAM`;
-      const key = exam.examType === 'CAT' ? keyCat : keyExam;
       if (!subjectMap.has(exam.subjectId)) {
         subjectMap.set(exam.subjectId, { id: exam.subject.id, code: exam.subject.code, name: exam.subject.name });
       }
-      const marksMap = new Map<string, number>();
-      for (const m of exam.marks) {
-        marksMap.set(m.studentId, m.marksObtained);
+      if (!examsBySubjectId.has(exam.subjectId)) {
+        examsBySubjectId.set(exam.subjectId, []);
       }
-      examBySubjectAndType.set(key, { examId: exam.id, totalMarks: exam.totalMarks, marks: marksMap });
+      examsBySubjectId.get(exam.subjectId)!.push(exam);
     }
 
     const subjectIds = Array.from(subjectMap.keys()).sort();
     const subjects = subjectIds.map((id) => subjectMap.get(id)!);
 
+    const defaultPolicy = { continuousWeight: 40, examWeight: 60, passMark: 50 };
+
     const studentRows = students.map((student, index) => {
       const subjectMarks = subjectIds.map((subjectId) => {
-        const cat = examBySubjectAndType.get(`${subjectId}:CAT`);
-        const exam = examBySubjectAndType.get(`${subjectId}:EXAM`);
-        const testMarks = cat?.marks.get(student.id) ?? null;
-        const examMarks = exam?.marks.get(student.id) ?? null;
-        const test = testMarks ?? 0;
-        const examVal = examMarks ?? 0;
-        const total = test + examVal;
+        const list = examsBySubjectId.get(subjectId) ?? [];
+        const caExams = list.filter((e) => e.examType === 'CAT').sort((a, b) => a.name.localeCompare(b.name));
+        const termExams = list.filter((e) => e.examType === 'EXAM');
+        const policy = policyBySubjectId.get(subjectId) ?? defaultPolicy;
+        const cw = policy.continuousWeight;
+        const ew = policy.examWeight;
+        const wSum = cw + ew || 1;
+
+        const pctFor = (exam: (typeof exams)[number], sid: string): number | null => {
+          const m = exam.marks.find((mk) => mk.studentId === sid);
+          if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+            return null;
+          }
+          return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
+        };
+
+        const caParts = caExams.map((e) => pctFor(e, student.id)).filter((p): p is number => p != null);
+        const caPct = caParts.length ? caParts.reduce((a, b) => a + b, 0) / caParts.length : null;
+
+        const termParts = termExams.map((e) => pctFor(e, student.id)).filter((p): p is number => p != null);
+        const examPct = termParts.length ? termParts.reduce((a, b) => a + b, 0) / termParts.length : null;
+
+        const ca = caPct ?? 0;
+        const te = examPct ?? 0;
+        const hasCaEx = caExams.length > 0;
+        const hasTermEx = termExams.length > 0;
+        const hasAny = caPct != null || examPct != null;
+        let total = 0;
+        if (hasAny) {
+          if (hasCaEx && hasTermEx) {
+            total = (ca * cw + te * ew) / wSum;
+          } else if (hasTermEx) {
+            total = te;
+          } else {
+            total = ca;
+          }
+        }
+
         return {
           subjectId,
-          testMarks: testMarks ?? null,
-          examMarks: examMarks ?? null,
-          total,
+          testMarks: caPct != null ? Number(caPct.toFixed(2)) : null,
+          examMarks: examPct != null ? Number(examPct.toFixed(2)) : null,
+          total: hasAny ? Number(total.toFixed(2)) : 0,
         };
       });
       const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
@@ -529,7 +543,7 @@ export class ExamsService {
         firstName: student.firstName,
         lastName: student.lastName,
         subjectMarks,
-        total: rowTotal,
+        total: Number(rowTotal.toFixed(2)),
       };
     });
 
@@ -541,12 +555,22 @@ export class ExamsService {
       r.rank = rank++;
     }
 
+    const resultsLocked = await prisma.resultSnapshot.findFirst({
+      where: {
+        tenantId,
+        termId: query.termId,
+        classRoomId: query.classRoomId,
+      },
+      select: { id: true },
+    });
+
     return {
       academicYear: scope.academicYear,
       term: scope.term,
       classRoom: scope.classRoom,
       subjects,
       students: withRank,
+      marksEditable: !resultsLocked,
     };
   }
 
@@ -573,7 +597,7 @@ export class ExamsService {
         classRoomId: input.classRoomId,
         isActive: true,
       },
-      select: { id: true, subjectId: true, examType: true },
+      select: { id: true, subjectId: true, examType: true, totalMarks: true },
     });
     const examKey = (subjectId: string, type: 'CAT' | 'EXAM') =>
       existingExams.find((e) => e.subjectId === subjectId && e.examType === type)?.id;
@@ -585,9 +609,9 @@ export class ExamsService {
     for (const entry of input.entries) {
       const testVal = entry.testMarks ?? null;
       const examVal = entry.examMarks ?? null;
-      let catExamId = examKey(entry.subjectId, 'CAT');
-      let examExamId = examKey(entry.subjectId, 'EXAM');
-      if (testVal != null && !catExamId) {
+      const catExams = existingExams.filter((e) => e.subjectId === entry.subjectId && e.examType === 'CAT');
+      const examExamId = examKey(entry.subjectId, 'EXAM');
+      if (testVal != null && catExams.length === 0) {
         needCreate.push({ subjectId: entry.subjectId, examType: 'CAT' });
       }
       if (examVal != null && !examExamId) {
@@ -623,20 +647,28 @@ export class ExamsService {
       });
       createdExamIds.push(created.id);
       if (examType === 'CAT') {
-        existingExams.push({ id: created.id, subjectId, examType: 'CAT' });
+        existingExams.push({ id: created.id, subjectId, examType: 'CAT', totalMarks: 100 });
       } else {
-        existingExams.push({ id: created.id, subjectId, examType: 'EXAM' });
+        existingExams.push({ id: created.id, subjectId, examType: 'EXAM', totalMarks: 100 });
       }
     }
 
     for (const entry of input.entries) {
-      const catExamId = existingExams.find((e) => e.subjectId === entry.subjectId && e.examType === 'CAT')?.id;
-      const examExamId = existingExams.find((e) => e.subjectId === entry.subjectId && e.examType === 'EXAM')?.id;
-      if (entry.testMarks != null && catExamId) {
-        toUpsert.push({ examId: catExamId, studentId: entry.studentId, marksObtained: entry.testMarks });
+      const catExams = existingExams.filter((e) => e.subjectId === entry.subjectId && e.examType === 'CAT');
+      const examExam = existingExams.find((e) => e.subjectId === entry.subjectId && e.examType === 'EXAM');
+
+      if (entry.testMarks != null) {
+        for (const ce of catExams) {
+          const scaled = Math.round((entry.testMarks * ce.totalMarks) / 100);
+          const marksObtained = Math.min(Math.max(0, scaled), ce.totalMarks);
+          toUpsert.push({ examId: ce.id, studentId: entry.studentId, marksObtained });
+        }
       }
-      if (entry.examMarks != null && examExamId) {
-        toUpsert.push({ examId: examExamId, studentId: entry.studentId, marksObtained: entry.examMarks });
+
+      if (entry.examMarks != null && examExam) {
+        const scaled = Math.round((entry.examMarks * examExam.totalMarks) / 100);
+        const marksObtained = Math.min(Math.max(0, scaled), examExam.totalMarks);
+        toUpsert.push({ examId: examExam.id, studentId: entry.studentId, marksObtained });
       }
     }
 
@@ -650,12 +682,17 @@ export class ExamsService {
               studentId: u.studentId,
             },
           },
-          update: { marksObtained: u.marksObtained, updatedByUserId: actor.sub },
+          update: {
+            marksObtained: u.marksObtained,
+            status: MarkStatus.PRESENT,
+            updatedByUserId: actor.sub,
+          },
           create: {
             tenantId,
             examId: u.examId,
             studentId: u.studentId,
             marksObtained: u.marksObtained,
+            status: MarkStatus.PRESENT,
             enteredByUserId: actor.sub,
             updatedByUserId: actor.sub,
           },
@@ -804,6 +841,23 @@ export class ExamsService {
     }
 
     const gradingScheme = await this.getGradingSchemeForUse(tenantId, input.gradingSchemeId);
+
+    const termMeta = await prisma.term.findFirst({
+      where: { id: input.termId, tenantId },
+      select: { id: true, name: true, sequence: true, academicYearId: true },
+    });
+    if (termMeta && isYearlyAggregationTerm(termMeta)) {
+      return this.lockYearlyResults(
+        tenantId,
+        input,
+        actor,
+        context,
+        scope,
+        termMeta,
+        gradingScheme,
+      );
+    }
+
     const exams = await prisma.exam.findMany({
       where: {
         tenantId,
@@ -814,7 +868,7 @@ export class ExamsService {
       include: {
         subject: { select: { id: true, name: true, code: true } },
         teacherUser: { select: { firstName: true, lastName: true } },
-        marks: { select: { studentId: true, marksObtained: true } },
+        marks: { select: { studentId: true, marksObtained: true, status: true } },
       },
       orderBy: [{ subject: { name: 'asc' } }, { name: 'asc' }],
     });
@@ -828,11 +882,22 @@ export class ExamsService {
       throw new AppError(409, 'RESULTS_NO_STUDENTS', 'No active students found in this class and academic year');
     }
 
+    const subjectIds = [...new Set(exams.map((e) => e.subjectId))];
+    const policies = await prisma.subjectAssessmentPolicy.findMany({
+      where: {
+        tenantId,
+        termId: input.termId,
+        classRoomId: input.classRoomId,
+        subjectId: { in: subjectIds },
+      },
+    });
+    const policyBySubjectId = new Map(policies.map((p) => [p.subjectId, p]));
+
     const missing: Array<{ examId: string; studentId: string }> = [];
     for (const exam of exams) {
-      const markedStudents = new Set(exam.marks.map((mark) => mark.studentId));
+      const markByStudent = new Map(exam.marks.map((mark) => [mark.studentId, mark]));
       for (const student of students) {
-        if (!markedStudents.has(student.id)) {
+        if (!this.isExamMarkComplete(markByStudent.get(student.id))) {
           missing.push({ examId: exam.id, studentId: student.id });
         }
       }
@@ -862,6 +927,7 @@ export class ExamsService {
         student,
         exams,
         gradingScheme,
+        policyBySubjectId,
         conduct: conductByStudentId.get(student.id),
       }),
     );
@@ -895,7 +961,7 @@ export class ExamsService {
             gradingSchemeId: gradingScheme.id,
             gradingSchemeVersion: gradingScheme.version,
             status: ResultSnapshotStatus.LOCKED,
-            payload: payload as Prisma.InputJsonValue,
+            payload: payload as unknown as Prisma.InputJsonValue,
             lockedAt,
             lockedByUserId: actor.sub,
           },
@@ -918,6 +984,236 @@ export class ExamsService {
         termId: input.termId,
         classRoomId: input.classRoomId,
         createdSnapshots: created,
+      },
+    });
+
+    return {
+      status: 'LOCKED' as const,
+      snapshotsCreated: created,
+      classSize,
+    };
+  }
+
+  /**
+   * Yearly report cards: aggregate Term 1–3 (sequences 1–3) for the same class; snapshot is stored on the yearly term.
+   */
+  private async lockYearlyResults(
+    tenantId: string,
+    input: ResultsActionInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+    scope: {
+      term: { id: string; name: string };
+      academicYear: { id: string; name: string };
+      classRoom: { id: string; code: string; name: string };
+      school: {
+        displayName: string;
+        code: string | null;
+        registrationNumber: string | null;
+        email: string | null;
+        phone: string | null;
+        district: string | null;
+        country: string | null;
+        logoUrl?: string | null;
+      };
+      schoolName: string;
+    },
+    termMeta: { id: string; name: string; sequence: number; academicYearId: string },
+    gradingScheme: {
+      id: string;
+      name: string;
+      version: number;
+      rules: Prisma.JsonValue;
+    },
+  ) {
+    const teachingTerms = await prisma.term.findMany({
+      where: {
+        tenantId,
+        academicYearId: termMeta.academicYearId,
+        sequence: { in: [1, 2, 3] },
+        isActive: true,
+      },
+      orderBy: { sequence: 'asc' },
+      select: { id: true, name: true, sequence: true },
+    });
+
+    if (teachingTerms.length < 3) {
+      throw new AppError(
+        409,
+        'RESULTS_YEARLY_TERMS_INCOMPLETE',
+        'Yearly aggregation requires Term 1, Term 2, and Term 3 (sequences 1–3) in the same academic year.',
+      );
+    }
+
+    const examsByTerm = await Promise.all(
+      teachingTerms.map((t) =>
+        prisma.exam.findMany({
+          where: {
+            tenantId,
+            termId: t.id,
+            classRoomId: input.classRoomId,
+            isActive: true,
+          },
+          include: {
+            subject: { select: { id: true, name: true, code: true } },
+            teacherUser: { select: { firstName: true, lastName: true } },
+            marks: { select: { studentId: true, marksObtained: true, status: true } },
+          },
+          orderBy: [{ subject: { name: 'asc' } }, { name: 'asc' }],
+        }),
+      ),
+    );
+
+    for (let i = 0; i < examsByTerm.length; i += 1) {
+      if (!examsByTerm[i].length) {
+        throw new AppError(
+          409,
+          'RESULTS_YEARLY_NO_EXAMS',
+          `Teaching term ${teachingTerms[i].name} (sequence ${teachingTerms[i].sequence}) has no exams for this class. Create exams for all three teaching terms before locking yearly results.`,
+        );
+      }
+    }
+
+    const students = await this.getClassStudents(tenantId, scope.academicYear.id, input.classRoomId);
+    if (!students.length) {
+      throw new AppError(409, 'RESULTS_NO_STUDENTS', 'No active students found in this class and academic year');
+    }
+
+    const subjectIds = new Set<string>();
+    for (const list of examsByTerm) {
+      for (const e of list) {
+        subjectIds.add(e.subjectId);
+      }
+    }
+
+    const policies = await prisma.subjectAssessmentPolicy.findMany({
+      where: {
+        tenantId,
+        classRoomId: input.classRoomId,
+        termId: { in: teachingTerms.map((t) => t.id) },
+        subjectId: { in: [...subjectIds] },
+      },
+    });
+    const policyByTermAndSubject = new Map(
+      policies.map((p) => [
+        `${p.termId}:${p.subjectId}`,
+        {
+          continuousWeight: p.continuousWeight,
+          examWeight: p.examWeight,
+          passMark: p.passMark,
+        },
+      ]),
+    );
+
+    const missing: Array<{ examId: string; studentId: string }> = [];
+    for (const exam of examsByTerm.flat()) {
+      const markByStudent = new Map(exam.marks.map((mark) => [mark.studentId, mark]));
+      for (const student of students) {
+        if (!this.isExamMarkComplete(markByStudent.get(student.id))) {
+          missing.push({ examId: exam.id, studentId: student.id });
+        }
+      }
+    }
+    if (missing.length) {
+      throw new AppError(409, 'RESULTS_MARKS_INCOMPLETE', 'Some students are still missing marks for one or more exams', {
+        missingCount: missing.length,
+        missing: missing.slice(0, 20),
+      });
+    }
+
+    const conductByStudentId = await this.getConductGradesForScope(
+      tenantId,
+      scope.academicYear.id,
+      input.termId,
+      input.classRoomId,
+    );
+
+    const toRollup = (exams: (typeof examsByTerm)[number]): ExamForTermRollup[] =>
+      exams.map((e) => ({
+        subjectId: e.subjectId,
+        examType: e.examType ?? null,
+        name: e.name,
+        totalMarks: e.totalMarks,
+        weight: e.weight,
+        marks: e.marks,
+        subject: e.subject,
+        teacherUser: e.teacherUser,
+      }));
+
+    const teachingTermBundles = teachingTerms.map((t, i) => ({
+      termId: t.id,
+      termName: t.name,
+      exams: toRollup(examsByTerm[i]),
+    }));
+
+    const draftSnapshots = students.map((student) =>
+      this.buildYearlyStudentSnapshot({
+        schoolName: scope.schoolName,
+        school: scope.school,
+        academicYear: scope.academicYear,
+        term: scope.term,
+        classRoom: scope.classRoom,
+        student,
+        teachingTerms: teachingTermBundles,
+        gradingScheme,
+        policyByTermAndSubject,
+        conduct: conductByStudentId.get(student.id),
+      }),
+    );
+
+    const ranking = draftSnapshots
+      .slice()
+      .sort((a, b) => b.payload.totals.averagePercentage - a.payload.totals.averagePercentage)
+      .map((item, index) => ({ studentId: item.studentId, position: index + 1 }));
+    const rankByStudentId = new Map(ranking.map((item) => [item.studentId, item.position]));
+    const classSize = draftSnapshots.length;
+
+    const lockedAt = new Date();
+    const created = await prisma.$transaction(async (tx) => {
+      for (const item of draftSnapshots) {
+        const payload: ReportCardPayload = {
+          ...item.payload,
+          totals: {
+            ...item.payload.totals,
+            position: rankByStudentId.get(item.studentId) ?? classSize,
+            classSize,
+          },
+        };
+
+        await tx.resultSnapshot.create({
+          data: {
+            tenantId,
+            academicYearId: scope.academicYear.id,
+            termId: scope.term.id,
+            classRoomId: scope.classRoom.id,
+            studentId: item.studentId,
+            gradingSchemeId: gradingScheme.id,
+            gradingSchemeVersion: gradingScheme.version,
+            status: ResultSnapshotStatus.LOCKED,
+            payload: payload as unknown as Prisma.InputJsonValue,
+            lockedAt,
+            lockedByUserId: actor.sub,
+          },
+        });
+      }
+
+      return draftSnapshots.length;
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.RESULTS_LOCKED,
+      entity: 'ResultSnapshot',
+      entityId: `${input.termId}:${input.classRoomId}`,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        termId: input.termId,
+        classRoomId: input.classRoomId,
+        createdSnapshots: created,
+        yearlyAggregation: true,
       },
     });
 
@@ -1210,7 +1506,7 @@ export class ExamsService {
       throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found');
     }
 
-    const payload = snapshot.payload as ReportCardPayload;
+    const payload = snapshot.payload as unknown as ReportCardPayload;
 
     return {
       valid: true,
@@ -1532,6 +1828,21 @@ export class ExamsService {
     };
   }
 
+  private isExamMarkComplete(
+    mark: { marksObtained: number | null; status: MarkStatus } | undefined,
+  ): boolean {
+    if (!mark) {
+      return false;
+    }
+    if (mark.status === MarkStatus.PRESENT) {
+      return mark.marksObtained != null;
+    }
+    if (mark.status === MarkStatus.ABSENT || mark.status === MarkStatus.EXCUSED) {
+      return mark.marksObtained == null;
+    }
+    return false;
+  }
+
   private async getConductGradesForScope(
     tenantId: string,
     academicYearId: string,
@@ -1574,75 +1885,112 @@ export class ExamsService {
     };
     exams: Array<any>;
     gradingScheme: { id: string; name: string; version: number; rules: Prisma.JsonValue };
+    policyBySubjectId: Map<string, { continuousWeight: number; examWeight: number; passMark: number }>;
     conduct?: { grade: string; remark?: string | null };
   }) {
     const rules = params.gradingScheme.rules as unknown as GradingBand[];
+    const defaultPolicy = { continuousWeight: 40, examWeight: 60, passMark: 50 };
 
-    const subjectMap = new Map<string, ReportCardPayload['subjects'][number]>();
+    const examsBySubject = new Map<string, any[]>();
+    for (const exam of params.exams) {
+      if (!examsBySubject.has(exam.subjectId)) {
+        examsBySubject.set(exam.subjectId, []);
+      }
+      examsBySubject.get(exam.subjectId)!.push(exam);
+    }
+
+    const pctForStudent = (exam: any, studentId: string): number => {
+      const m = exam.marks.find((item: any) => item.studentId === studentId);
+      if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+        return 0;
+      }
+      return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
+    };
+
+    const weightedPercent = (examList: any[], studentId: string): number => {
+      if (!examList.length) {
+        return 0;
+      }
+      const weightTotal = examList.reduce((sum, e) => sum + e.weight, 0) || 1;
+      return (
+        examList.reduce((sum, e) => sum + pctForStudent(e, studentId) * e.weight, 0) / weightTotal
+      );
+    };
+
+    const subjects: ReportCardPayload['subjects'] = [];
     let totalMarksObtained = 0;
     let totalMarksPossible = 0;
 
-    for (const exam of params.exams) {
-      const mark = exam.marks.find((item: any) => item.studentId === params.student.id);
-      const marksObtained = mark?.marksObtained ?? 0;
-      const percentage = exam.totalMarks > 0 ? (marksObtained / exam.totalMarks) * 100 : 0;
-      totalMarksObtained += marksObtained;
-      totalMarksPossible += exam.totalMarks;
+    for (const [, subjectExams] of examsBySubject) {
+      subjectExams.sort((a, b) => a.name.localeCompare(b.name));
+      const subjectId = subjectExams[0].subjectId as string;
+      const policy = params.policyBySubjectId.get(subjectId) ?? defaultPolicy;
+      const caExams = subjectExams.filter((e) => e.examType === 'CAT');
+      const termExams = subjectExams.filter((e) => e.examType === 'EXAM');
 
-      const subjectRow: ReportCardPayload['subjects'][number] =
-        subjectMap.get(exam.subjectId) ?? {
-          subjectId: exam.subjectId,
-          subjectName: exam.subject.name,
-          averagePercentage: 0,
-          grade: '',
-          remark: '',
-          exams: [],
-        };
-
-      subjectRow.exams.push({
-        examId: exam.id,
-        name: exam.name,
-        examType: exam.examType ?? 'EXAM',
-        marksObtained,
-        totalMarks: exam.totalMarks,
-        percentage,
-        weight: exam.weight,
-      });
-      subjectMap.set(exam.subjectId, subjectRow);
-    }
-
-    const subjects = Array.from(subjectMap.values()).map((subject) => {
-      const catExams = subject.exams.filter((e) => e.examType === 'CAT');
-      const examExams = subject.exams.filter((e) => e.examType === 'EXAM');
-      let weightedAverage: number;
-      if (catExams.length && examExams.length) {
-        const catAvg =
-          catExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
-          (catExams.reduce((s, e) => s + e.weight, 0) || 1);
-        const examAvg =
-          examExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
-          (examExams.reduce((s, e) => s + e.weight, 0) || 1);
-        const catWeightTotal = catExams.reduce((s, e) => s + e.weight, 0);
-        const examWeightTotal = examExams.reduce((s, e) => s + e.weight, 0);
-        const totalWeight = catWeightTotal + examWeightTotal || 1;
-        weightedAverage = (catAvg * catWeightTotal + examAvg * examWeightTotal) / totalWeight;
+      const continuousAssessmentPercent = weightedPercent(caExams, params.student.id);
+      const examPercent = weightedPercent(termExams, params.student.id);
+      const cw = policy.continuousWeight;
+      const ew = policy.examWeight;
+      const wSum = cw + ew || 1;
+      const hasCa = caExams.length > 0;
+      const hasTerm = termExams.length > 0;
+      let finalPercent: number;
+      if (hasCa && hasTerm) {
+        finalPercent = (continuousAssessmentPercent * cw + examPercent * ew) / wSum;
+      } else if (hasTerm) {
+        finalPercent = examPercent;
+      } else if (hasCa) {
+        finalPercent = continuousAssessmentPercent;
       } else {
-        const weightTotal = subject.exams.reduce((sum, exam) => sum + exam.weight, 0) || 1;
-        weightedAverage =
-          subject.exams.reduce((sum, exam) => sum + exam.percentage * exam.weight, 0) / weightTotal;
+        finalPercent = 0;
       }
-      const band = this.resolveBand(rules, weightedAverage);
-      return {
-        ...subject,
-        averagePercentage: Number(weightedAverage.toFixed(2)),
+      const passMark = policy.passMark;
+      const decision: 'PASS' | 'FAIL' = finalPercent >= passMark ? 'PASS' : 'FAIL';
+      const band = this.resolveBand(rules, finalPercent);
+
+      const examLines: ReportCardPayload['subjects'][number]['exams'] = [];
+      for (const exam of subjectExams) {
+        const m = exam.marks.find((item: any) => item.studentId === params.student.id);
+        const marksObtained = m?.marksObtained ?? null;
+        const status = (m?.status ?? MarkStatus.PRESENT) as MarkStatus;
+        const pct =
+          status === MarkStatus.PRESENT && marksObtained != null && exam.totalMarks > 0
+            ? (marksObtained / exam.totalMarks) * 100
+            : 0;
+        examLines.push({
+          examId: exam.id,
+          name: exam.name,
+          examType: exam.examType ?? 'EXAM',
+          marksObtained,
+          status,
+          totalMarks: exam.totalMarks,
+          percentage: Number(pct.toFixed(2)),
+          weight: exam.weight,
+        });
+      }
+
+      totalMarksObtained += finalPercent;
+      totalMarksPossible += 100;
+
+      subjects.push({
+        subjectId,
+        subjectName: subjectExams[0].subject.name,
+        averagePercentage: Number(finalPercent.toFixed(2)),
+        continuousAssessmentPercent: Number(continuousAssessmentPercent.toFixed(2)),
+        examPercent: Number(examPercent.toFixed(2)),
+        finalPercent: Number(finalPercent.toFixed(2)),
+        passMark,
+        decision,
         grade: band.grade,
         remark: band.remark,
-      };
-    });
+        exams: examLines,
+      });
+    }
 
-    const averagePercentage = subjects.length
-      ? subjects.reduce((sum, subject) => sum + subject.averagePercentage, 0) / subjects.length
-      : 0;
+    subjects.sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+
+    const averagePercentage = subjects.length ? totalMarksObtained / subjects.length : 0;
     const overallBand = this.resolveBand(rules, averagePercentage);
     const teacherNames = Array.from(
       new Set(
@@ -1693,6 +2041,120 @@ export class ExamsService {
           totalMarksObtained,
           totalMarksPossible,
           averagePercentage: Number(averagePercentage.toFixed(2)),
+          grade: overallBand.grade,
+          remark: overallBand.remark,
+          position: 0,
+          classSize: 0,
+        },
+      } satisfies ReportCardPayload,
+    };
+  }
+
+  private buildYearlyStudentSnapshot(params: {
+    schoolName: string;
+    school: {
+      displayName: string;
+      code: string | null;
+      registrationNumber: string | null;
+      email: string | null;
+      phone: string | null;
+      district: string | null;
+      country: string | null;
+      logoUrl?: string | null;
+    };
+    academicYear: { id: string; name: string };
+    term: { id: string; name: string };
+    classRoom: { id: string; code: string; name: string };
+    student: {
+      id: string;
+      studentCode: string;
+      firstName: string;
+      lastName: string;
+      dateOfBirth?: Date | null;
+    };
+    teachingTerms: Array<{ termId: string; termName: string; exams: ExamForTermRollup[] }>;
+    gradingScheme: { id: string; name: string; version: number; rules: Prisma.JsonValue };
+    policyByTermAndSubject: Map<string, { continuousWeight: number; examWeight: number; passMark: number }>;
+    conduct?: { grade: string; remark?: string | null };
+  }) {
+    const rules = params.gradingScheme.rules as unknown as GradingBand[];
+    const defaultPolicy = { continuousWeight: 40, examWeight: 60, passMark: 50 };
+
+    const unionSubjectIds = new Set<string>();
+    const subjectNameById = new Map<string, string>();
+    for (const tt of params.teachingTerms) {
+      for (const e of tt.exams) {
+        unionSubjectIds.add(e.subjectId);
+        subjectNameById.set(e.subjectId, e.subject?.name ?? '');
+      }
+    }
+
+    const { subjects, yearlyReport } = buildYearlyReportCardSubjects({
+      unionSubjectIds: [...unionSubjectIds],
+      subjectNameById,
+      teachingTerms: params.teachingTerms,
+      studentId: params.student.id,
+      policyByTermAndSubject: params.policyByTermAndSubject,
+      defaultPolicy,
+      gradingRules: rules,
+    });
+
+    const avg = subjects.length
+      ? subjects.reduce((s, x) => s + (x.yearlyAveragePercent ?? 0), 0) / subjects.length
+      : 0;
+    const overallBand = this.resolveBand(rules, avg);
+
+    const teacherNames = Array.from(
+      new Set(
+        params.teachingTerms
+          .flatMap((tt) => tt.exams)
+          .map((exam) => {
+            const firstName = exam.teacherUser?.firstName ?? '';
+            const lastName = exam.teacherUser?.lastName ?? '';
+            return `${firstName} ${lastName}`.trim();
+          })
+          .filter(Boolean),
+      ),
+    );
+
+    return {
+      studentId: params.student.id,
+      payload: {
+        schoolName: params.schoolName,
+        school: params.school,
+        academicYear: params.academicYear,
+        term: params.term,
+        classRoom: params.classRoom,
+        student: {
+          id: params.student.id,
+          studentCode: params.student.studentCode,
+          firstName: params.student.firstName,
+          lastName: params.student.lastName,
+          dateOfBirth: params.student.dateOfBirth
+            ? params.student.dateOfBirth.toISOString()
+            : null,
+        },
+        gradingScheme: {
+          id: params.gradingScheme.id,
+          name: params.gradingScheme.name,
+          version: params.gradingScheme.version,
+          rules,
+        },
+        metadata: {
+          teacherComment:
+            avg >= 70
+              ? 'Solid year overall. Year grade = average of term finals; raw total = sum of CA+Exam marks across three terms.'
+              : 'Year-end review recommended. Compare term averages and raw totals.',
+          classTeacherName: teacherNames[0] ?? null,
+          generatedAt: new Date().toISOString(),
+        },
+        conduct: params.conduct,
+        yearlyReport,
+        subjects,
+        totals: {
+          totalMarksObtained: subjects.reduce((s, x) => s + (x.yearlyAveragePercent ?? 0), 0),
+          totalMarksPossible: subjects.length * 100,
+          averagePercentage: Number(avg.toFixed(2)),
           grade: overallBand.grade,
           remark: overallBand.remark,
           position: 0,
@@ -1768,7 +2230,7 @@ export class ExamsService {
   }
 
   private mapReportCardSummary(snapshot: any) {
-    const payload = snapshot.payload as ReportCardPayload;
+    const payload = snapshot.payload as unknown as ReportCardPayload;
     return {
       id: snapshot.id,
       status: snapshot.status,

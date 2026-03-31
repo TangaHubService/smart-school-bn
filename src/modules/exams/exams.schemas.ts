@@ -48,6 +48,8 @@ export const listExamsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 
+const markStatusSchema = z.enum(['PRESENT', 'ABSENT', 'EXCUSED']);
+
 export const bulkExamMarksSchema = z
   .object({
     entries: z
@@ -56,6 +58,7 @@ export const bulkExamMarksSchema = z
           .object({
             studentId: z.string().uuid(),
             marksObtained: z.number().int().min(0).max(500).nullable(),
+            status: markStatusSchema.optional(),
           })
           .strict(),
       )
