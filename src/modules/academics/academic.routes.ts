@@ -42,6 +42,8 @@ academicRoutes.get(
     PERMISSIONS.ACADEMIC_YEAR_MANAGE,
     PERMISSIONS.COURSES_MANAGE,
     PERMISSIONS.STUDENT_MY_COURSES_READ,
+    PERMISSIONS.EXAMS_READ,
+    PERMISSIONS.REPORT_CARDS_READ,
   ]),
   asyncHandler((req, res) => academicsController.listAcademicYears(req, res)),
 );

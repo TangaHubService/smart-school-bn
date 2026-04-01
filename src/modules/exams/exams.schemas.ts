@@ -99,6 +99,18 @@ export const reportCardsQuerySchema = z.object({
   academicYearId: z.string().uuid().optional(),
 });
 
+/** Admin listing: mixed report-card snapshots for a tenant. */
+export const reportCardsCatalogQuerySchema = z.object({
+  /** Omit to list report cards across all academic years (still paginated). */
+  academicYearId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
+  classRoomId: z.string().uuid().optional(),
+  studentId: z.string().uuid().optional(),
+  q: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+});
+
 export const myExamScheduleQuerySchema = z.object({
   upcomingOnly: z
     .enum(['true', 'false'])
@@ -119,6 +131,22 @@ export const parentReportCardsQuerySchema = z.object({
 export const marksGridQuerySchema = z.object({
   termId: z.string().uuid(),
   classRoomId: z.string().uuid(),
+});
+
+export const allMarksLedgerQuerySchema = z.object({
+  /** Omit to include marks across all active academic years (still paginated). */
+  academicYearId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
+  classRoomId: z.string().uuid().optional(),
+  studentId: z.string().uuid().optional(),
+  q: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
+  sortBy: z
+    .enum(['rank', 'studentName', 'classCode', 'term', 'subject', 'total', 'average'])
+    .optional()
+    .default('rank'),
+  sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
 });
 
 export const marksGridSaveSchema = z
@@ -147,9 +175,11 @@ export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
 export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
 export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
+export type ReportCardsCatalogQueryInput = z.infer<typeof reportCardsCatalogQuerySchema>;
 export type MyExamScheduleQueryInput = z.infer<typeof myExamScheduleQuerySchema>;
 export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;
 export type BulkConductGradesInput = z.infer<typeof bulkConductGradesSchema>;
 export type ConductGradesQueryInput = z.infer<typeof conductGradesQuerySchema>;
 export type MarksGridQueryInput = z.infer<typeof marksGridQuerySchema>;
 export type MarksGridSaveInput = z.infer<typeof marksGridSaveSchema>;
+export type AllMarksLedgerQueryInput = z.infer<typeof allMarksLedgerQuerySchema>;

@@ -13,11 +13,13 @@ import {
   ConductGradesQueryInput,
   CreateExamInput,
   CreateGradingSchemeInput,
+  AllMarksLedgerQueryInput,
   ListExamsQueryInput,
   MarksGridQueryInput,
   MarksGridSaveInput,
   ParentReportCardsQueryInput,
   MyExamScheduleQueryInput,
+  ReportCardsCatalogQueryInput,
   ReportCardsQueryInput,
   ResultsActionInput,
 } from './exams.schemas';
@@ -433,18 +435,27 @@ export class ExamsService {
 
   async getMarksGrid(tenantId: string, query: MarksGridQueryInput, actor: JwtUser) {
     const scope = await this.getResultScope(tenantId, query.termId, query.classRoomId);
-    let exams = await prisma.exam.findMany({
-      where: {
+    const [examsResult, conductByStudentId] = await Promise.all([
+      prisma.exam.findMany({
+        where: {
+          tenantId,
+          termId: query.termId,
+          classRoomId: query.classRoomId,
+          isActive: true,
+        },
+        include: {
+          subject: { select: { id: true, code: true, name: true } },
+          marks: { select: { studentId: true, marksObtained: true, status: true } },
+        },
+      }),
+      this.getConductGradesForScope(
         tenantId,
-        termId: query.termId,
-        classRoomId: query.classRoomId,
-        isActive: true,
-      },
-      include: {
-        subject: { select: { id: true, code: true, name: true } },
-        marks: { select: { studentId: true, marksObtained: true, status: true } },
-      },
-    });
+        scope.academicYear.id,
+        query.termId,
+        query.classRoomId,
+      ),
+    ]);
+    let exams = examsResult;
 
     if (this.isTeacherOnly(actor)) {
       const courses = await prisma.course.findMany({
@@ -564,13 +575,509 @@ export class ExamsService {
       select: { id: true },
     });
 
+    const studentsWithConduct = withRank.map((r) => {
+      const cg = conductByStudentId.get(r.studentId);
+      return {
+        ...r,
+        conduct: cg ? { grade: cg.grade, remark: cg.remark ?? null } : null,
+      };
+    });
+
     return {
       academicYear: scope.academicYear,
       term: scope.term,
       classRoom: scope.classRoom,
       subjects,
-      students: withRank,
+      students: studentsWithConduct,
       marksEditable: !resultsLocked,
+    };
+  }
+
+  /**
+   * Flat list of subject-level marks for all students, grouped ranking per (term + class).
+   * Same subject score rules as {@link getMarksGrid}.
+   */
+  async listAllMarksLedger(tenantId: string, query: AllMarksLedgerQueryInput, actor: JwtUser) {
+    const filterYear = query.academicYearId
+      ? await prisma.academicYear.findFirst({
+          where: { id: query.academicYearId, tenantId, isActive: true },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (query.academicYearId && !filterYear) {
+      throw new AppError(404, 'ACADEMIC_YEAR_NOT_FOUND', 'Academic year not found');
+    }
+
+    const responseAcademicYear = filterYear ?? {
+      id: 'all',
+      name: 'All academic years',
+    };
+
+    if (query.termId) {
+      const term = await prisma.term.findFirst({
+        where: { id: query.termId, tenantId, isActive: true },
+        select: { academicYearId: true },
+      });
+      if (!term) {
+        throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
+      }
+      if (query.academicYearId && term.academicYearId !== query.academicYearId) {
+        throw new AppError(400, 'TERM_YEAR_MISMATCH', 'Term does not belong to the selected academic year');
+      }
+    }
+
+    if (query.classRoomId) {
+      const cr = await prisma.classRoom.findFirst({
+        where: { id: query.classRoomId, tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!cr) {
+        throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found');
+      }
+    }
+
+    const exams = await prisma.exam.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
+        ...(query.termId ? { termId: query.termId } : {}),
+        ...(query.classRoomId ? { classRoomId: query.classRoomId } : {}),
+      },
+      include: {
+        subject: { select: { id: true, code: true, name: true } },
+        term: { select: { id: true, name: true } },
+        academicYear: { select: { id: true, name: true } },
+        marks: { select: { studentId: true, marksObtained: true, status: true } },
+      },
+    });
+
+    const scheme = await this.getGradingSchemeForUse(tenantId);
+    const rules = scheme.rules as unknown as GradingBand[];
+
+    if (exams.length === 0) {
+      return {
+        academicYear: responseAcademicYear,
+        subjects: [],
+        items: [],
+        pagination: buildPagination(query.page, query.pageSize, 0),
+      };
+    }
+
+    const distinctYearIds = [...new Set(exams.map((e) => e.academicYearId))];
+
+    const byGroup = new Map<string, typeof exams>();
+    for (const e of exams) {
+      const k = `${e.academicYearId}:${e.termId}:${e.classRoomId}`;
+      if (!byGroup.has(k)) {
+        byGroup.set(k, []);
+      }
+      byGroup.get(k)!.push(e);
+    }
+
+    const classIds = [...new Set(exams.map((e) => e.classRoomId))];
+    const allowedByYearClass = new Map<string, Set<string>>();
+    if (this.isTeacherOnly(actor)) {
+      const courses = await prisma.course.findMany({
+        where: {
+          tenantId,
+          classRoomId: { in: classIds },
+          teacherUserId: actor.sub,
+          isActive: true,
+          ...(query.academicYearId
+            ? { academicYearId: query.academicYearId }
+            : { academicYearId: { in: distinctYearIds } }),
+        },
+        select: { subjectId: true, classRoomId: true, academicYearId: true },
+      });
+      for (const c of courses) {
+        if (!c.subjectId) {
+          continue;
+        }
+        const ycKey = `${c.academicYearId}:${c.classRoomId}`;
+        if (!allowedByYearClass.has(ycKey)) {
+          allowedByYearClass.set(ycKey, new Set());
+        }
+        allowedByYearClass.get(ycKey)!.add(c.subjectId);
+      }
+    }
+
+    const pairList = [...byGroup.keys()].map((k) => {
+      const [, termId, classRoomId] = k.split(':');
+      return { termId, classRoomId };
+    });
+    const policies = await prisma.subjectAssessmentPolicy.findMany({
+      where: {
+        tenantId,
+        OR: pairList.map((p) => ({ termId: p.termId, classRoomId: p.classRoomId })),
+      },
+      select: {
+        termId: true,
+        classRoomId: true,
+        subjectId: true,
+        continuousWeight: true,
+        examWeight: true,
+        passMark: true,
+      },
+    });
+    const policyByKey = new Map(
+      policies.map((p) => [`${p.termId}:${p.classRoomId}:${p.subjectId}`, p]),
+    );
+
+    const enrollments = await prisma.studentEnrollment.findMany({
+      where: {
+        tenantId,
+        academicYearId: query.academicYearId ? query.academicYearId : { in: distinctYearIds },
+        classRoomId: { in: classIds },
+        isActive: true,
+        student: { deletedAt: null, isActive: true },
+      },
+      select: {
+        academicYearId: true,
+        classRoomId: true,
+        student: {
+          select: { id: true, studentCode: true, firstName: true, lastName: true },
+        },
+      },
+      orderBy: [{ student: { lastName: 'asc' } }, { student: { firstName: 'asc' } }],
+    });
+    const studentsByYearClass = new Map<string, Array<(typeof enrollments)[number]['student']>>();
+    for (const en of enrollments) {
+      const ycKey = `${en.academicYearId}:${en.classRoomId}`;
+      if (!studentsByYearClass.has(ycKey)) {
+        studentsByYearClass.set(ycKey, []);
+      }
+      const list = studentsByYearClass.get(ycKey)!;
+      if (!list.some((s) => s.id === en.student.id)) {
+        list.push(en.student);
+      }
+    }
+
+    const classRows = await prisma.classRoom.findMany({
+      where: { id: { in: classIds }, tenantId },
+      select: { id: true, code: true, name: true },
+    });
+    const classById = new Map(classRows.map((c) => [c.id, c]));
+
+    const defaultPolicy = { continuousWeight: 40, examWeight: 60, passMark: 50 };
+
+    type SubjectCell = {
+      subjectId: string;
+      testMarks: number | null;
+      examMarks: number | null;
+      total: number;
+    };
+
+    type GroupLedgerRow = {
+      academicYear: { id: string; name: string };
+      term: { id: string; name: string };
+      classRoom: { id: string; code: string; name: string };
+      student: {
+        id: string;
+        studentCode: string;
+        firstName: string;
+        lastName: string;
+      };
+      rank: number;
+      studentTermTotal: number;
+      studentTermAverage: number;
+      subjectScores: Array<{
+        subjectId: string;
+        subject: { id: string; code: string; name: string };
+        testPercent: number | null;
+        examPercent: number | null;
+        subjectScore: number;
+        grade: string;
+        remark: string;
+      }>;
+    };
+
+    const groupRows: GroupLedgerRow[] = [];
+
+    for (const [, groupExams] of byGroup) {
+      const academicYearId = groupExams[0].academicYearId;
+      const termId = groupExams[0].termId;
+      const classRoomId = groupExams[0].classRoomId;
+      const yearMeta = groupExams[0].academicYear;
+      let gExams = groupExams;
+      if (this.isTeacherOnly(actor)) {
+        const allowed = allowedByYearClass.get(`${academicYearId}:${classRoomId}`);
+        if (!allowed || allowed.size === 0) {
+          continue;
+        }
+        gExams = gExams.filter((e) => allowed.has(e.subjectId));
+        if (gExams.length === 0) {
+          continue;
+        }
+      }
+
+      const termMeta = groupExams[0].term;
+      const cls = classById.get(classRoomId);
+      if (!cls) {
+        continue;
+      }
+
+      const students = studentsByYearClass.get(`${academicYearId}:${classRoomId}`) ?? [];
+      if (students.length === 0) {
+        continue;
+      }
+
+      const subjectMap = new Map<string, { id: string; code: string; name: string }>();
+      const examsBySubjectId = new Map<string, typeof gExams>();
+      for (const exam of gExams) {
+        if (!subjectMap.has(exam.subjectId)) {
+          subjectMap.set(exam.subjectId, {
+            id: exam.subject.id,
+            code: exam.subject.code,
+            name: exam.subject.name,
+          });
+        }
+        if (!examsBySubjectId.has(exam.subjectId)) {
+          examsBySubjectId.set(exam.subjectId, []);
+        }
+        examsBySubjectId.get(exam.subjectId)!.push(exam);
+      }
+      const subjectIds = Array.from(subjectMap.keys()).sort();
+
+      const pctFor = (exam: (typeof gExams)[number], sid: string): number | null => {
+        const m = exam.marks.find((mk) => mk.studentId === sid);
+        if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+          return null;
+        }
+        return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
+      };
+
+      const studentAgg = students.map((student) => {
+        const subjectMarks: SubjectCell[] = subjectIds.map((subjectId) => {
+          const list = examsBySubjectId.get(subjectId) ?? [];
+          const caExams = list.filter((e) => e.examType === 'CAT').sort((a, b) => a.name.localeCompare(b.name));
+          const termExams = list.filter((e) => e.examType === 'EXAM');
+          const policy =
+            policyByKey.get(`${termId}:${classRoomId}:${subjectId}`) ?? defaultPolicy;
+          const cw = policy.continuousWeight;
+          const ew = policy.examWeight;
+          const wSum = cw + ew || 1;
+
+          const caParts = caExams.map((e) => pctFor(e, student.id)).filter((p): p is number => p != null);
+          const caPct = caParts.length ? caParts.reduce((a, b) => a + b, 0) / caParts.length : null;
+
+          const termParts = termExams.map((e) => pctFor(e, student.id)).filter((p): p is number => p != null);
+          const examPct = termParts.length ? termParts.reduce((a, b) => a + b, 0) / termParts.length : null;
+
+          const ca = caPct ?? 0;
+          const te = examPct ?? 0;
+          const hasCaEx = caExams.length > 0;
+          const hasTermEx = termExams.length > 0;
+          const hasAny = caPct != null || examPct != null;
+          let total = 0;
+          if (hasAny) {
+            if (hasCaEx && hasTermEx) {
+              total = (ca * cw + te * ew) / wSum;
+            } else if (hasTermEx) {
+              total = te;
+            } else {
+              total = ca;
+            }
+          }
+
+          return {
+            subjectId,
+            testMarks: caPct != null ? Number(caPct.toFixed(2)) : null,
+            examMarks: examPct != null ? Number(examPct.toFixed(2)) : null,
+            total: hasAny ? Number(total.toFixed(2)) : 0,
+          };
+        });
+        const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
+        const avg = subjectMarks.length ? rowTotal / subjectMarks.length : 0;
+        return {
+          student,
+          subjectMarks,
+          rowTotal: Number(rowTotal.toFixed(2)),
+          avg: Number(avg.toFixed(2)),
+        };
+      });
+
+      const sortedForRank = [...studentAgg].sort((a, b) => b.rowTotal - a.rowTotal);
+      const rankByStudentId = new Map<string, number>();
+      let r = 1;
+      for (let i = 0; i < sortedForRank.length; i++) {
+        if (i > 0 && sortedForRank[i].rowTotal < sortedForRank[i - 1].rowTotal) {
+          r = i + 1;
+        }
+        rankByStudentId.set(sortedForRank[i].student.id, r);
+      }
+
+      for (const agg of studentAgg) {
+        const rank = rankByStudentId.get(agg.student.id) ?? 1;
+        const subjectScores = subjectIds.map((subjectId, si) => {
+          const sm = agg.subjectMarks[si];
+          const subj = subjectMap.get(subjectId)!;
+          const band = this.resolveBand(rules, sm.total);
+          return {
+            subjectId,
+            subject: subj,
+            testPercent: sm.testMarks,
+            examPercent: sm.examMarks,
+            subjectScore: sm.total,
+            grade: band.grade,
+            remark: band.remark,
+          };
+        });
+        groupRows.push({
+          academicYear: { id: yearMeta.id, name: yearMeta.name },
+          term: { id: termMeta.id, name: termMeta.name },
+          classRoom: { id: cls.id, code: cls.code, name: cls.name },
+          student: agg.student,
+          rank,
+          studentTermTotal: agg.rowTotal,
+          studentTermAverage: agg.avg,
+          subjectScores,
+        });
+      }
+    }
+
+    let filteredGroups = groupRows;
+    if (query.studentId) {
+      filteredGroups = filteredGroups.filter((g) => g.student.id === query.studentId);
+    }
+    const q = query.q?.trim().toLowerCase();
+    if (q) {
+      filteredGroups = filteredGroups.filter((row) => {
+        const fn = row.student.firstName.toLowerCase();
+        const ln = row.student.lastName.toLowerCase();
+        const full = `${fn} ${ln}`;
+        return fn.includes(q) || ln.includes(q) || full.includes(q);
+      });
+    }
+
+    const subjectMetaById = new Map<string, { id: string; code: string; name: string }>();
+    for (const g of filteredGroups) {
+      for (const s of g.subjectScores) {
+        if (!subjectMetaById.has(s.subjectId)) {
+          subjectMetaById.set(s.subjectId, s.subject);
+        }
+      }
+    }
+    const globalSubjects = Array.from(subjectMetaById.keys())
+      .sort()
+      .map((id) => subjectMetaById.get(id)!);
+
+    const dir = query.sortDir === 'desc' ? -1 : 1;
+    const sortedGroups = [...filteredGroups].sort((a, b) => {
+      let cmp = 0;
+      switch (query.sortBy) {
+        case 'rank':
+          cmp = a.rank - b.rank;
+          break;
+        case 'studentName':
+          cmp = `${a.student.lastName} ${a.student.firstName}`.localeCompare(
+            `${b.student.lastName} ${b.student.firstName}`,
+          );
+          break;
+        case 'classCode':
+          cmp = a.classRoom.code.localeCompare(b.classRoom.code);
+          break;
+        case 'term':
+          cmp = a.term.name.localeCompare(b.term.name);
+          break;
+        case 'subject':
+          cmp = (a.subjectScores[0]?.subject.name ?? '').localeCompare(
+            b.subjectScores[0]?.subject.name ?? '',
+          );
+          break;
+        case 'total':
+          cmp = a.studentTermTotal - b.studentTermTotal;
+          break;
+        case 'average':
+          cmp = a.studentTermAverage - b.studentTermAverage;
+          break;
+        default:
+          cmp = a.rank - b.rank;
+      }
+      if (cmp !== 0) {
+        return cmp * dir;
+      }
+      return `${a.student.lastName} ${a.student.firstName}`.localeCompare(
+        `${b.student.lastName} ${b.student.firstName}`,
+      );
+    });
+
+    const totalItems = sortedGroups.length;
+    const start = (query.page - 1) * query.pageSize;
+    const pageGroups = sortedGroups.slice(start, start + query.pageSize);
+
+    const conductOr = pageGroups.map((g) => ({
+      termId: g.term.id,
+      classRoomId: g.classRoom.id,
+      studentId: g.student.id,
+    }));
+    const conductRows =
+      conductOr.length === 0
+        ? []
+        : await prisma.conductGrade.findMany({
+            where: {
+              tenantId,
+              OR: conductOr,
+            },
+            select: {
+              termId: true,
+              classRoomId: true,
+              studentId: true,
+              grade: true,
+              remark: true,
+            },
+          });
+    const conductMap = new Map(
+      conductRows.map((c) => [`${c.termId}:${c.classRoomId}:${c.studentId}`, c]),
+    );
+
+    const subjectIdsOrdered = globalSubjects.map((s) => s.id);
+    const items = pageGroups.map((g) => {
+      const ck = `${g.term.id}:${g.classRoom.id}:${g.student.id}`;
+      const cg = conductMap.get(ck);
+      const termBand = this.resolveBand(rules, g.studentTermAverage);
+      const scores: Record<
+        string,
+        {
+          testPercent: number | null;
+          examPercent: number | null;
+          subjectScore: number;
+          grade: string;
+          remark: string;
+        } | null
+      > = {};
+      for (const sid of subjectIdsOrdered) {
+        const found = g.subjectScores.find((x) => x.subjectId === sid);
+        scores[sid] = found
+          ? {
+              testPercent: found.testPercent,
+              examPercent: found.examPercent,
+              subjectScore: found.subjectScore,
+              grade: found.grade,
+              remark: found.remark,
+            }
+          : null;
+      }
+      return {
+        academicYear: g.academicYear,
+        term: g.term,
+        classRoom: g.classRoom,
+        student: g.student,
+        rank: g.rank,
+        studentTermTotal: g.studentTermTotal,
+        studentTermAverage: g.studentTermAverage,
+        termGrade: termBand.grade,
+        termRemark: termBand.remark,
+        scores,
+        conduct: cg ? { grade: cg.grade, remark: cg.remark ?? null } : null,
+      };
+    });
+
+    return {
+      academicYear: responseAcademicYear,
+      subjects: globalSubjects,
+      items,
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
 
@@ -1313,6 +1820,148 @@ export class ExamsService {
       status: 'PUBLISHED' as const,
       snapshotsUpdated: updated.count,
       publishedAt,
+    };
+  }
+
+  /**
+   * Paginated list of result snapshots (report cards) for admin/teacher listing.
+   */
+  async listReportCardsCatalog(tenantId: string, query: ReportCardsCatalogQueryInput, actor: JwtUser) {
+    const filterYear = query.academicYearId
+      ? await prisma.academicYear.findFirst({
+          where: { id: query.academicYearId, tenantId, isActive: true },
+          select: { id: true },
+        })
+      : null;
+    if (query.academicYearId && !filterYear) {
+      throw new AppError(404, 'ACADEMIC_YEAR_NOT_FOUND', 'Academic year not found');
+    }
+
+    if (query.termId) {
+      const term = await prisma.term.findFirst({
+        where: { id: query.termId, tenantId, isActive: true },
+        select: { academicYearId: true },
+      });
+      if (!term) {
+        throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
+      }
+      if (query.academicYearId && term.academicYearId !== query.academicYearId) {
+        throw new AppError(400, 'TERM_YEAR_MISMATCH', 'Term does not belong to the selected academic year');
+      }
+    }
+
+    if (query.classRoomId) {
+      const cr = await prisma.classRoom.findFirst({
+        where: { id: query.classRoomId, tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!cr) {
+        throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found');
+      }
+    }
+
+    if (query.studentId) {
+      const st = await prisma.student.findFirst({
+        where: { id: query.studentId, tenantId, deletedAt: null, isActive: true },
+        select: { id: true },
+      });
+      if (!st) {
+        throw new AppError(404, 'STUDENT_NOT_FOUND', 'Student not found');
+      }
+    }
+
+    const where: Prisma.ResultSnapshotWhereInput = {
+      tenantId,
+      ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
+      ...(query.termId ? { termId: query.termId } : {}),
+      ...(query.classRoomId ? { classRoomId: query.classRoomId } : {}),
+      ...(query.studentId ? { studentId: query.studentId } : {}),
+    };
+
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            { student: { studentCode: { contains: q, mode: 'insensitive' } } },
+            { student: { firstName: { contains: q, mode: 'insensitive' } } },
+            { student: { lastName: { contains: q, mode: 'insensitive' } } },
+            { classRoom: { code: { contains: q, mode: 'insensitive' } } },
+            { classRoom: { name: { contains: q, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
+    if (this.isTeacherOnly(actor)) {
+      const courses = await prisma.course.findMany({
+        where: {
+          tenantId,
+          teacherUserId: actor.sub,
+          isActive: true,
+          ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
+        },
+        select: { academicYearId: true, classRoomId: true },
+      });
+      const pairOr = courses
+        .filter((c) => c.classRoomId)
+        .map((c) => ({
+          academicYearId: c.academicYearId,
+          classRoomId: c.classRoomId as string,
+        }));
+      if (pairOr.length === 0) {
+        return {
+          items: [],
+          pagination: buildPagination(query.page, query.pageSize, 0),
+        };
+      }
+      const teacherScope = { OR: pairOr };
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), teacherScope];
+    }
+
+    const [totalItems, snapshots] = await prisma.$transaction([
+      prisma.resultSnapshot.count({ where }),
+      prisma.resultSnapshot.findMany({
+        where,
+        include: this.resultSnapshotInclude,
+        orderBy: [
+          { term: { startDate: 'desc' } },
+          { student: { lastName: 'asc' } },
+          { student: { firstName: 'asc' } },
+          { classRoom: { code: 'asc' } },
+        ],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+    ]);
+
+    const items = snapshots.map((snapshot) => ({
+      id: snapshot.id,
+      student: {
+        id: snapshot.student.id,
+        studentCode: snapshot.student.studentCode,
+        firstName: snapshot.student.firstName,
+        lastName: snapshot.student.lastName,
+      },
+      classRoom: {
+        id: snapshot.classRoom.id,
+        code: snapshot.classRoom.code,
+        name: snapshot.classRoom.name,
+      },
+      academicYear: {
+        id: snapshot.academicYear.id,
+        name: snapshot.academicYear.name,
+      },
+      term: {
+        id: snapshot.term.id,
+        name: snapshot.term.name,
+      },
+      status: snapshot.status,
+    }));
+
+    return {
+      items,
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
 

@@ -3,12 +3,14 @@ import { Request, Response } from 'express';
 import { sendSuccess } from '../../common/utils/response';
 import { ExamsService } from './exams.service';
 import {
+  allMarksLedgerQuerySchema,
   conductGradesQuerySchema,
   listExamsQuerySchema,
   marksGridQuerySchema,
   marksGridSaveSchema,
   myExamScheduleQuerySchema,
   parentReportCardsQuerySchema,
+  reportCardsCatalogQuerySchema,
   reportCardsQuerySchema,
 } from './exams.schemas';
 
@@ -65,6 +67,12 @@ export class ExamsController {
     return sendSuccess(req, res, result);
   }
 
+  async listAllMarksLedger(req: Request, res: Response) {
+    const query = allMarksLedgerQuerySchema.parse(req.query);
+    const result = await examsService.listAllMarksLedger(req.tenantId!, query, req.user!);
+    return sendSuccess(req, res, result, 200, result.pagination);
+  }
+
   async saveMarksGrid(req: Request, res: Response) {
     const body = marksGridSaveSchema.parse(req.body);
     const result = await examsService.saveMarksGrid(req.tenantId!, body, req.user!, buildContext(req));
@@ -95,6 +103,12 @@ export class ExamsController {
   async publishResults(req: Request, res: Response) {
     const result = await examsService.publishResults(req.tenantId!, req.body, req.user!, buildContext(req));
     return sendSuccess(req, res, result);
+  }
+
+  async listReportCardsCatalog(req: Request, res: Response) {
+    const query = reportCardsCatalogQuerySchema.parse(req.query);
+    const result = await examsService.listReportCardsCatalog(req.tenantId!, query, req.user!);
+    return sendSuccess(req, res, result, 200, result.pagination);
   }
 
   async getStudentReportCards(req: Request, res: Response) {

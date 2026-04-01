@@ -60,6 +60,12 @@ examsRoutes.get(
 );
 
 examsRoutes.get(
+  '/classes/all-marks-ledger',
+  requirePermissions([PERMISSIONS.EXAMS_READ]),
+  asyncHandler((req, res) => examsController.listAllMarksLedger(req, res)),
+);
+
+examsRoutes.get(
   '/classes/marks-grid',
   requirePermissions([PERMISSIONS.EXAMS_READ]),
   asyncHandler((req, res) => examsController.getMarksGrid(req, res)),
@@ -111,6 +117,12 @@ examsRoutes.post(
   requirePermissions([PERMISSIONS.RESULTS_PUBLISH]),
   validateBody(resultsActionSchema),
   asyncHandler((req, res) => examsController.publishResults(req, res)),
+);
+
+examsRoutes.get(
+  '/report-cards/catalog',
+  requirePermissions([PERMISSIONS.REPORT_CARDS_READ]),
+  asyncHandler((req, res) => examsController.listReportCardsCatalog(req, res)),
 );
 
 examsRoutes.get(
