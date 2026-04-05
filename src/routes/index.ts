@@ -5,7 +5,7 @@ import { authRoutes } from '../modules/auth/auth.routes';
 import { academicRoutes } from '../modules/academics/academic.routes';
 import { assessmentsRoutes } from '../modules/assessments/assessments.routes';
 import { dashboardRoutes } from '../modules/dashboard/dashboard.routes';
-import { conductRoutes } from '../modules/conduct/conduct.routes';
+import { conductMarksRoutes } from '../modules/conduct-marks/conduct-marks.routes';
 import { healthRoutes } from '../modules/health/health.routes';
 import { examsRoutes } from '../modules/exams/exams.routes';
 import { filesRoutes } from '../modules/files/files.routes';
@@ -45,11 +45,9 @@ apiRouter.use('/staff', staffRoutes);
 apiRouter.use('/', academicRoutes);
 apiRouter.use('/', attendanceRoutes);
 apiRouter.use('/', reportsRoutes);
-if (env.FEATURE_CONDUCT_ENABLED) {
-  apiRouter.use('/', conductRoutes);
-}
 apiRouter.use('/', studentsRoutes);
 apiRouter.use('/', parentsRoutes);
+apiRouter.use('/', conductMarksRoutes);
 apiRouter.use('/', examsRoutes);
 apiRouter.use('/', filesRoutes);
 apiRouter.use('/', lmsRoutes);

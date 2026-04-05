@@ -1260,6 +1260,36 @@ export class LmsService {
       OR: orBlocks,
     };
 
+    // Get student's completed lessons for all courses
+    const completedProgressMap = new Map<string, string[]>();
+    if (student?.id) {
+      const completedLessons = await prisma.studentLessonProgress.findMany({
+        where: {
+          tenantId,
+          studentId: student.id,
+          isCompleted: true,
+        },
+        include: {
+          lesson: {
+            select: {
+              courseId: true,
+            },
+          },
+        },
+      });
+
+      completedLessons.forEach((progress) => {
+        // Only process if lesson still exists (not orphaned)
+        if (progress.lesson) {
+          const courseId = progress.lesson.courseId;
+          if (!completedProgressMap.has(courseId)) {
+            completedProgressMap.set(courseId, []);
+          }
+          completedProgressMap.get(courseId)!.push(progress.lessonId);
+        }
+      });
+    }
+
     const [totalItems, items] = await prisma.$transaction([
       prisma.course.count({ where }),
       prisma.course.findMany({
@@ -1331,8 +1361,135 @@ export class LmsService {
             ? this.mapSubmission(assignment.submissions[0])
             : null,
         })),
+        completedLessonIds: completedProgressMap.get(item.id) ?? [],
       })),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
+    };
+  }
+
+  async markLessonComplete(
+    tenantId: string,
+    lessonId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    // 1. Get lesson and verify it exists and is published
+    const lesson = await prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        tenantId,
+        isPublished: true,
+      },
+      select: {
+        id: true,
+        courseId: true,
+        title: true,
+        sequence: true,
+      },
+    });
+
+    if (!lesson) {
+      throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found or not published');
+    }
+
+    // 2. Get the course to verify student is enrolled
+    const course = await prisma.course.findFirst({
+      where: {
+        id: lesson.courseId,
+        tenantId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        classRoomId: true,
+        academicYearId: true,
+      },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    // 3. Get student record for current user
+    const student = await prisma.student.findFirst({
+      where: {
+        tenantId,
+        userId: actor.sub,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!student) {
+      throw new AppError(403, 'NOT_A_STUDENT', 'Student record not found for this user');
+    }
+
+    // 4. Verify student is enrolled in the course classroom and academic year
+    const enrollment = await prisma.studentEnrollment.findFirst({
+      where: {
+        studentId: student.id,
+        classRoomId: course.classRoomId,
+        academicYearId: course.academicYearId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!enrollment) {
+      throw new AppError(
+        403,
+        'NOT_ENROLLED_IN_COURSE',
+        'Student is not enrolled in the course containing this lesson',
+      );
+    }
+
+    // 5. Create or update StudentLessonProgress record
+    const progress = await prisma.studentLessonProgress.upsert({
+      where: {
+        tenantId_studentId_lessonId: {
+          tenantId,
+          studentId: student.id,
+          lessonId: lesson.id,
+        },
+      },
+      update: {
+        isCompleted: true,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      },
+      create: {
+        tenantId,
+        studentId: student.id,
+        lessonId: lesson.id,
+        isCompleted: true,
+        completedAt: new Date(),
+      },
+    });
+
+    // 6. Audit log
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.LESSON_COMPLETED,
+      entity: 'Lesson',
+      entityId: lesson.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        lessonTitle: lesson.title,
+        courseId: course.id,
+      },
+    });
+
+    return {
+      isCompleted: progress.isCompleted,
+      completedAt: progress.completedAt?.toISOString() ?? null,
     };
   }
 

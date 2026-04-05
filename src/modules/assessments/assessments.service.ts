@@ -1074,6 +1074,29 @@ export class AssessmentsService {
       },
     });
 
+    if (submitted.assessment.lessonId) {
+      await prisma.studentLessonProgress.upsert({
+        where: {
+          tenantId_studentId_lessonId: {
+            tenantId,
+            studentId: submitted.studentId,
+            lessonId: submitted.assessment.lessonId,
+          },
+        },
+        update: {
+          isCompleted: true,
+          completedAt: new Date(),
+        },
+        create: {
+          tenantId,
+          studentId: submitted.studentId,
+          lessonId: submitted.assessment.lessonId,
+          isCompleted: true,
+          completedAt: new Date(),
+        },
+      });
+    }
+
     return this.mapAttemptForStudent(submitted.assessment, submitted, true);
   }
 

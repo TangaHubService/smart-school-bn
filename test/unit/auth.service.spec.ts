@@ -52,7 +52,7 @@ describe('AuthService', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('logs in staff with inferred tenant and returns access/refresh tokens', async () => {
+  it('logs in staff with identifier (email) and returns access/refresh tokens', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -75,8 +75,7 @@ describe('AuthService', () => {
 
     const result = await authService.login(
       {
-        loginAs: 'staff',
-        email: 'admin@school.rw',
+        identifier: 'admin@school.rw',
         password: 'Admin@12345',
       },
       {
@@ -98,34 +97,32 @@ describe('AuthService', () => {
     expect(decoded.tenantId).toBe('tenant-1');
   });
 
-  it('logs in student using student id only', async () => {
-    mockedPrisma.student.findMany.mockResolvedValue([
+  it('logs in student with identifier (username)', async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([
       {
+        id: 'student-user-1',
         tenantId: 'tenant-1',
-        user: {
-          id: 'student-user-1',
-          email: 'student@school.rw',
-          firstName: 'Alice',
-          lastName: 'Uwase',
-          status: 'ACTIVE',
-          deletedAt: null,
-          userRoles: [
-            {
-              role: {
-                name: 'STUDENT',
-                permissions: ['student.my_courses.read'],
-              },
+        email: 'student@school.rw',
+        username: 'alice_uwase',
+        passwordHash: 'hash',
+        firstName: 'Alice',
+        lastName: 'Uwase',
+        userRoles: [
+          {
+            role: {
+              name: 'STUDENT',
+              permissions: ['students.my_courses.read'],
             },
-          ],
-        },
+          },
+        ],
       },
     ]);
+    mockedBcrypt.compare.mockResolvedValue(true);
 
     const result = await authService.login(
       {
-        loginAs: 'student',
-        schoolCode: 'SMART',
-        studentId: 'STU-001',
+        identifier: 'alice_uwase',
+        password: 'Student@123',
       },
       {
         requestId: 'req-1',

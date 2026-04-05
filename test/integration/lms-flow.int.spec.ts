@@ -5,6 +5,8 @@ jest.mock('../../src/db/prisma', () => {
     subject: { findFirst: jest.fn() },
     user: { findFirst: jest.fn(), findMany: jest.fn() },
     student: { findFirst: jest.fn() },
+    programEnrollment: { findMany: jest.fn() },
+    studentLessonProgress: { findMany: jest.fn() },
     course: {
       create: jest.fn(),
       findFirst: jest.fn(),
@@ -253,6 +255,12 @@ describe('lms integration flow', () => {
         },
       ],
     });
+
+    // Mock program enrollments (empty for this test)
+    mockedPrisma.programEnrollment.findMany.mockResolvedValue([]);
+
+    // Mock student lesson progress (empty for this test)
+    mockedPrisma.studentLessonProgress.findMany.mockResolvedValue([]);
 
     mockedPrisma.$transaction.mockResolvedValueOnce([
       1,
@@ -641,6 +649,12 @@ describe('lms integration flow', () => {
         },
       ],
     });
+
+    // Mock program enrollments (empty for this test)
+    mockedPrisma.programEnrollment.findMany.mockResolvedValue([]);
+
+    // Mock student lesson progress (empty for this test)
+    mockedPrisma.studentLessonProgress.findMany.mockResolvedValue([]);
 
     mockedPrisma.$transaction.mockResolvedValueOnce([
       1,

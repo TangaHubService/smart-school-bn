@@ -31,9 +31,10 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
   CLOUDINARY_FOLDER_PREFIX: z.string().default('smart-school'),
+  /** School conduct *incidents* API (discipline cases). Conduct *marks* use `/conduct-marks` and stay enabled. */
   FEATURE_CONDUCT_ENABLED: z
     .enum(['true', 'false'])
-    .default('true')
+    .default('false')
     .transform((value) => value === 'true'),
   FEATURE_GOV_AUDITING_ENABLED: z
     .enum(['true', 'false'])

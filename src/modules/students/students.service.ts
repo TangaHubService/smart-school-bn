@@ -1,4 +1,7 @@
-import { Prisma, StudentGender } from '@prisma/client';
+import { Prisma, StudentGender, UserStatus } from '@prisma/client';
+import bcrypt from 'bcrypt';
+
+import { env } from '../../config/env';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -57,10 +60,71 @@ export class StudentsService {
 
     try {
       const created = await prisma.$transaction(async (tx) => {
+        // 1. Handle User account creation if email is provided
+        let userId: string | null = null;
+        if (input.email) {
+          const normalizedEmail = input.email.toLowerCase().trim();
+          const studentCode = input.studentCode.trim().toUpperCase();
+
+          // Upsert User
+          const passwordHash = await bcrypt.hash(studentCode, env.BCRYPT_ROUNDS);
+          const user = await tx.user.upsert({
+            where: {
+              tenantId_email: {
+                tenantId,
+                email: normalizedEmail,
+              },
+            },
+            update: {
+              firstName: input.firstName,
+              lastName: input.lastName,
+              username: studentCode,
+            },
+            create: {
+              tenantId,
+              email: normalizedEmail,
+              username: studentCode,
+              firstName: input.firstName,
+              lastName: input.lastName,
+              passwordHash,
+              status: UserStatus.ACTIVE,
+            },
+          });
+          userId = user.id;
+
+          // Ensure STUDENT role
+          const studentRole = await tx.role.findFirst({
+            where: {
+              tenantId,
+              name: 'STUDENT',
+            },
+          });
+
+          if (studentRole) {
+            await tx.userRole.upsert({
+              where: {
+                tenantId_userId_roleId: {
+                  tenantId,
+                  userId: user.id,
+                  roleId: studentRole.id,
+                },
+              },
+              update: {},
+              create: {
+                tenantId,
+                userId: user.id,
+                roleId: studentRole.id,
+              },
+            });
+          }
+        }
+
         const student = await tx.student.create({
           data: {
             tenantId,
+            userId,
             studentCode: input.studentCode,
+            email: input.email || null,
             firstName: input.firstName,
             lastName: input.lastName,
             gender: input.gender,
@@ -177,10 +241,69 @@ export class StudentsService {
 
     try {
       const updated = await prisma.$transaction(async (tx) => {
+        // 1. Handle User record updates if email is provided
+        let userId: string | null = existing.userId;
+        if (input.email) {
+          const normalizedEmail = input.email.toLowerCase().trim();
+          const studentCode = (input.studentCode || existing.studentCode).trim().toUpperCase();
+
+          const passwordHash = await bcrypt.hash(studentCode, env.BCRYPT_ROUNDS);
+          const user = await tx.user.upsert({
+            where: {
+              tenantId_email: {
+                tenantId,
+                email: normalizedEmail,
+              },
+            },
+            update: {
+              firstName: input.firstName || existing.firstName,
+              lastName: input.lastName || existing.lastName,
+              username: studentCode,
+            },
+            create: {
+              tenantId,
+              email: normalizedEmail,
+              username: studentCode,
+              firstName: input.firstName || existing.firstName,
+              lastName: input.lastName || existing.lastName,
+              passwordHash,
+              status: UserStatus.ACTIVE,
+            },
+          });
+          userId = user.id;
+
+          const studentRole = await tx.role.findFirst({
+            where: {
+              tenantId,
+              name: 'STUDENT',
+            },
+          });
+
+          if (studentRole) {
+            await tx.userRole.upsert({
+              where: {
+                tenantId_userId_roleId: {
+                  tenantId,
+                  userId: user.id,
+                  roleId: studentRole.id,
+                },
+              },
+              update: {},
+              create: {
+                tenantId,
+                userId: user.id,
+                roleId: studentRole.id,
+              },
+            });
+          }
+        }
+
         await tx.student.update({
           where: { id },
           data: {
+            userId,
             studentCode: input.studentCode,
+            email: input.email,
             firstName: input.firstName,
             lastName: input.lastName,
             gender:
@@ -768,6 +891,10 @@ export class StudentsService {
       },
     },
   };
+
+  async getStudentDetail(tenantId: string, id: string) {
+    return this.getStudentById(tenantId, id);
+  }
 
   private async getStudentById(tenantId: string, id: string) {
     const student = await prisma.student.findFirst({

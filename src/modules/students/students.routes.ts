@@ -32,19 +32,6 @@ studentsRoutes.get(
   asyncHandler((req, res) => studentsController.listStudents(req, res)),
 );
 
-studentsRoutes.patch(
-  '/students/:id',
-  requirePermissions([PERMISSIONS.STUDENTS_MANAGE]),
-  validateBody(updateStudentSchema),
-  asyncHandler((req, res) => studentsController.updateStudent(req, res)),
-);
-
-studentsRoutes.delete(
-  '/students/:id',
-  requirePermissions([PERMISSIONS.STUDENTS_MANAGE]),
-  asyncHandler((req, res) => studentsController.deleteStudent(req, res)),
-);
-
 studentsRoutes.post(
   '/students/import',
   requirePermissions([PERMISSIONS.STUDENTS_MANAGE]),
@@ -56,4 +43,23 @@ studentsRoutes.get(
   '/students/export',
   requirePermissions([PERMISSIONS.STUDENTS_READ]),
   asyncHandler((req, res) => studentsController.exportStudents(req, res)),
+);
+
+studentsRoutes.get(
+  '/students/:id',
+  requirePermissions([PERMISSIONS.STUDENTS_READ]),
+  asyncHandler((req, res) => studentsController.getStudent(req, res)),
+);
+
+studentsRoutes.patch(
+  '/students/:id',
+  requirePermissions([PERMISSIONS.STUDENTS_MANAGE]),
+  validateBody(updateStudentSchema),
+  asyncHandler((req, res) => studentsController.updateStudent(req, res)),
+);
+
+studentsRoutes.delete(
+  '/students/:id',
+  requirePermissions([PERMISSIONS.STUDENTS_MANAGE]),
+  asyncHandler((req, res) => studentsController.deleteStudent(req, res)),
 );

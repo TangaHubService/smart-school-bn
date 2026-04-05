@@ -33,6 +33,11 @@ export class StudentsController {
     return sendSuccess(req, res, result);
   }
 
+  async getStudent(req: Request, res: Response): Promise<Response> {
+    const result = await studentsService.getStudentDetail(req.tenantId!, req.params.id);
+    return sendSuccess(req, res, result);
+  }
+
   async updateStudent(req: Request, res: Response): Promise<Response> {
     const result = await studentsService.updateStudent(
       req.tenantId!,

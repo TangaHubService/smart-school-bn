@@ -179,6 +179,17 @@ export class LmsController {
     return sendSuccess(req, res, result);
   }
 
+  async markLessonComplete(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.markLessonComplete(
+      req.tenantId!,
+      req.params.lessonId,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async listAcademyPrograms(req: Request, res: Response): Promise<Response> {
     const result = await lmsService.listAcademyPrograms(req.tenantId!, req.user!);
     return sendSuccess(req, res, result);

@@ -50,7 +50,7 @@ describe('login integration', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('returns tokens on valid staff credentials without tenant code', async () => {
+  it('returns tokens on valid staff credentials (identifier + password)', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -66,8 +66,7 @@ describe('login integration', () => {
 
     const req = createMockRequest({
       body: {
-        loginAs: 'staff',
-        email: 'admin@school.rw',
+        identifier: 'admin@school.rw',
         password: 'Admin@12345',
       },
     });
@@ -79,35 +78,6 @@ describe('login integration', () => {
     expect(res.statusCode).toBe(200);
     expect((res.payload as any).data.accessToken).toEqual(expect.any(String));
     expect((res.payload as any).data.refreshToken).toEqual(expect.any(String));
-  });
-
-  it('supports legacy staff payload without loginAs', async () => {
-    mockedPrisma.user.findMany.mockResolvedValue([
-      {
-        id: 'user-1',
-        tenantId: 'tenant-1',
-        email: 'admin@school.rw',
-        passwordHash: 'hash',
-        firstName: 'Admin',
-        lastName: 'User',
-        userRoles: [{ role: { name: 'SCHOOL_ADMIN', permissions: ['users.read'] } }],
-      },
-    ]);
-    mockedBcrypt.compare.mockResolvedValue(true);
-
-    const req = createMockRequest({
-      body: {
-        email: 'admin@school.rw',
-        password: 'Admin@12345',
-      },
-    });
-    const res = createMockResponse();
-
-    await runMiddleware(validateBody(loginSchema), req, res);
-    await authController.login(req as any, res as any);
-
-    expect(res.statusCode).toBe(200);
-    expect((res.payload as any).data.accessToken).toEqual(expect.any(String));
   });
 
   it('returns auth error for wrong password', async () => {
@@ -126,8 +96,7 @@ describe('login integration', () => {
 
     const req = createMockRequest({
       body: {
-        loginAs: 'staff',
-        email: 'admin@school.rw',
+        identifier: 'admin@school.rw',
         password: 'wrong-password',
       },
     });
@@ -145,26 +114,25 @@ describe('login integration', () => {
     expect((res.payload as any).error.code).toBe('AUTH_INVALID_CREDENTIALS');
   });
 
-  it('returns tokens on valid student id login', async () => {
-    mockedPrisma.student.findMany.mockResolvedValue([
+  it('returns tokens on valid student login (username identifier)', async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([
       {
+        id: 'student-user-1',
         tenantId: 'tenant-1',
-        user: {
-          id: 'student-user-1',
-          email: 'student@school.rw',
-          firstName: 'Alice',
-          lastName: 'Uwase',
-          status: 'ACTIVE',
-          deletedAt: null,
-          userRoles: [{ role: { name: 'STUDENT', permissions: ['student.my_courses.read'] } }],
-        },
+        email: 'student@school.rw',
+        username: 'stu_alice',
+        passwordHash: 'hash',
+        firstName: 'Alice',
+        lastName: 'Uwase',
+        userRoles: [{ role: { name: 'STUDENT', permissions: ['students.my_courses.read'] } }],
       },
     ]);
+    mockedBcrypt.compare.mockResolvedValue(true);
 
     const req = createMockRequest({
       body: {
-        loginAs: 'student',
-        studentId: 'STU-001',
+        identifier: 'stu_alice',
+        password: 'Student@123',
       },
     });
     const res = createMockResponse();

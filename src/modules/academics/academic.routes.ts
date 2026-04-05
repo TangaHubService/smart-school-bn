@@ -43,6 +43,7 @@ academicRoutes.get(
     PERMISSIONS.COURSES_MANAGE,
     PERMISSIONS.STUDENT_MY_COURSES_READ,
     PERMISSIONS.EXAMS_READ,
+    PERMISSIONS.CONDUCT_MANAGE,
     PERMISSIONS.REPORT_CARDS_READ,
   ]),
   asyncHandler((req, res) => academicsController.listAcademicYears(req, res)),
@@ -76,6 +77,7 @@ academicRoutes.get(
     PERMISSIONS.COURSES_MANAGE,
     PERMISSIONS.REPORT_CARDS_READ,
     PERMISSIONS.TIMETABLE_READ,
+    PERMISSIONS.CONDUCT_MANAGE,
   ]),
   asyncHandler((req, res) => academicsController.listTerms(req, res)),
 );
@@ -134,6 +136,7 @@ academicRoutes.get(
     PERMISSIONS.PARENTS_MANAGE,
     PERMISSIONS.EXAMS_READ,
     PERMISSIONS.REPORT_CARDS_READ,
+    PERMISSIONS.CONDUCT_MANAGE,
   ]),
   asyncHandler((req, res) => academicsController.listClassRooms(req, res)),
 );

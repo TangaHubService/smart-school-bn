@@ -5,6 +5,7 @@ import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { buildPagination } from '../../common/utils/pagination';
 import { AUDIT_EVENT } from '../../constants/audit-events';
+import { PERMISSIONS } from '../../constants/permissions';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -23,6 +24,12 @@ import {
   ReportCardsQueryInput,
   ResultsActionInput,
 } from './exams.schemas';
+import {
+  loadLedgerConductDisplayMap,
+  loadTermConductDisplayMap,
+  loadTermConductNumbersMap,
+  loadYearlyConductDisplayMap,
+} from '../conduct-marks/conduct-marks.helpers';
 import { buildReportCardPdfBuffer, type ReportCardPayload } from './report-card-pdf';
 import {
   buildYearlyReportCardSubjects,
@@ -435,6 +442,7 @@ export class ExamsService {
 
   async getMarksGrid(tenantId: string, query: MarksGridQueryInput, actor: JwtUser) {
     const scope = await this.getResultScope(tenantId, query.termId, query.classRoomId);
+    const students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
     const [examsResult, conductByStudentId] = await Promise.all([
       prisma.exam.findMany({
         where: {
@@ -448,12 +456,13 @@ export class ExamsService {
           marks: { select: { studentId: true, marksObtained: true, status: true } },
         },
       }),
-      this.getConductGradesForScope(
+      loadTermConductDisplayMap({
         tenantId,
-        scope.academicYear.id,
-        query.termId,
-        query.classRoomId,
-      ),
+        academicYearId: scope.academicYear.id,
+        termId: query.termId,
+        classRoomId: query.classRoomId,
+        studentIds: students.map((s) => s.id),
+      }),
     ]);
     let exams = examsResult;
 
@@ -473,8 +482,6 @@ export class ExamsService {
         exams = exams.filter((e) => allowedSubjectIds.has(e.subjectId));
       }
     }
-
-    const students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
 
     const policies = await prisma.subjectAssessmentPolicy.findMany({
       where: { tenantId, termId: query.termId, classRoomId: query.classRoomId },
@@ -576,10 +583,10 @@ export class ExamsService {
     });
 
     const studentsWithConduct = withRank.map((r) => {
-      const cg = conductByStudentId.get(r.studentId);
+      const cg = conductByStudentId.get(r.studentId)!;
       return {
         ...r,
-        conduct: cg ? { grade: cg.grade, remark: cg.remark ?? null } : null,
+        conduct: { grade: cg.grade, remark: cg.remark ?? null },
       };
     });
 
@@ -1006,35 +1013,23 @@ export class ExamsService {
     const start = (query.page - 1) * query.pageSize;
     const pageGroups = sortedGroups.slice(start, start + query.pageSize);
 
-    const conductOr = pageGroups.map((g) => ({
-      termId: g.term.id,
-      classRoomId: g.classRoom.id,
-      studentId: g.student.id,
-    }));
-    const conductRows =
-      conductOr.length === 0
-        ? []
-        : await prisma.conductGrade.findMany({
-            where: {
-              tenantId,
-              OR: conductOr,
-            },
-            select: {
-              termId: true,
-              classRoomId: true,
-              studentId: true,
-              grade: true,
-              remark: true,
-            },
+    const conductMap =
+      pageGroups.length === 0
+        ? new Map<string, { grade: string; remark: string | null }>()
+        : await loadLedgerConductDisplayMap({
+            tenantId,
+            keys: pageGroups.map((g) => ({
+              academicYearId: g.academicYear.id,
+              termId: g.term.id,
+              classRoomId: g.classRoom.id,
+              studentId: g.student.id,
+            })),
           });
-    const conductMap = new Map(
-      conductRows.map((c) => [`${c.termId}:${c.classRoomId}:${c.studentId}`, c]),
-    );
 
     const subjectIdsOrdered = globalSubjects.map((s) => s.id);
     const items = pageGroups.map((g) => {
       const ck = `${g.term.id}:${g.classRoom.id}:${g.student.id}`;
-      const cg = conductMap.get(ck);
+      const cg = conductMap.get(ck) ?? { grade: '100/100', remark: null };
       const termBand = this.resolveBand(rules, g.studentTermAverage);
       const scores: Record<
         string,
@@ -1069,7 +1064,7 @@ export class ExamsService {
         termGrade: termBand.grade,
         termRemark: termBand.remark,
         scores,
-        conduct: cg ? { grade: cg.grade, remark: cg.remark ?? null } : null,
+        conduct: { grade: cg.grade, remark: cg.remark ?? null },
       };
     });
 
@@ -1279,9 +1274,22 @@ export class ExamsService {
       }
     }
 
+    const numMap = await loadTermConductNumbersMap({
+      tenantId,
+      academicYearId: scope.academicYear.id,
+      termId: input.termId,
+      classRoomId: input.classRoomId,
+      studentIds: students.map((s) => s.id),
+    });
+
     let savedCount = 0;
     await prisma.$transaction(async (tx) => {
       for (const entry of input.entries) {
+        const n = numMap.get(entry.studentId);
+        if (!n) {
+          continue;
+        }
+        const gradeStr = `${n.finalScore}/${n.totalMarks}`;
         await tx.conductGrade.upsert({
           where: {
             tenantId_termId_classRoomId_studentId: {
@@ -1292,7 +1300,7 @@ export class ExamsService {
             },
           },
           update: {
-            grade: entry.grade,
+            grade: gradeStr,
             remark: entry.remark ?? null,
             updatedByUserId: actor.sub,
           },
@@ -1302,7 +1310,7 @@ export class ExamsService {
             termId: input.termId,
             classRoomId: input.classRoomId,
             studentId: entry.studentId,
-            grade: entry.grade,
+            grade: gradeStr,
             remark: entry.remark ?? null,
             createdByUserId: actor.sub,
             updatedByUserId: actor.sub,
@@ -1422,6 +1430,7 @@ export class ExamsService {
       scope.academicYear.id,
       input.termId,
       input.classRoomId,
+      students.map((s) => s.id),
     );
 
     const draftSnapshots = students.map((student) =>
@@ -1628,12 +1637,13 @@ export class ExamsService {
       });
     }
 
-    const conductByStudentId = await this.getConductGradesForScope(
+    const conductByStudentId = await loadYearlyConductDisplayMap({
       tenantId,
-      scope.academicYear.id,
-      input.termId,
-      input.classRoomId,
-    );
+      academicYearId: scope.academicYear.id,
+      classRoomId: input.classRoomId,
+      teachingTermIds: teachingTerms.map((t) => t.id),
+      studentIds: students.map((s) => s.id),
+    });
 
     const toRollup = (exams: (typeof examsByTerm)[number]): ExamForTermRollup[] =>
       exams.map((e) => ({
@@ -2497,17 +2507,55 @@ export class ExamsService {
     academicYearId: string,
     termId: string,
     classRoomId: string,
+    studentIds?: string[],
   ): Promise<Map<string, { grade: string; remark?: string | null }>> {
-    const grades = await prisma.conductGrade.findMany({
+    const ids =
+      studentIds && studentIds.length > 0
+        ? studentIds
+        : (await this.getClassStudents(tenantId, academicYearId, classRoomId)).map((s) => s.id);
+    return loadTermConductDisplayMap({
+      tenantId,
+      academicYearId,
+      termId,
+      classRoomId,
+      studentIds: ids,
+    });
+  }
+
+  /** Teachers with conduct access must teach the class; admins bypass. */
+  private async ensureConductClassTeachAccess(
+    tenantId: string,
+    academicYearId: string,
+    classRoomId: string,
+    actor: JwtUser,
+  ) {
+    if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
+      return;
+    }
+    const perms = new Set(actor.permissions ?? []);
+    if (perms.has(PERMISSIONS.RESULTS_LOCK)) {
+      return;
+    }
+    if (!perms.has(PERMISSIONS.CONDUCT_MANAGE)) {
+      throw new AppError(403, 'RESULTS_FORBIDDEN', 'Insufficient permissions');
+    }
+    const course = await prisma.course.findFirst({
       where: {
         tenantId,
         academicYearId,
-        termId,
         classRoomId,
+        teacherUserId: actor.sub,
+        isActive: true,
       },
-      select: { studentId: true, grade: true, remark: true },
+      select: { id: true },
     });
-    return new Map(grades.map((g) => [g.studentId, { grade: g.grade, remark: g.remark }]));
+    if (!course) {
+      throw new AppError(
+        403,
+        'CONDUCT_CLASS_FORBIDDEN',
+        'You are not assigned to teach this class for this academic year',
+      );
+    }
   }
 
   private buildStudentSnapshot(params: {

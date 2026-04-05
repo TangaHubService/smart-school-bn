@@ -15,7 +15,15 @@ import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../notifications/email.service';
 import { grantCatalogTrialEnrollments } from '../public-academy/academy-trial';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
-import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, ResetPasswordInput, VerifyOtpInput } from './auth.schemas';
+import {
+  ForgotPasswordInput,
+  LoginInput,
+  LogoutInput,
+  RefreshInput,
+  RegisterInput,
+  ResetPasswordInput,
+  VerifyOtpInput,
+} from './auth.schemas';
 
 const PUBLIC_LEARNER_PERMISSIONS = [
   'students.my_courses.read',
@@ -28,23 +36,109 @@ export class AuthService {
   private readonly emailService = new EmailService();
 
   async login(input: LoginInput, context: RequestAuditContext) {
-    if (input.loginAs === 'student') {
-      return this.loginStudent(input.schoolCode, input.studentId, context);
+    const { identifier, password } = input;
+    const trimmedIdentifier = identifier.trim();
+
+    // 1. Find all users matching the identifier (email OR username)
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { email: { equals: trimmedIdentifier, mode: 'insensitive' } },
+          { username: { equals: trimmedIdentifier, mode: 'insensitive' } },
+        ],
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        tenant: {
+          isActive: true,
+        },
+      },
+      include: {
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!users.length) {
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid credentials',
+      );
     }
 
-    return this.loginStaff(input.email, input.password, context);
+    // 2. Validate password for each candidate
+    const matchedUsers: Array<(typeof users)[number]> = [];
+
+    for (const user of users) {
+      const isMatch = await bcrypt.compare(password, user.passwordHash);
+      if (isMatch) {
+        matchedUsers.push(user);
+      }
+    }
+
+    if (!matchedUsers.length) {
+      await Promise.all(
+        users.map((user) =>
+          this.auditService.log({
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            payload: { reason: 'WRONG_PASSWORD', identifier: trimmedIdentifier },
+          }),
+        ),
+      );
+
+      throw new AppError(
+        401,
+        'AUTH_INVALID_CREDENTIALS',
+        'Invalid credentials',
+      );
+    }
+
+    // 3. Resolve ambiguity (existing multi-tenant resolution logic)
+    const resolvedUser = this.resolveMatchedEmailUser(matchedUsers);
+    if (!resolvedUser) {
+      await Promise.all(
+        matchedUsers.map((user) =>
+          this.auditService.log({
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+            requestId: context.requestId,
+            ipAddress: context.ipAddress,
+            userAgent: context.userAgent,
+            payload: { reason: 'AMBIGUOUS_IDENTIFIER', identifier: trimmedIdentifier },
+          }),
+        ),
+      );
+
+      throw new AppError(
+        409,
+        'AUTH_AMBIGUOUS_ACCOUNT',
+        'Multiple accounts match this identifier. Contact support.',
+      );
+    }
+
+    return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
   }
 
-  async register(input: any, context: RequestAuditContext) {
-    const { firstName, lastName, email, password } = input;
-    const normalizedEmail = email.toLowerCase();
+  async register(input: RegisterInput, context: RequestAuditContext) {
+    const { firstName, lastName, email, username, password } = input;
+    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedUsername = username.toLowerCase().trim();
 
     const catalogTenantId = await resolveAcademyCatalogTenantId();
     if (!catalogTenantId) {
       throw new AppError(
         503,
         'AUTH_ACADEMY_NOT_CONFIGURED',
-        'No academy catalog school is set. In Super Admin → Schools, enable “Public academy catalog school” for one school, or set ACADEMY_CATALOG_TENANT_ID in server environment.',
+        'No academy catalog school is set.',
       );
     }
 
@@ -53,14 +147,10 @@ export class AuthService {
     });
 
     if (!academyTenant) {
-      throw new AppError(
-        503,
-        'AUTH_ACADEMY_NOT_CONFIGURED',
-        'Academy catalog tenant is missing or inactive. Check ACADEMY_CATALOG_TENANT_ID and that the school is active.',
-      );
+      throw new AppError(503, 'AUTH_ACADEMY_NOT_CONFIGURED', 'Academy catalog tenant is missing.');
     }
 
-    const existingUser = await prisma.user.findUnique({
+    const existingEmail = await prisma.user.findUnique({
       where: {
         tenantId_email: {
           tenantId: academyTenant.id,
@@ -69,8 +159,19 @@ export class AuthService {
       },
     });
 
-    if (existingUser) {
+    if (existingEmail) {
       throw new AppError(409, 'AUTH_USER_EXISTS', 'An account already exists with this email.');
+    }
+
+    const existingUsername = await prisma.user.findFirst({
+      where: {
+        tenantId: academyTenant.id,
+        username: normalizedUsername,
+      },
+    });
+
+    if (existingUsername) {
+      throw new AppError(409, 'AUTH_USERNAME_TAKEN', 'This username is already taken.');
     }
 
     const learnerRole = await prisma.role.upsert({
@@ -100,6 +201,7 @@ export class AuthService {
         data: {
           tenantId: academyTenant.id,
           email: normalizedEmail,
+          username: normalizedUsername,
           firstName,
           lastName,
           passwordHash,
@@ -107,12 +209,11 @@ export class AuthService {
         },
       });
 
-      const studentCode = `L-${randomBytes(3).toString('hex').toUpperCase()}`;
       await tx.student.create({
         data: {
           tenantId: academyTenant.id,
           userId: newUser.id,
-          studentCode,
+          studentCode: normalizedUsername.toUpperCase(),
           firstName,
           lastName,
           isActive: true,
@@ -295,96 +396,6 @@ export class AuthService {
     return randomBytes(48).toString('hex');
   }
 
-  private async loginStaff(
-    email: string,
-    password: string,
-    context: RequestAuditContext,
-  ) {
-    const normalizedEmail = email.toLowerCase();
-
-    const users = await prisma.user.findMany({
-      where: {
-        email: normalizedEmail,
-        deletedAt: null,
-        status: UserStatus.ACTIVE,
-        tenant: {
-          isActive: true,
-        },
-      },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
-    });
-
-    if (!users.length) {
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid email or password',
-      );
-    }
-
-    const matchedUsers: Array<(typeof users)[number]> = [];
-
-    for (const user of users) {
-      const isMatch = await bcrypt.compare(password, user.passwordHash);
-      if (isMatch) {
-        matchedUsers.push(user);
-      }
-    }
-
-    if (!matchedUsers.length) {
-      await Promise.all(
-        users.map((user) =>
-          this.auditService.log({
-            tenantId: user.tenantId,
-            actorUserId: user.id,
-            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
-            requestId: context.requestId,
-            ipAddress: context.ipAddress,
-            userAgent: context.userAgent,
-            payload: { reason: 'WRONG_PASSWORD', email: normalizedEmail },
-          }),
-        ),
-      );
-
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid email or password',
-      );
-    }
-
-    const resolvedUser = this.resolveMatchedEmailUser(matchedUsers);
-    if (!resolvedUser) {
-      await Promise.all(
-        matchedUsers.map((user) =>
-          this.auditService.log({
-            tenantId: user.tenantId,
-            actorUserId: user.id,
-            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
-            requestId: context.requestId,
-            ipAddress: context.ipAddress,
-            userAgent: context.userAgent,
-            payload: { reason: 'AMBIGUOUS_EMAIL', email: normalizedEmail },
-          }),
-        ),
-      );
-
-      throw new AppError(
-        409,
-        'AUTH_AMBIGUOUS_ACCOUNT',
-        'Multiple accounts match this email. Contact support.',
-      );
-    }
-
-    return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
-  }
-
   private resolveMatchedEmailUser<
     T extends {
       userRoles: Array<{ role: { name: string } }>;
@@ -403,93 +414,6 @@ export class AuthService {
     }
 
     return null;
-  }
-
-  private async loginStudent(
-    schoolCode: string,
-    studentId: string,
-    context: RequestAuditContext,
-  ) {
-    const normalizedSchoolCode = schoolCode.trim();
-    const normalizedStudentId = studentId.trim();
-
-    const students = await prisma.student.findMany({
-      where: {
-        studentCode: {
-          equals: normalizedStudentId,
-          mode: 'insensitive',
-        },
-        isActive: true,
-        deletedAt: null,
-        tenant: {
-          code: {
-            equals: normalizedSchoolCode,
-            mode: 'insensitive',
-          },
-          isActive: true,
-        },
-      },
-      include: {
-        user: {
-          include: {
-            userRoles: {
-              include: {
-                role: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const loginCandidates = students
-      .filter(
-        (student) =>
-          Boolean(student.user) &&
-          student.user!.deletedAt === null &&
-          student.user!.status === UserStatus.ACTIVE &&
-          student.user!.userRoles.some((item) => item.role.name === 'STUDENT'),
-      )
-      .map((student) => ({
-        tenantId: student.tenantId,
-        user: student.user!,
-      }));
-
-    if (!loginCandidates.length) {
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid student ID',
-      );
-    }
-
-    if (loginCandidates.length > 1) {
-      await Promise.all(
-        loginCandidates.map((candidate) =>
-          this.auditService.log({
-            tenantId: candidate.tenantId,
-            actorUserId: candidate.user.id,
-            event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
-            requestId: context.requestId,
-            ipAddress: context.ipAddress,
-            userAgent: context.userAgent,
-            payload: {
-              reason: 'AMBIGUOUS_STUDENT_ID',
-              studentId: normalizedStudentId,
-            },
-          }),
-        ),
-      );
-
-      throw new AppError(
-        409,
-        'AUTH_AMBIGUOUS_STUDENT_ID',
-        'Student ID is linked to multiple schools. Contact support.',
-      );
-    }
-
-    const candidate = loginCandidates[0];
-    return this.completeLogin(candidate.tenantId, candidate.user, context);
   }
 
   private async completeLogin(

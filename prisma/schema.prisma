@@ -192,7 +192,9 @@ model Tenant {
   conductIncidents ConductIncident[]
   conductActions   ConductAction[]
   conductFeedbacks ConductFeedback[]
-  conductGrades    ConductGrade[]
+  conductGrades         ConductGrade[]
+  conductTermSettings   ConductTermSetting[]
+  conductDeductions     ConductDeduction[]
   programs             Program[]
   payments             Payment[]
   paymentsAsBuyer      Payment[]            @relation("PaymentBuyerTenant")
@@ -201,6 +203,7 @@ model Tenant {
   announcements   Announcement[]
   passwordResetTokens PasswordResetToken[]
   schoolSubscription SchoolSubscription?
+  studentLessonProgress StudentLessonProgress[]
 
   @@index([isActive])
 }
@@ -237,6 +240,7 @@ model User {
   id           String     @id @default(uuid())
   tenantId     String
   email        String
+  username     String?
   passwordHash String
   firstName    String
   lastName     String
@@ -250,7 +254,7 @@ model User {
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   userRoles       UserRole[]
   refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[]
+  auditLogs     AuditLog[]
   sentInvites     Invite[]       @relation("InviteSentBy")
   acceptedInvites Invite[]       @relation("InviteAcceptedBy")
   parentProfile   Parent?
@@ -288,6 +292,8 @@ model User {
   authoredConductFeedbacks ConductFeedback[]   @relation("ConductFeedbackAuthoredBy")
   createdConductGrades     ConductGrade[]      @relation("ConductGradeCreatedBy")
   updatedConductGrades     ConductGrade[]      @relation("ConductGradeUpdatedBy")
+  conductTermSettingsUpdated ConductTermSetting[] @relation("ConductTermSettingUpdatedBy")
+  conductDeductionsRecorded  ConductDeduction[]  @relation("ConductDeductionRecordedBy")
   govAuditorScopes         GovAuditorScope[]   @relation("GovAuditorUser")
   assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
   payments                 Payment[]
@@ -295,6 +301,7 @@ model User {
   authoredSystemAnnouncements SystemAnnouncement[] @relation("SystemAnnouncementAuthor")
 
   @@unique([tenantId, email])
+  @@unique([tenantId, username])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
 }
@@ -380,6 +387,7 @@ model AcademicYear {
   subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
   conductGrades   ConductGrade[]
+  conductDeductions ConductDeduction[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, name])
@@ -403,7 +411,9 @@ model Term {
   exams        Exam[]
   subjectAssessmentPolicies SubjectAssessmentPolicy[]
   resultSnapshots ResultSnapshot[]
-  conductGrades   ConductGrade[]
+  conductGrades          ConductGrade[]
+  conductTermSettings    ConductTermSetting[]
+  conductDeductions      ConductDeduction[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, academicYearId, name])
@@ -452,6 +462,7 @@ model ClassRoom {
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
   conductGrades    ConductGrade[]
+  conductDeductions ConductDeduction[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, code])
@@ -485,6 +496,7 @@ model Student {
   tenantId    String
   userId      String?       @unique
   studentCode String
+  email       String?
   firstName   String
   lastName    String
   gender      StudentGender?
@@ -505,7 +517,9 @@ model Student {
   examMarks      ExamMark[]
   resultSnapshots ResultSnapshot[]
   conductIncidents ConductIncident[]
-  conductGrades    ConductGrade[]
+  conductGrades     ConductGrade[]
+  conductDeductions ConductDeduction[]
+  lessonProgress StudentLessonProgress[]
 
   @@unique([tenantId, studentCode])
   @@index([tenantId, lastName, firstName])
@@ -609,6 +623,49 @@ model ConductGrade {
   updatedByUser  User       @relation("ConductGradeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, termId, classRoomId, studentId])
+  @@index([tenantId, termId, classRoomId])
+}
+
+/** Max conduct marks pool per term (e.g. 100). School Admin configures. */
+model ConductTermSetting {
+  id              String   @id @default(uuid())
+  tenantId        String
+  termId          String
+  totalMarks      Int      @default(100)
+  updatedByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant        Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  term          Term   @relation(fields: [termId], references: [id], onDelete: Cascade)
+  updatedByUser User   @relation("ConductTermSettingUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, termId])
+  @@index([tenantId, termId])
+}
+
+/** Term-based conduct deduction (reason required). Final = totalMarks − sum(deductions). */
+model ConductDeduction {
+  id               String   @id @default(uuid())
+  tenantId         String
+  academicYearId   String
+  termId           String
+  classRoomId      String
+  studentId        String
+  pointsDeducted   Int
+  reason           String
+  occurredAt       DateTime @default(now())
+  recordedByUserId String
+  createdAt        DateTime @default(now())
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  term           Term         @relation(fields: [termId], references: [id], onDelete: Restrict)
+  classRoom      ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  recordedByUser User         @relation("ConductDeductionRecordedBy", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, studentId, termId, createdAt])
   @@index([tenantId, termId, classRoomId])
 }
 
@@ -756,6 +813,7 @@ model Lesson {
   publishedByUser User?     @relation("LessonPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
   assessments     Assessment[]
+  studentProgress StudentLessonProgress[]
 
   @@unique([tenantId, courseId, sequence])
   @@index([tenantId, courseId, isPublished, sequence])
@@ -962,6 +1020,25 @@ model Submission {
   @@unique([tenantId, assignmentId, studentId])
   @@index([tenantId, assignmentId, status, submittedAt])
   @@index([tenantId, studentId, submittedAt])
+}
+
+model StudentLessonProgress {
+  id           String   @id @default(uuid())
+  tenantId     String
+  studentId    String
+  lessonId     String
+  isCompleted  Boolean  @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  lesson   Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, lessonId])
+  @@index([tenantId, studentId, isCompleted])
+  @@index([tenantId, lessonId, isCompleted])
 }
 
 model FileAsset {

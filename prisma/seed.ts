@@ -618,10 +618,14 @@ async function main() {
         email: 'admin@school.rw',
       },
     },
-    update: {},
+    update: {
+      passwordHash: schoolAdminHash,
+      username: 'school_admin',
+    },
     create: {
       tenantId: schoolTenant.id,
       email: 'admin@school.rw',
+      username: 'school_admin',
       passwordHash: schoolAdminHash,
       firstName: 'System',
       lastName: 'Admin',
@@ -635,10 +639,14 @@ async function main() {
         email: 'teacher@school.rw',
       },
     },
-    update: {},
+    update: {
+      passwordHash: teacherHash,
+      username: 'school_teacher',
+    },
     create: {
       tenantId: schoolTenant.id,
       email: 'teacher@school.rw',
+      username: 'school_teacher',
       passwordHash: teacherHash,
       firstName: 'Daily',
       lastName: 'Teacher',
@@ -652,10 +660,14 @@ async function main() {
         email: 'student@school.rw',
       },
     },
-    update: {},
+    update: {
+      passwordHash: studentHash,
+      username: 'stu_alice',
+    },
     create: {
       tenantId: schoolTenant.id,
       email: 'student@school.rw',
+      username: 'stu_alice',
       passwordHash: studentHash,
       firstName: 'Alice',
       lastName: 'Uwase',
@@ -669,10 +681,14 @@ async function main() {
         email: 'parent@school.rw',
       },
     },
-    update: {},
+    update: {
+      passwordHash: parentHash,
+      username: 'school_parent',
+    },
     create: {
       tenantId: schoolTenant.id,
       email: 'parent@school.rw',
+      username: 'school_parent',
       passwordHash: parentHash,
       firstName: 'Family',
       lastName: 'Guardian',
@@ -1127,25 +1143,25 @@ async function main() {
 
   const course = existingCourse
     ? await prisma.course.update({
-        where: { id: existingCourse.id },
-        data: {
-          subjectId: mathSubject.id,
-          description: 'Weekly Grade 1 mathematics lessons and assignments.',
-          isActive: true,
-        },
-      })
+      where: { id: existingCourse.id },
+      data: {
+        subjectId: mathSubject.id,
+        description: 'Weekly Grade 1 mathematics lessons and assignments.',
+        isActive: true,
+      },
+    })
     : await prisma.course.create({
-        data: {
-          tenantId: schoolTenant.id,
-          academicYearId: academicYear.id,
-          classRoomId: classRoom.id,
-          subjectId: mathSubject.id,
-          teacherUserId: teacherUser.id,
-          title: 'Mathematics Grade 1',
-          description: 'Weekly Grade 1 mathematics lessons and assignments.',
-          isActive: true,
-        },
-      });
+      data: {
+        tenantId: schoolTenant.id,
+        academicYearId: academicYear.id,
+        classRoomId: classRoom.id,
+        subjectId: mathSubject.id,
+        teacherUserId: teacherUser.id,
+        title: 'Mathematics Grade 1',
+        description: 'Weekly Grade 1 mathematics lessons and assignments.',
+        isActive: true,
+      },
+    });
 
   const existingLessonOne = await prisma.lesson.findFirst({
     where: {
@@ -1157,33 +1173,33 @@ async function main() {
 
   const lessonOne = await (existingLessonOne
     ? prisma.lesson.update({
-        where: { id: existingLessonOne.id },
-        data: {
-          title: 'Counting up to 20',
-          summary: 'Practice counting objects up to twenty.',
-          contentType: 'TEXT',
-          body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T08:15:00.000Z'),
-          createdByUserId: teacherUser.id,
-          publishedByUserId: teacherUser.id,
-        },
-      })
+      where: { id: existingLessonOne.id },
+      data: {
+        title: 'Counting up to 20',
+        summary: 'Practice counting objects up to twenty.',
+        contentType: 'TEXT',
+        body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T08:15:00.000Z'),
+        createdByUserId: teacherUser.id,
+        publishedByUserId: teacherUser.id,
+      },
+    })
     : prisma.lesson.create({
-        data: {
-          tenantId: schoolTenant.id,
-          courseId: course.id,
-          sequence: 1,
-          title: 'Counting up to 20',
-          summary: 'Practice counting objects up to twenty.',
-          contentType: 'TEXT',
-          body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T08:15:00.000Z'),
-          createdByUserId: teacherUser.id,
-          publishedByUserId: teacherUser.id,
-        },
-      }));
+      data: {
+        tenantId: schoolTenant.id,
+        courseId: course.id,
+        sequence: 1,
+        title: 'Counting up to 20',
+        summary: 'Practice counting objects up to twenty.',
+        contentType: 'TEXT',
+        body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T08:15:00.000Z'),
+        createdByUserId: teacherUser.id,
+        publishedByUserId: teacherUser.id,
+      },
+    }));
 
   const existingLessonTwo = await prisma.lesson.findFirst({
     where: {
@@ -1195,33 +1211,33 @@ async function main() {
 
   const lessonTwo = existingLessonTwo
     ? await prisma.lesson.update({
-        where: { id: existingLessonTwo.id },
-        data: {
-          title: 'Shapes around us',
-          summary: 'Watch a short shape recognition lesson.',
-          contentType: 'VIDEO',
-          externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T08:30:00.000Z'),
-          createdByUserId: teacherUser.id,
-          publishedByUserId: teacherUser.id,
-        },
-      })
+      where: { id: existingLessonTwo.id },
+      data: {
+        title: 'Shapes around us',
+        summary: 'Watch a short shape recognition lesson.',
+        contentType: 'VIDEO',
+        externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T08:30:00.000Z'),
+        createdByUserId: teacherUser.id,
+        publishedByUserId: teacherUser.id,
+      },
+    })
     : await prisma.lesson.create({
-        data: {
-          tenantId: schoolTenant.id,
-          courseId: course.id,
-          sequence: 2,
-          title: 'Shapes around us',
-          summary: 'Watch a short shape recognition lesson.',
-          contentType: 'VIDEO',
-          externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T08:30:00.000Z'),
-          createdByUserId: teacherUser.id,
-          publishedByUserId: teacherUser.id,
-        },
-      });
+      data: {
+        tenantId: schoolTenant.id,
+        courseId: course.id,
+        sequence: 2,
+        title: 'Shapes around us',
+        summary: 'Watch a short shape recognition lesson.',
+        contentType: 'VIDEO',
+        externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T08:30:00.000Z'),
+        createdByUserId: teacherUser.id,
+        publishedByUserId: teacherUser.id,
+      },
+    });
 
   const existingAssignment = await prisma.assignment.findFirst({
     where: {
@@ -1233,31 +1249,31 @@ async function main() {
 
   const assignment = existingAssignment
     ? await prisma.assignment.update({
-        where: { id: existingAssignment.id },
-        data: {
-          lessonId: lessonTwo.id,
-          instructions:
-            'Count five objects at home or in class and submit your answers in text or link form.',
-          dueAt: new Date('2026-03-15T17:00:00.000Z'),
-          maxPoints: 20,
-          isPublished: true,
-          createdByUserId: teacherUser.id,
-        },
-      })
+      where: { id: existingAssignment.id },
+      data: {
+        lessonId: lessonTwo.id,
+        instructions:
+          'Count five objects at home or in class and submit your answers in text or link form.',
+        dueAt: new Date('2026-03-15T17:00:00.000Z'),
+        maxPoints: 20,
+        isPublished: true,
+        createdByUserId: teacherUser.id,
+      },
+    })
     : await prisma.assignment.create({
-        data: {
-          tenantId: schoolTenant.id,
-          courseId: course.id,
-          lessonId: lessonTwo.id,
-          title: 'Count the classroom objects',
-          instructions:
-            'Count five objects at home or in class and submit your answers in text or link form.',
-          dueAt: new Date('2026-03-15T17:00:00.000Z'),
-          maxPoints: 20,
-          isPublished: true,
-          createdByUserId: teacherUser.id,
-        },
-      });
+      data: {
+        tenantId: schoolTenant.id,
+        courseId: course.id,
+        lessonId: lessonTwo.id,
+        title: 'Count the classroom objects',
+        instructions:
+          'Count five objects at home or in class and submit your answers in text or link form.',
+        dueAt: new Date('2026-03-15T17:00:00.000Z'),
+        maxPoints: 20,
+        isPublished: true,
+        createdByUserId: teacherUser.id,
+      },
+    });
 
   await prisma.submission.upsert({
     where: {
@@ -1608,35 +1624,35 @@ async function main() {
 
   const demoAssessment = existingAssessment
     ? await prisma.assessment.update({
-        where: { id: existingAssessment.id },
-        data: {
-          lessonId: lessonOne.id,
-          instructions: '<p>Choose the best answer for each counting question.</p>',
-          dueAt: new Date('2026-03-20T17:00:00.000Z'),
-          timeLimitMinutes: 10,
-          maxAttempts: 2,
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T09:00:00.000Z'),
-          createdByUserId: teacherUser.id,
-          updatedByUserId: teacherUser.id,
-        },
-      })
+      where: { id: existingAssessment.id },
+      data: {
+        lessonId: lessonOne.id,
+        instructions: '<p>Choose the best answer for each counting question.</p>',
+        dueAt: new Date('2026-03-20T17:00:00.000Z'),
+        timeLimitMinutes: 10,
+        maxAttempts: 2,
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T09:00:00.000Z'),
+        createdByUserId: teacherUser.id,
+        updatedByUserId: teacherUser.id,
+      },
+    })
     : await prisma.assessment.create({
-        data: {
-          tenantId: schoolTenant.id,
-          courseId: course.id,
-          lessonId: lessonOne.id,
-          title: 'Counting quick check',
-          instructions: '<p>Choose the best answer for each counting question.</p>',
-          dueAt: new Date('2026-03-20T17:00:00.000Z'),
-          timeLimitMinutes: 10,
-          maxAttempts: 2,
-          isPublished: true,
-          publishedAt: new Date('2026-03-06T09:00:00.000Z'),
-          createdByUserId: teacherUser.id,
-          updatedByUserId: teacherUser.id,
-        },
-      });
+      data: {
+        tenantId: schoolTenant.id,
+        courseId: course.id,
+        lessonId: lessonOne.id,
+        title: 'Counting quick check',
+        instructions: '<p>Choose the best answer for each counting question.</p>',
+        dueAt: new Date('2026-03-20T17:00:00.000Z'),
+        timeLimitMinutes: 10,
+        maxAttempts: 2,
+        isPublished: true,
+        publishedAt: new Date('2026-03-06T09:00:00.000Z'),
+        createdByUserId: teacherUser.id,
+        updatedByUserId: teacherUser.id,
+      },
+    });
 
   const demoQuestionDefinitions = [
     {
@@ -1682,24 +1698,24 @@ async function main() {
 
     const question = existingQuestion
       ? await prisma.assessmentQuestion.update({
-          where: { id: existingQuestion.id },
-          data: {
-            prompt: definition.prompt,
-            explanation: definition.explanation,
-            points: definition.points,
-          },
-        })
+        where: { id: existingQuestion.id },
+        data: {
+          prompt: definition.prompt,
+          explanation: definition.explanation,
+          points: definition.points,
+        },
+      })
       : await prisma.assessmentQuestion.create({
-          data: {
-            tenantId: schoolTenant.id,
-            assessmentId: demoAssessment.id,
-            prompt: definition.prompt,
-            explanation: definition.explanation,
-            type: 'MCQ_SINGLE',
-            sequence: definition.sequence,
-            points: definition.points,
-          },
-        });
+        data: {
+          tenantId: schoolTenant.id,
+          assessmentId: demoAssessment.id,
+          prompt: definition.prompt,
+          explanation: definition.explanation,
+          type: 'MCQ_SINGLE',
+          sequence: definition.sequence,
+          points: definition.points,
+        },
+      });
 
     for (const option of definition.options) {
       await prisma.assessmentOption.upsert({
@@ -1920,10 +1936,14 @@ async function main() {
     where: {
       tenantId_email: { tenantId: nyangeTenant.id, email: 'admin@nyange-secondary.rw' },
     },
-    update: {},
+    update: {
+      passwordHash: schoolAdminHash,
+      username: 'nyange_admin',
+    },
     create: {
       tenantId: nyangeTenant.id,
       email: 'admin@nyange-secondary.rw',
+      username: 'nyange_admin',
       passwordHash: schoolAdminHash,
       firstName: 'School',
       lastName: 'Administrator',
@@ -1934,10 +1954,14 @@ async function main() {
     where: {
       tenantId_email: { tenantId: nyangeTenant.id, email: 'teacher@nyange-secondary.rw' },
     },
-    update: {},
+    update: {
+      passwordHash: teacherHash,
+      username: 'nyange_teacher',
+    },
     create: {
       tenantId: nyangeTenant.id,
       email: 'teacher@nyange-secondary.rw',
+      username: 'nyange_teacher',
       passwordHash: teacherHash,
       firstName: 'Marie',
       lastName: 'Nyiraneza',
@@ -1948,10 +1972,14 @@ async function main() {
     where: {
       tenantId_email: { tenantId: nyangeTenant.id, email: 'student.s2@nyange-secondary.rw' },
     },
-    update: {},
+    update: {
+      passwordHash: studentHash,
+      username: 'nya_s2_001',
+    },
     create: {
       tenantId: nyangeTenant.id,
       email: 'student.s2@nyange-secondary.rw',
+      username: 'nya_s2_001',
       passwordHash: studentHash,
       firstName: 'Claudine',
       lastName: 'Uwitonze',
@@ -2899,23 +2927,57 @@ async function main() {
           parentRole.name,
         ],
         sampleLogins: {
-          superAdmin:
-            'smartschoolrwanda@gmail.com, sibomanadamascene1999@gmail.com / Kigali2019@2022',
-          schoolAdmin: 'admin@school.rw / Admin@12345',
-          teacher: 'teacher@school.rw / Teacher@12345',
-          student: 'student@school.rw / Student@12345',
-          parent: 'parent@school.rw / Parent@12345',
+          authLoginBody: {
+            identifier: 'email or username (trimmed, stored lowercase for email/username match)',
+            password: 'min 8 chars (see auth.schemas loginSchema)',
+          },
+          superAdmin: [
+            { identifier: 'smartschoolrwanda@gmail.com', password: 'Kigali2019@2022' },
+            { identifier: 'sibomanadamascene1999@gmail.com', password: 'Kigali2019@2022' },
+          ],
+          schoolTenant: {
+            tenantCode: 'gs-rwanda',
+            schoolAdmin: { identifier: 'admin@school.rw', password: 'Admin@12345' },
+            schoolAdminUsername: { identifier: 'school_admin', password: 'Admin@12345' },
+            teacher: { identifier: 'teacher@school.rw', password: 'Teacher@12345' },
+            teacherUsername: { identifier: 'school_teacher', password: 'Teacher@12345' },
+            student: { identifier: 'student@school.rw', password: 'Student@12345' },
+            studentUsername: { identifier: 'stu_alice', password: 'Student@12345' },
+            parent: { identifier: 'parent@school.rw', password: 'Parent@12345' },
+            parentUsername: { identifier: 'school_parent', password: 'Parent@12345' },
+          },
           nyangeSecondarySchool: {
             tenantCode: 'nyange-ss',
-            admin: 'admin@nyange-secondary.rw / Admin@12345',
-            teacher: 'teacher@nyange-secondary.rw / Teacher@12345',
-            seniorTwoStudent: 'student.s2@nyange-secondary.rw / Student@12345',
+            admin: { identifier: 'admin@nyange-secondary.rw', password: 'Admin@12345' },
+            adminUsername: { identifier: 'nyange_admin', password: 'Admin@12345' },
+            teacher: { identifier: 'teacher@nyange-secondary.rw', password: 'Teacher@12345' },
+            teacherUsername: { identifier: 'nyange_teacher', password: 'Teacher@12345' },
+            seniorTwoStudent: {
+              identifier: 'student.s2@nyange-secondary.rw',
+              password: 'Student@12345',
+            },
+            seniorTwoStudentUsername: { identifier: 'nya_s2_001', password: 'Student@12345' },
             studentCode: 'NYA-S2-001',
             classRoom: 'S2-A (Senior 2 A)',
             subjectsWithMarks:
               'Mathematics, English, Kinyarwanda, Physics, Chemistry, Biology, History, Geography (CA + term exam per term)',
             publishedReportCards:
               'Term 2 and Yearly (average of Term 1 + Term 2 per subject) for 2026 Academic Year',
+          },
+          academyCatalogLearner: {
+            note: 'User is created by prisma/seed-public-academy.ts (run separately if needed).',
+            login: { identifier: 'learner@academy.rw', password: 'Password123!' },
+          },
+          authRegisterBodyExample: {
+            note: 'POST /auth/register — public academy catalog tenant only (see registerSchema).',
+            example: {
+              firstName: 'Jean',
+              lastName: 'Mugabo',
+              username: 'jean_mugabo',
+              email: 'jean.mugabo@example.com',
+              password: 'Password123!',
+              confirmPassword: 'Password123!',
+            },
           },
         },
         sampleSchoolCode: 'gs-rwanda',

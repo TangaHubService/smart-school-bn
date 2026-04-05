@@ -143,3 +143,9 @@ lmsRoutes.get(
   requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
   asyncHandler((req, res) => lmsController.listMyCourses(req, res)),
 );
+
+lmsRoutes.post(
+  '/lessons/:lessonId/mark-complete',
+  requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
+  asyncHandler((req, res) => lmsController.markLessonComplete(req, res)),
+);
