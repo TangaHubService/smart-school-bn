@@ -6,7 +6,7 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { SubscriptionsController } from './subscriptions.controller';
-import { updateSchoolSubscriptionSchema } from './subscriptions.schemas';
+import { grantAcademyAccessSchema, updateSchoolSubscriptionSchema } from './subscriptions.schemas';
 
 const controller = new SubscriptionsController();
 
@@ -31,4 +31,23 @@ subscriptionsRoutes.patch(
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateSchoolSubscriptionSchema),
   asyncHandler((req, res) => controller.updateSchoolSubscription(req, res)),
+);
+
+subscriptionsRoutes.get(
+  '/subscriptions/academy/enrollments',
+  requirePermissions([PERMISSIONS.TENANTS_READ]),
+  asyncHandler((req, res) => controller.listAcademyEnrollments(req, res)),
+);
+
+subscriptionsRoutes.get(
+  '/subscriptions/academy/catalog-programs',
+  requirePermissions([PERMISSIONS.TENANTS_READ]),
+  asyncHandler((req, res) => controller.listAcademyCatalogPrograms(req, res)),
+);
+
+subscriptionsRoutes.post(
+  '/subscriptions/academy/grant-access',
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  validateBody(grantAcademyAccessSchema),
+  asyncHandler((req, res) => controller.grantAcademyAccess(req, res)),
 );

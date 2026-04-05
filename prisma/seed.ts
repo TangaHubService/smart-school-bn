@@ -2893,6 +2893,26 @@ async function main() {
     },
   });
 
+  await prisma.subscriptionPlan.upsert({
+    where: { code: 'test_100' },
+    update: {
+      name: 'Test (100 students)',
+      description: 'Small-school / QA plan (max 100 students, 20 staff)',
+      maxStudents: 100,
+      maxStaff: 20,
+      isActive: true,
+      sortOrder: 2,
+    },
+    create: {
+      code: 'test_100',
+      name: 'Test (100 students)',
+      description: 'Small-school / QA plan (max 100 students, 20 staff)',
+      maxStudents: 100,
+      maxStaff: 20,
+      sortOrder: 2,
+    },
+  });
+
   const tenantsForSubscription = await prisma.tenant.findMany({
     where: { code: { not: 'platform' } },
     select: { id: true },

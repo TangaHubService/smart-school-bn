@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
-import { updateSchoolSubscriptionSchema } from './subscriptions.schemas';
+import { grantAcademyAccessSchema, updateSchoolSubscriptionSchema } from './subscriptions.schemas';
 import { SubscriptionsService } from './subscriptions.service';
 
 const service = new SubscriptionsService();
@@ -33,6 +33,24 @@ export class SubscriptionsController {
       req.user!,
       buildContext(req),
     );
+    return sendSuccess(req, res, result);
+  }
+
+  async listAcademyEnrollments(req: Request, res: Response): Promise<Response> {
+    const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? '50'), 10) || 50));
+    const result = await service.listAcademyEnrollments(req.user!, page, pageSize);
+    return sendSuccess(req, res, result);
+  }
+
+  async listAcademyCatalogPrograms(req: Request, res: Response): Promise<Response> {
+    const result = await service.listAcademyCatalogPrograms(req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async grantAcademyAccess(req: Request, res: Response): Promise<Response> {
+    const body = grantAcademyAccessSchema.parse(req.body);
+    const result = await service.grantAcademyAccess(body, req.user!, buildContext(req));
     return sendSuccess(req, res, result);
   }
 }

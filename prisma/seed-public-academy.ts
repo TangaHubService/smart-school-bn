@@ -58,6 +58,156 @@ async function main() {
 
   console.log(`Created/Updated Role: ${publicLearnerRole.name}`);
 
+  await prisma.school.upsert({
+    where: { tenantId: academyTenant.id },
+    update: { displayName: 'Smart School Public Academy' },
+    create: {
+      tenantId: academyTenant.id,
+      displayName: 'Smart School Public Academy',
+    },
+  });
+
+  const academyGrade = await prisma.gradeLevel.upsert({
+    where: {
+      tenantId_code: { tenantId: academyTenant.id, code: 'ACAD-GEN' },
+    },
+    update: {},
+    create: {
+      tenantId: academyTenant.id,
+      code: 'ACAD-GEN',
+      name: 'General',
+      rank: 1,
+    },
+  });
+
+  const academyYear = await prisma.academicYear.upsert({
+    where: {
+      tenantId_name: { tenantId: academyTenant.id, name: 'Catalog 2026' },
+    },
+    update: { isCurrent: true, isActive: true },
+    create: {
+      tenantId: academyTenant.id,
+      name: 'Catalog 2026',
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2026-12-31'),
+      isCurrent: true,
+      isActive: true,
+    },
+  });
+
+  const academyClass = await prisma.classRoom.upsert({
+    where: {
+      tenantId_code: { tenantId: academyTenant.id, code: 'ACAD-CAT' },
+    },
+    update: {},
+    create: {
+      tenantId: academyTenant.id,
+      gradeLevelId: academyGrade.id,
+      code: 'ACAD-CAT',
+      name: 'Catalog',
+    },
+  });
+
+  const catalogAuthorHash = await require('bcrypt').hash('Password123!', 12);
+  const catalogAuthor = await prisma.user.upsert({
+    where: {
+      tenantId_email: {
+        tenantId: academyTenant.id,
+        email: 'academy.catalog.author@academy.rw',
+      },
+    },
+    update: { passwordHash: catalogAuthorHash },
+    create: {
+      tenantId: academyTenant.id,
+      email: 'academy.catalog.author@academy.rw',
+      firstName: 'Catalog',
+      lastName: 'Author',
+      passwordHash: catalogAuthorHash,
+      status: 'ACTIVE',
+    },
+  });
+
+  const testCourseContent = await prisma.course.upsert({
+    where: {
+      tenantId_academicYearId_classRoomId_teacherUserId_title: {
+        tenantId: academyTenant.id,
+        academicYearId: academyYear.id,
+        classRoomId: academyClass.id,
+        teacherUserId: catalogAuthor.id,
+        title: 'Test course (100 RWF) — content',
+      },
+    },
+    update: { isActive: true },
+    create: {
+      tenantId: academyTenant.id,
+      academicYearId: academyYear.id,
+      classRoomId: academyClass.id,
+      teacherUserId: catalogAuthor.id,
+      title: 'Test course (100 RWF) — content',
+      description: 'Seeded LMS course for the 100 RWF academy program',
+      isActive: true,
+    },
+  });
+
+  await prisma.lesson.upsert({
+    where: {
+      tenantId_courseId_sequence: {
+        tenantId: academyTenant.id,
+        courseId: testCourseContent.id,
+        sequence: 1,
+      },
+    },
+    update: {
+      title: 'Welcome',
+      contentType: 'TEXT',
+      body: 'This is a test lesson for the Test course (100 RWF) program.',
+      isPublished: true,
+      publishedAt: new Date(),
+      publishedByUserId: catalogAuthor.id,
+    },
+    create: {
+      tenantId: academyTenant.id,
+      courseId: testCourseContent.id,
+      title: 'Welcome',
+      contentType: 'TEXT',
+      body: 'This is a test lesson for the Test course (100 RWF) program.',
+      sequence: 1,
+      isPublished: true,
+      publishedAt: new Date(),
+      createdByUserId: catalogAuthor.id,
+      publishedByUserId: catalogAuthor.id,
+    },
+  });
+
+  await prisma.program.upsert({
+    where: {
+      tenantId_title: {
+        tenantId: academyTenant.id,
+        title: 'Test course (100 RWF)',
+      },
+    },
+    update: {
+      description: 'Cheap test listing (100 RWF) with linked course content.',
+      price: 100,
+      durationDays: 30,
+      courseId: testCourseContent.id,
+      listedInPublicCatalog: true,
+      isActive: true,
+    },
+    create: {
+      tenantId: academyTenant.id,
+      title: 'Test course (100 RWF)',
+      description: 'Cheap test listing (100 RWF) with linked course content.',
+      price: 100,
+      durationDays: 30,
+      courseId: testCourseContent.id,
+      listedInPublicCatalog: true,
+      isActive: true,
+    },
+  });
+
+  console.log('Seeded academy test program: Test course (100 RWF) + course + lesson');
+
   // Create initial programs
   const programs = [
     {

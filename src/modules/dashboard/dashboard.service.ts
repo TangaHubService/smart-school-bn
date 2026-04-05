@@ -12,6 +12,12 @@ export interface SuperAdminDashboardData {
     ongoingExams: number;
     supportTickets: number;
   };
+  /** School SaaS plans + public academy enrollments / payments (best-effort if tables missing). */
+  billing: {
+    schoolSubscriptionsActive: number;
+    academyLearnersActive: number;
+    academyPaymentsPending: number;
+  };
   userOverview: {
     administrators: number;
     schools: number;
@@ -87,6 +93,27 @@ export interface SchoolAdminDashboardData {
 export class DashboardService {
   private readonly announcementsService = new AnnouncementsService();
 
+  /**
+   * User counts on the super admin dashboard must match {@link UsersService.listUsers}
+   * for the same scope: login accounts (User rows), not standalone Student/Parent records.
+   * Platform tenant users are included whenever the dashboard is not narrowed to one school.
+   */
+  private buildSuperAdminUserWhere(
+    tenantsWhere: Prisma.TenantWhereInput,
+    filters?: { school?: string },
+  ): Prisma.UserWhereInput {
+    const specificSchool = filters?.school && filters.school !== 'all-schools';
+
+    if (specificSchool) {
+      return { deletedAt: null, tenant: tenantsWhere };
+    }
+
+    return {
+      deletedAt: null,
+      OR: [{ tenant: tenantsWhere }, { tenant: { code: 'platform' } }],
+    };
+  }
+
   private buildSuperAdminTenantsWhere(
     filters?: { status?: string; region?: string; school?: string },
     regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district',
@@ -144,14 +171,17 @@ export class DashboardService {
   ): Promise<SuperAdminDashboardData> {
     const tenantsWhere = this.buildSuperAdminTenantsWhere(filters, regionStrategy);
 
-    const userTenantScope = { deletedAt: null, tenant: tenantsWhere };
+    const userWhere = this.buildSuperAdminUserWhere(tenantsWhere, filters);
+
     const [
       totalUsers,
       activeSchools,
-      administratorsCount,
+      superAdminUsersCount,
+      schoolAdminUsersCount,
       teachersCount,
-      studentsCount,
-      parentsCount,
+      studentsUsersCount,
+      parentsUsersCount,
+      activeAccountsCount,
       classesCount,
       subjectsCount,
       assessmentsCount,
@@ -159,28 +189,46 @@ export class DashboardService {
       exams,
     ] = await prisma.$transaction([
       prisma.user.count({
-        where: userTenantScope,
+        where: userWhere,
       }),
       prisma.tenant.count({
         where: { ...tenantsWhere, school: { setupCompletedAt: { not: null } } },
       }),
-      prisma.userRole.count({
+      prisma.user.count({
         where: {
-          user: userTenantScope,
-          role: { name: { in: ['SCHOOL_ADMIN', 'SUPER_ADMIN'] } },
+          ...userWhere,
+          userRoles: { some: { role: { name: 'SUPER_ADMIN' } } },
         },
       }),
-      prisma.userRole.count({
+      prisma.user.count({
         where: {
-          user: userTenantScope,
-          role: { name: 'TEACHER' },
+          ...userWhere,
+          userRoles: { some: { role: { name: 'SCHOOL_ADMIN' } } },
         },
       }),
-      prisma.student.count({
-        where: { deletedAt: null, tenant: tenantsWhere },
+      prisma.user.count({
+        where: {
+          ...userWhere,
+          userRoles: { some: { role: { name: 'TEACHER' } } },
+        },
       }),
-      prisma.parent.count({
-        where: { deletedAt: null, tenant: tenantsWhere },
+      prisma.user.count({
+        where: {
+          ...userWhere,
+          userRoles: { some: { role: { name: 'STUDENT' } } },
+        },
+      }),
+      prisma.user.count({
+        where: {
+          ...userWhere,
+          userRoles: { some: { role: { name: 'PARENT' } } },
+        },
+      }),
+      prisma.user.count({
+        where: {
+          ...userWhere,
+          status: 'ACTIVE',
+        },
       }),
       prisma.classRoom.count({ where: { tenant: tenantsWhere } }),
       prisma.subject.count({ where: { tenant: tenantsWhere } }),
@@ -199,9 +247,46 @@ export class DashboardService {
       }),
     ]);
 
+    const administratorsCount = superAdminUsersCount + schoolAdminUsersCount;
+
     const schoolCount = await prisma.tenant.count({
       where: tenantsWhere,
     });
+
+    const now = new Date();
+    let schoolSubscriptionsActive = 0;
+    let academyLearnersActive = 0;
+    let academyPaymentsPending = 0;
+    try {
+      schoolSubscriptionsActive = await prisma.schoolSubscription.count({
+        where: { status: { in: ['ACTIVE', 'TRIALING'] } },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    try {
+      academyLearnersActive = await prisma.programEnrollment.count({
+        where: {
+          isActive: true,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    try {
+      academyPaymentsPending = await prisma.payment.count({
+        where: { status: 'PENDING' },
+      });
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
 
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
@@ -219,15 +304,20 @@ export class DashboardService {
         ongoingExams: assessmentsCount,
         supportTickets: 5,
       },
+      billing: {
+        schoolSubscriptionsActive,
+        academyLearnersActive,
+        academyPaymentsPending,
+      },
       userOverview: {
         administrators: administratorsCount,
         schools: schoolCount,
         teachers: teachersCount,
-        students: studentsCount,
-        parents: parentsCount,
+        students: studentsUsersCount,
+        parents: parentsUsersCount,
         classes: classesCount,
         subjects: subjectsCount,
-        activeAccounts: totalUsers,
+        activeAccounts: activeAccountsCount,
       },
       upcomingExams: exams.slice(0, 3).map((exam) => {
         const examDate = exam.examDate ?? exam.createdAt;
@@ -244,7 +334,7 @@ export class DashboardService {
         };
       }),
       latestReports: [
-        { id: 'student', name: 'Student Report', count: studentsCount, icon: 'user' },
+        { id: 'student', name: 'Student Report', count: studentsUsersCount, icon: 'user' },
         { id: 'teachers', name: 'Teachers Report', count: teachersCount, icon: 'user' },
         { id: 'admin', name: 'Admin Report', count: administratorsCount, icon: 'user' },
         { id: 'school', name: 'School Report', count: schoolCount, icon: 'school' },
