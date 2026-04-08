@@ -6,6 +6,7 @@ import { sendSuccess, sendError } from '../../common/utils/response';
 import { PaypackService } from '../../common/services/paypack.service';
 import { getIO } from '../../common/utils/socket-server';
 import { env } from '../../config/env';
+import { rootLogger } from '../../config/logger';
 import { resolveAcademyCatalogTenantId } from './academy-catalog';
 import {
   AcademySubscriptionService,
@@ -22,6 +23,7 @@ const PLAN_DURATION_MAP: Record<string, number> = {
 };
 
 const academySubscriptionService = new AcademySubscriptionService();
+const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' });
 
 type CatalogProgramResult =
   | { ok: true; program: Program; catalogTenantId: string }
@@ -261,6 +263,7 @@ export class PublicAcademyController {
           const hash = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('base64');
 
           if (hash !== signature) {
+            academyWebhookLog.warn('Rejected Paypack webhook with invalid signature');
             return res.status(401).send('Invalid Signature');
           }
         }
@@ -268,6 +271,7 @@ export class PublicAcademyController {
 
       const payload = req.body;
       if (!payload || !payload.data || !payload.data.ref) {
+        academyWebhookLog.warn({ payload }, 'Rejected Paypack webhook with invalid payload');
         return res.status(400).send('Invalid payload');
       }
 
@@ -280,8 +284,21 @@ export class PublicAcademyController {
       if (!payment) {
         const academyResult = await academySubscriptionService.handlePaymentWebhook(ref, status);
         if (!academyResult.handled) {
+          academyWebhookLog.info({ ref, status }, 'Ignored Paypack webhook for unknown payment reference');
           return res.status(200).send('Payment not found (ignored)');
         }
+
+        academyWebhookLog.info(
+          {
+            ref,
+            status,
+            paymentStatus: academyResult.status,
+            paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
+            subscriptionId:
+              'subscriptionId' in academyResult ? academyResult.subscriptionId : undefined,
+          },
+          'Processed academy subscription Paypack webhook',
+        );
 
         getIO().to(`trx-${ref}`).emit('transactionUpdate', {
           event: 'payment:processed',
@@ -294,6 +311,10 @@ export class PublicAcademyController {
       }
 
       if (payment.status !== 'PENDING') {
+        academyWebhookLog.info(
+          { ref, status, paymentId: payment.id, paymentStatus: payment.status },
+          'Ignored already-processed legacy payment webhook',
+        );
         return res.status(200).send('Already processed');
       }
 
@@ -340,6 +361,11 @@ export class PublicAcademyController {
           paymentId: payment.id,
           ref,
         });
+
+        academyWebhookLog.info(
+          { ref, status, paymentId: payment.id, paymentStatus: 'COMPLETED' },
+          'Processed legacy program payment Paypack webhook',
+        );
       } else if (status === 'failed' || status === 'cancelled') {
         const newStatus = status === 'failed' ? 'FAILED' : 'CANCELLED';
         await prisma.payment.update({
@@ -353,10 +379,21 @@ export class PublicAcademyController {
           paymentId: payment.id,
           ref,
         });
+
+        academyWebhookLog.info(
+          { ref, status, paymentId: payment.id, paymentStatus: newStatus },
+          'Processed legacy program payment Paypack webhook',
+        );
+      } else {
+        academyWebhookLog.info(
+          { ref, status, paymentId: payment.id, paymentStatus: payment.status },
+          'Received Paypack webhook with non-terminal legacy payment status',
+        );
       }
 
       res.status(200).send('OK');
     } catch (error) {
+      academyWebhookLog.error({ err: error }, 'Failed to process Paypack webhook');
       res.status(500).send('Internal Server Error');
     }
   }

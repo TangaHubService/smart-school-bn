@@ -7,6 +7,24 @@ const socketLog = rootLogger.child({ module: 'socket.io' });
 
 let io: Server;
 
+function resolveTransactionRooms(transactionId: unknown): string[] {
+  if (typeof transactionId !== 'string') {
+    return [];
+  }
+
+  const normalized = transactionId.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  if (normalized.startsWith('trx-')) {
+    const raw = normalized.slice(4);
+    return raw ? [normalized, raw] : [normalized];
+  }
+
+  return [normalized, `trx-${normalized}`];
+}
+
 export const initSocket = (server: HttpServer) => {
   socketLog.info('Initializing WebSocket server');
   io = new Server(server, {
@@ -21,8 +39,20 @@ export const initSocket = (server: HttpServer) => {
 
     // Client joins a transaction room
     socket.on('joinTransaction', ({ transactionId }) => {
-      socket.join(transactionId);
-      socketLog.info({ socketId: socket.id, transactionId }, 'Client joined transaction room');
+      const rooms = resolveTransactionRooms(transactionId);
+      if (rooms.length === 0) {
+        socketLog.warn({ socketId: socket.id, transactionId }, 'Client attempted to join invalid transaction room');
+        return;
+      }
+
+      for (const room of rooms) {
+        socket.join(room);
+      }
+
+      socketLog.info(
+        { socketId: socket.id, transactionId, rooms },
+        'Client joined transaction room',
+      );
     });
 
     socket.on('disconnect', () => {
