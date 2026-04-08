@@ -985,6 +985,131 @@ export class ParentsService {
     };
   }
 
+  async getMyStudentLearning(tenantId: string, userId: string, studentId: string) {
+    const parent = await prisma.parent.findFirst({
+      where: { tenantId, userId, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!parent) {
+      throw new AppError(403, 'PARENT_NOT_FOUND', 'Parent profile not found');
+    }
+    const link = await prisma.parentStudent.findFirst({
+      where: { tenantId, parentId: parent.id, studentId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!link) {
+      throw new AppError(404, 'STUDENT_NOT_LINKED', 'Student is not linked to this account');
+    }
+    const student = await prisma.student.findFirst({
+      where: { id: studentId, tenantId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (!student) {
+      throw new AppError(404, 'STUDENT_NOT_FOUND', 'Student not found');
+    }
+
+    const enrollments = await prisma.studentEnrollment.findMany({
+      where: { tenantId, studentId, isActive: true },
+      select: { classRoomId: true, academicYearId: true },
+    });
+    if (enrollments.length === 0) {
+      return {
+        student: { id: student.id, firstName: student.firstName, lastName: student.lastName },
+        courses: [] as Array<{
+          courseId: string;
+          title: string;
+          completedLessons: number;
+          totalPublishedLessons: number;
+          progressPercent: number;
+        }>,
+        recentAttempts: [] as Array<{
+          id: string;
+          assessmentTitle: string;
+          courseTitle: string;
+          score: number;
+          maxScore: number;
+          submittedAt: string;
+        }>,
+      };
+    }
+
+    const courses = await prisma.course.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        OR: enrollments.map((e) => ({
+          classRoomId: e.classRoomId,
+          academicYearId: e.academicYearId,
+        })),
+      },
+      select: {
+        id: true,
+        title: true,
+      },
+    });
+
+    const lessonLists = await prisma.lesson.findMany({
+      where: {
+        tenantId,
+        courseId: { in: courses.map((c) => c.id) },
+        isPublished: true,
+      },
+      select: { id: true, courseId: true },
+    });
+    const lessonIdsByCourse = new Map<string, string[]>();
+    for (const l of lessonLists) {
+      if (!lessonIdsByCourse.has(l.courseId)) lessonIdsByCourse.set(l.courseId, []);
+      lessonIdsByCourse.get(l.courseId)!.push(l.id);
+    }
+
+    const progressRows = await prisma.studentLessonProgress.findMany({
+      where: {
+        tenantId,
+        studentId,
+        isCompleted: true,
+        lessonId: { in: lessonLists.map((l) => l.id) },
+      },
+      select: { lessonId: true },
+    });
+    const doneLessons = new Set(progressRows.map((p) => p.lessonId));
+
+    const courseSummaries = courses.map((c) => {
+      const lids = lessonIdsByCourse.get(c.id) ?? [];
+      const total = lids.length;
+      const done = lids.filter((id) => doneLessons.has(id)).length;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      return {
+        courseId: c.id,
+        title: c.title,
+        completedLessons: done,
+        totalPublishedLessons: total,
+        progressPercent: pct,
+      };
+    });
+
+    const recentAttempts = await prisma.assessmentAttempt.findMany({
+      where: { tenantId, studentId, submittedAt: { not: null } },
+      orderBy: { submittedAt: 'desc' },
+      take: 8,
+      include: {
+        assessment: { select: { id: true, title: true, course: { select: { title: true } } } },
+      },
+    });
+
+    return {
+      student: { id: student.id, firstName: student.firstName, lastName: student.lastName },
+      courses: courseSummaries,
+      recentAttempts: recentAttempts.map((a) => ({
+        id: a.id,
+        assessmentTitle: a.assessment.title,
+        courseTitle: a.assessment.course.title,
+        score: a.autoScore ?? a.manualScore ?? 0,
+        maxScore: a.maxScore ?? 0,
+        submittedAt: a.submittedAt!.toISOString(),
+      })),
+    };
+  }
+
   private handleUniqueError(error: unknown, message: string): never | void {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&

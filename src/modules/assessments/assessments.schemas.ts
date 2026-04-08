@@ -21,6 +21,8 @@ const assessmentQuestionSchema = z
   .object({
     prompt: z.string().trim().min(2).max(5_000),
     explanation: z.string().trim().max(5_000).optional(),
+    hint: z.string().trim().max(2_000).optional(),
+    remedialLessonId: z.string().uuid().optional().nullable(),
     type: z.nativeEnum(AssessmentQuestionType).default(AssessmentQuestionType.MCQ_SINGLE),
     sequence: z.number().int().min(1).optional(),
     points: z.number().int().min(1).max(100).default(1),

@@ -17,6 +17,7 @@ import {
   createSubmissionSchema,
   gradeSubmissionSchema,
   publishLessonSchema,
+  recordLessonActivitySchema,
   updateAcademyProgramSchema,
 } from './lms.schemas';
 
@@ -144,8 +145,21 @@ lmsRoutes.get(
   asyncHandler((req, res) => lmsController.listMyCourses(req, res)),
 );
 
+lmsRoutes.get(
+  '/teacher/learning-insights',
+  requirePermissions([PERMISSIONS.COURSES_READ]),
+  asyncHandler((req, res) => lmsController.listTeacherLearningInsights(req, res)),
+);
+
 lmsRoutes.post(
   '/lessons/:lessonId/mark-complete',
   requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
   asyncHandler((req, res) => lmsController.markLessonComplete(req, res)),
+);
+
+lmsRoutes.post(
+  '/lessons/:lessonId/activity',
+  requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
+  validateBody(recordLessonActivitySchema),
+  asyncHandler((req, res) => lmsController.recordLessonActivity(req, res)),
 );

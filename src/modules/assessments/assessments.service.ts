@@ -195,6 +195,8 @@ export class AssessmentsService {
           assessmentId,
           prompt: input.prompt,
           explanation: input.explanation,
+          hint: input.hint?.trim() ? input.hint.trim() : null,
+          remedialLessonId: input.remedialLessonId ?? null,
           type: input.type,
           sequence,
           points: input.points,
@@ -269,6 +271,13 @@ export class AssessmentsService {
         data: {
           prompt: input.prompt,
           explanation: input.explanation,
+          hint: input.hint === undefined ? undefined : input.hint?.trim() ? input.hint.trim() : null,
+          remedialLessonId:
+            input.remedialLessonId === undefined
+              ? undefined
+              : input.remedialLessonId === null
+                ? null
+                : input.remedialLessonId,
           type: input.type,
           sequence: input.sequence ?? question.sequence,
           points: input.points,
@@ -1097,6 +1106,8 @@ export class AssessmentsService {
       });
     }
 
+    await this.upsertExamMarkFromAttempt(tenantId, submitted, actor);
+
     return this.mapAttemptForStudent(submitted.assessment, submitted, true);
   }
 
@@ -1230,7 +1241,131 @@ export class AssessmentsService {
       },
     });
 
+    await this.upsertExamMarkFromAttempt(tenantId, regraded, actor);
+
     return this.mapAttemptForStudent(regraded.assessment, regraded, true);
+  }
+
+  /**
+   * Demo-ready bridge: make submitted quiz scores visible in report cards by mapping an AssessmentAttempt
+   * to an Exam(CAT) + ExamMark row for the active term.
+   *
+   * This is intentionally conservative:
+   * - skips if course has no subject (report cards are subject-scoped)
+   * - skips if we cannot resolve an active term for the course academic year
+   * - stores marks as percentage out of 100 to keep Exam.totalMarks <= 500 and consistent across quizzes
+   */
+  private async upsertExamMarkFromAttempt(tenantId: string, attempt: any, actor: JwtUser) {
+    if (attempt.status !== AssessmentAttemptStatus.SUBMITTED) {
+      return;
+    }
+
+    const course = attempt.assessment?.course;
+    const subjectId: string | undefined = course?.subject?.id;
+    const classRoomId: string | undefined = course?.classRoom?.id;
+    const academicYearId: string | undefined = course?.academicYear?.id;
+    const teacherUserId: string | undefined = course?.teacherUserId;
+
+    if (!subjectId || !classRoomId || !academicYearId || !teacherUserId) {
+      return;
+    }
+
+    const maxScore: number = attempt.maxScore ?? 0;
+    const score: number = attempt.manualScore ?? attempt.autoScore ?? 0;
+    if (maxScore <= 0) {
+      return;
+    }
+
+    const now = new Date();
+    const term = await prisma.term.findFirst({
+      where: {
+        tenantId,
+        academicYearId,
+        isActive: true,
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      orderBy: [{ sequence: 'desc' }],
+      select: { id: true },
+    });
+    if (!term) {
+      return;
+    }
+
+    const scheme = await prisma.gradingScheme.findFirst({
+      where: { tenantId, isActive: true, isDefault: true },
+      select: { id: true },
+    });
+    if (!scheme) {
+      return;
+    }
+
+    const percentage = Math.max(0, Math.min(100, Math.round((score / maxScore) * 100)));
+    const examName = `Quiz: ${String(attempt.assessment?.title ?? 'Assessment').trim()}`.slice(0, 120);
+
+    await prisma.$transaction(async (tx) => {
+      const exam = await tx.exam.upsert({
+        where: {
+          tenantId_termId_classRoomId_subjectId_name: {
+            tenantId,
+            termId: term.id,
+            classRoomId,
+            subjectId,
+            name: examName,
+          },
+        },
+        update: {
+          academicYearId,
+          gradingSchemeId: scheme.id,
+          teacherUserId,
+          examType: 'CAT',
+          totalMarks: 100,
+          weight: 100,
+          updatedByUserId: actor.sub,
+        },
+        create: {
+          tenantId,
+          academicYearId,
+          termId: term.id,
+          classRoomId,
+          subjectId,
+          gradingSchemeId: scheme.id,
+          teacherUserId,
+          examType: 'CAT',
+          name: examName,
+          totalMarks: 100,
+          weight: 100,
+          examDate: attempt.submittedAt ? new Date(attempt.submittedAt) : null,
+          createdByUserId: actor.sub,
+          updatedByUserId: actor.sub,
+        },
+        select: { id: true },
+      });
+
+      await tx.examMark.upsert({
+        where: {
+          tenantId_examId_studentId: {
+            tenantId,
+            examId: exam.id,
+            studentId: attempt.studentId,
+          },
+        },
+        update: {
+          marksObtained: percentage,
+          status: 'PRESENT',
+          updatedByUserId: actor.sub,
+        },
+        create: {
+          tenantId,
+          examId: exam.id,
+          studentId: attempt.studentId,
+          marksObtained: percentage,
+          status: 'PRESENT',
+          enteredByUserId: actor.sub,
+          updatedByUserId: actor.sub,
+        },
+      });
+    });
   }
 
   private readonly assessmentSummaryInclude: any = {
@@ -1851,6 +1986,8 @@ export class AssessmentsService {
       id: question.id,
       prompt: question.prompt,
       explanation: question.explanation,
+      hint: question.hint ?? null,
+      remedialLessonId: question.remedialLessonId ?? null,
       type: question.type,
       sequence: question.sequence,
       points: question.points,
@@ -1981,6 +2118,8 @@ export class AssessmentsService {
           id: question.id,
           prompt: question.prompt,
           explanation: includeCorrectness ? question.explanation : null,
+          hint: question.hint ?? null,
+          remedialLessonId: question.remedialLessonId ?? null,
           type: question.type,
           sequence: question.sequence,
           points: question.points,

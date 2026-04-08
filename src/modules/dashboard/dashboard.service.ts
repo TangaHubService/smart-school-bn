@@ -702,6 +702,11 @@ export class DashboardService {
       myAssessments: number;
       reportCards: number;
     };
+    learningStats: {
+      timeSpentSecondsTotal: number;
+      lastLessonActivityAt: string | null;
+      avgAssessmentScorePercent: number | null;
+    };
     upcomingExams: Array<{
       id: string;
       title: string;
@@ -773,6 +778,7 @@ export class DashboardService {
       reportCards,
       attRecords,
       conductOpen,
+      lessonTimeAgg,
     ] = await prisma.$transaction([
       prisma.school.findUnique({
         where: { tenantId },
@@ -814,7 +820,35 @@ export class DashboardService {
           status: 'OPEN',
         },
       }),
+      prisma.studentLessonProgress.aggregate({
+        where: { tenantId, studentId: student.id },
+        _sum: { timeSpentSeconds: true },
+        _max: { lastActivityAt: true },
+      }),
     ]);
+
+    const scoredAttempts = await prisma.assessmentAttempt.findMany({
+      where: {
+        tenantId,
+        studentUserId: userId,
+        status: 'SUBMITTED',
+        submittedAt: { not: null },
+        maxScore: { gt: 0 },
+        autoScore: { not: null },
+      },
+      select: { autoScore: true, maxScore: true },
+      take: 80,
+      orderBy: { submittedAt: 'desc' },
+    });
+    let avgAssessmentScorePercent: number | null = null;
+    if (scoredAttempts.length > 0) {
+      const pctSum = scoredAttempts.reduce((acc, a) => {
+        const m = a.maxScore ?? 0;
+        const s = a.autoScore ?? 0;
+        return acc + (m > 0 ? (s / m) * 100 : 0);
+      }, 0);
+      avgAssessmentScorePercent = Math.round(pctSum / scoredAttempts.length);
+    }
 
     const [upcomingExamsRows, announcementsList] = await Promise.all([
       classIds.length
@@ -892,6 +926,11 @@ export class DashboardService {
         assignmentsSubmitted: pendingAssignments,
         myAssessments: assessments,
         reportCards,
+      },
+      learningStats: {
+        timeSpentSecondsTotal: lessonTimeAgg._sum.timeSpentSeconds ?? 0,
+        lastLessonActivityAt: lessonTimeAgg._max.lastActivityAt?.toISOString() ?? null,
+        avgAssessmentScorePercent,
       },
       upcomingExams,
       latestReports: [

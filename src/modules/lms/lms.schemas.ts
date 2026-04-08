@@ -110,6 +110,13 @@ export const createLessonSchema = z
     }
   });
 
+/** Capped per request so clients cannot inflate time in one shot. */
+export const recordLessonActivitySchema = z
+  .object({
+    secondsDelta: z.number().int().min(1).max(120),
+  })
+  .strict();
+
 export const publishLessonSchema = z
   .object({
     isPublished: z.boolean(),
@@ -225,6 +232,7 @@ export type ListAssignmentSubmissionsQueryInput = z.infer<
 >;
 export type ListAssignmentsQueryInput = z.infer<typeof listAssignmentsQuerySchema>;
 export type ListMyCoursesQueryInput = z.infer<typeof listMyCoursesQuerySchema>;
+export type RecordLessonActivityInput = z.infer<typeof recordLessonActivitySchema>;
 export type ListCourseTeacherOptionsQueryInput = z.infer<
   typeof listCourseTeacherOptionsQuerySchema
 >;
