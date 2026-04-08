@@ -83,4 +83,13 @@ export class ParentsController {
 
     return sendSuccess(req, res, result);
   }
+
+  async getMyStudentLearning(req: Request, res: Response): Promise<Response> {
+    const result = await parentsService.getMyStudentLearning(
+      req.tenantId!,
+      req.user!.sub,
+      req.params.studentId,
+    );
+    return sendSuccess(req, res, result);
+  }
 }

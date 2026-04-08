@@ -10,4 +10,9 @@ export class HealthController {
     const result = await healthService.getHealth();
     return sendSuccess(req, res, result);
   }
+
+  async getInfo(req: Request, res: Response): Promise<Response> {
+    const result = await healthService.getPublicInfo();
+    return sendSuccess(req, res, result);
+  }
 }

@@ -12,6 +12,7 @@ import {
   listCourseTeacherOptionsQuerySchema,
   listCourseSubjectOptionsQuerySchema,
   listMyCoursesQuerySchema,
+  recordLessonActivitySchema,
 } from './lms.schemas';
 
 const lmsService = new LmsService();
@@ -190,6 +191,17 @@ export class LmsController {
     return sendSuccess(req, res, result);
   }
 
+  async recordLessonActivity(req: Request, res: Response): Promise<Response> {
+    const body = recordLessonActivitySchema.parse(req.body);
+    const result = await lmsService.recordLessonActivity(
+      req.tenantId!,
+      req.params.lessonId,
+      body,
+      req.user!,
+    );
+    return sendSuccess(req, res, result);
+  }
+
   async listAcademyPrograms(req: Request, res: Response): Promise<Response> {
     const result = await lmsService.listAcademyPrograms(req.tenantId!, req.user!);
     return sendSuccess(req, res, result);
@@ -213,6 +225,11 @@ export class LmsController {
       req.user!,
       buildContext(req),
     );
+    return sendSuccess(req, res, result);
+  }
+
+  async listTeacherLearningInsights(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.listTeacherLearningInsights(req.tenantId!, req.user!);
     return sendSuccess(req, res, result);
   }
 }

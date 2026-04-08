@@ -801,6 +801,8 @@ model Lesson {
   sequence          Int
   isPublished       Boolean           @default(false)
   publishedAt       DateTime?
+  /// When set, learner must have a submitted attempt for this assessment before opening this lesson.
+  mustPassAssessmentId String?
   createdByUserId   String
   publishedByUserId String?
   createdAt         DateTime          @default(now())
@@ -809,11 +811,13 @@ model Lesson {
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   fileAsset       FileAsset? @relation("LessonFileAsset", fields: [fileAssetId], references: [id], onDelete: SetNull)
+  mustPassAssessment Assessment? @relation("LessonMustPassAssessment", fields: [mustPassAssessmentId], references: [id], onDelete: SetNull)
   createdByUser   User      @relation("LessonCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   publishedByUser User?     @relation("LessonPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
   assessments     Assessment[]
   studentProgress StudentLessonProgress[]
+  remedialForQuestions AssessmentQuestion[] @relation("QuestionRemedialLesson")
 
   @@unique([tenantId, courseId, sequence])
   @@index([tenantId, courseId, isPublished, sequence])
@@ -877,6 +881,7 @@ model Assessment {
   questions     AssessmentQuestion[]
   attempts      AssessmentAttempt[]
   studentAssignments AssessmentStudentAssignment[]
+  lessonsRequiringPass Lesson[] @relation("LessonMustPassAssessment")
 
   @@index([tenantId, courseId, isPublished, dueAt])
   @@index([tenantId, lessonId])
@@ -904,6 +909,8 @@ model AssessmentQuestion {
   assessmentId  String
   prompt        String
   explanation   String?
+  hint          String?
+  remedialLessonId String?
   type          AssessmentQuestionType @default(MCQ_SINGLE)
   sequence      Int
   points        Int                    @default(1)
@@ -912,6 +919,7 @@ model AssessmentQuestion {
 
   tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   assessment  Assessment       @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  remedialLesson Lesson?     @relation("QuestionRemedialLesson", fields: [remedialLessonId], references: [id], onDelete: SetNull)
   options     AssessmentOption[]
   answers     AssessmentAnswer[]
 
@@ -1023,14 +1031,17 @@ model Submission {
 }
 
 model StudentLessonProgress {
-  id           String   @id @default(uuid())
-  tenantId     String
-  studentId    String
-  lessonId     String
-  isCompleted  Boolean  @default(false)
-  completedAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  tenantId           String
+  studentId          String
+  lessonId           String
+  isCompleted        Boolean   @default(false)
+  completedAt        DateTime?
+  startedAt          DateTime?
+  lastActivityAt     DateTime?
+  timeSpentSeconds   Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   student  Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)

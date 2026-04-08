@@ -21,6 +21,7 @@ import {
   ListAssignmentSubmissionsQueryInput,
   ListCoursesQueryInput,
   ListMyCoursesQueryInput,
+  RecordLessonActivityInput,
   PublishLessonInput,
   UploadedAssetInput,
   CreateAcademyProgramInput,
@@ -1345,6 +1346,29 @@ export class LmsService {
       }),
     ]);
 
+    const courseIds = items.map((i) => i.id);
+    const submittedByCourse = new Map<string, string[]>();
+    if (student?.id && courseIds.length > 0) {
+      const att = await prisma.assessmentAttempt.findMany({
+        where: {
+          tenantId,
+          studentId: student.id,
+          status: 'SUBMITTED',
+          assessment: { courseId: { in: courseIds } },
+        },
+        select: { assessmentId: true, assessment: { select: { courseId: true } } },
+      });
+      const m = new Map<string, Set<string>>();
+      for (const a of att) {
+        const cid = a.assessment.courseId;
+        if (!m.has(cid)) m.set(cid, new Set());
+        m.get(cid)!.add(a.assessmentId);
+      }
+      for (const [cid, set] of m) {
+        submittedByCourse.set(cid, [...set]);
+      }
+    }
+
     return {
       student: {
         id: student?.id ?? actor.sub,
@@ -1362,18 +1386,17 @@ export class LmsService {
             : null,
         })),
         completedLessonIds: completedProgressMap.get(item.id) ?? [],
+        submittedAssessmentIds: submittedByCourse.get(item.id) ?? [],
       })),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
 
-  async markLessonComplete(
+  private async assertStudentPublishedLessonAccess(
     tenantId: string,
     lessonId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
   ) {
-    // 1. Get lesson and verify it exists and is published
     const lesson = await prisma.lesson.findFirst({
       where: {
         id: lessonId,
@@ -1392,7 +1415,6 @@ export class LmsService {
       throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found or not published');
     }
 
-    // 2. Get the course to verify student is enrolled
     const course = await prisma.course.findFirst({
       where: {
         id: lesson.courseId,
@@ -1410,7 +1432,6 @@ export class LmsService {
       throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
     }
 
-    // 3. Get student record for current user
     const student = await prisma.student.findFirst({
       where: {
         tenantId,
@@ -1427,7 +1448,6 @@ export class LmsService {
       throw new AppError(403, 'NOT_A_STUDENT', 'Student record not found for this user');
     }
 
-    // 4. Verify student is enrolled in the course classroom and academic year
     const enrollment = await prisma.studentEnrollment.findFirst({
       where: {
         studentId: student.id,
@@ -1448,7 +1468,73 @@ export class LmsService {
       );
     }
 
-    // 5. Create or update StudentLessonProgress record
+    return { lesson, course, student };
+  }
+
+  async recordLessonActivity(
+    tenantId: string,
+    lessonId: string,
+    input: RecordLessonActivityInput,
+    actor: JwtUser,
+  ) {
+    const { lesson, student } = await this.assertStudentPublishedLessonAccess(tenantId, lessonId, actor);
+    const now = new Date();
+    const delta = Math.min(Math.max(1, input.secondsDelta), 120);
+
+    const progress = await prisma.studentLessonProgress.upsert({
+      where: {
+        tenantId_studentId_lessonId: {
+          tenantId,
+          studentId: student.id,
+          lessonId: lesson.id,
+        },
+      },
+      update: {
+        lastActivityAt: now,
+        timeSpentSeconds: { increment: delta },
+      },
+      create: {
+        tenantId,
+        studentId: student.id,
+        lessonId: lesson.id,
+        startedAt: now,
+        lastActivityAt: now,
+        timeSpentSeconds: delta,
+        isCompleted: false,
+      },
+    });
+
+    await prisma.studentLessonProgress.updateMany({
+      where: { id: progress.id, startedAt: null },
+      data: { startedAt: now },
+    });
+
+    const finalRow = await prisma.studentLessonProgress.findUniqueOrThrow({
+      where: { id: progress.id },
+    });
+
+    return {
+      lessonId: lesson.id,
+      timeSpentSeconds: finalRow.timeSpentSeconds,
+      lastActivityAt: (finalRow.lastActivityAt ?? now).toISOString(),
+    };
+  }
+
+  async markLessonComplete(
+    tenantId: string,
+    lessonId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const { lesson, course, student } = await this.assertStudentPublishedLessonAccess(
+      tenantId,
+      lessonId,
+      actor,
+    );
+
+    const now = new Date();
+
+    // Create or update StudentLessonProgress record
     const progress = await prisma.studentLessonProgress.upsert({
       where: {
         tenantId_studentId_lessonId: {
@@ -1459,16 +1545,25 @@ export class LmsService {
       },
       update: {
         isCompleted: true,
-        completedAt: new Date(),
-        updatedAt: new Date(),
+        completedAt: now,
+        lastActivityAt: now,
+        updatedAt: now,
       },
       create: {
         tenantId,
         studentId: student.id,
         lessonId: lesson.id,
         isCompleted: true,
-        completedAt: new Date(),
+        completedAt: now,
+        startedAt: now,
+        lastActivityAt: now,
+        timeSpentSeconds: 0,
       },
+    });
+
+    await prisma.studentLessonProgress.updateMany({
+      where: { id: progress.id, startedAt: null },
+      data: { startedAt: now },
     });
 
     // 6. Audit log
@@ -1821,6 +1916,7 @@ export class LmsService {
     sequence: number;
     isPublished: boolean;
     publishedAt: Date | null;
+    mustPassAssessmentId?: string | null;
     createdAt: Date;
     updatedAt: Date;
     fileAsset?: {
@@ -1843,6 +1939,7 @@ export class LmsService {
       sequence: lesson.sequence,
       isPublished: lesson.isPublished,
       publishedAt: lesson.publishedAt,
+      mustPassAssessmentId: lesson.mustPassAssessmentId ?? null,
       createdAt: lesson.createdAt,
       updatedAt: lesson.updatedAt,
       fileAsset: lesson.fileAsset
@@ -2158,6 +2255,125 @@ export class LmsService {
       this.handleUniqueError(error, 'A program with this title already exists for your school');
       throw error;
     }
+  }
+
+  /** Per-course completion and quiz aggregates for the signed-in teacher's courses. */
+  async listTeacherLearningInsights(tenantId: string, actor: JwtUser) {
+    const courses = await prisma.course.findMany({
+      where: { tenantId, isActive: true, teacherUserId: actor.sub },
+      select: {
+        id: true,
+        title: true,
+        classRoomId: true,
+        academicYearId: true,
+        _count: {
+          select: { lessons: { where: { tenantId, isPublished: true } } },
+        },
+      },
+    });
+
+    const items: Array<{
+      courseId: string;
+      courseTitle: string;
+      enrolledStudents: number;
+      publishedLessons: number;
+      avgCompletionPercent: number | null;
+      atRiskCount: number;
+      avgQuizScorePercent: number | null;
+    }> = [];
+
+    for (const c of courses) {
+      const totalLessons = c._count.lessons;
+      const enrollments = await prisma.studentEnrollment.findMany({
+        where: {
+          tenantId,
+          classRoomId: c.classRoomId,
+          academicYearId: c.academicYearId,
+          isActive: true,
+        },
+        select: { studentId: true },
+      });
+
+      if (totalLessons === 0 || enrollments.length === 0) {
+        items.push({
+          courseId: c.id,
+          courseTitle: c.title,
+          enrolledStudents: enrollments.length,
+          publishedLessons: totalLessons,
+          avgCompletionPercent: null,
+          atRiskCount: 0,
+          avgQuizScorePercent: null,
+        });
+        continue;
+      }
+
+      const publishedLessons = await prisma.lesson.findMany({
+        where: { courseId: c.id, tenantId, isPublished: true },
+        select: { id: true },
+      });
+      const lessonIds = publishedLessons.map((l) => l.id);
+      const studentIds = enrollments.map((e) => e.studentId);
+
+      const progressGroups = await prisma.studentLessonProgress.groupBy({
+        by: ['studentId'],
+        where: {
+          tenantId,
+          studentId: { in: studentIds },
+          lessonId: { in: lessonIds },
+          isCompleted: true,
+        },
+        _count: { _all: true },
+      });
+      const completedByStudent = new Map(
+        progressGroups.map((p) => [p.studentId, p._count._all]),
+      );
+
+      let sumPct = 0;
+      let atRisk = 0;
+      for (const sid of studentIds) {
+        const done = completedByStudent.get(sid) ?? 0;
+        const pct = (done / totalLessons) * 100;
+        sumPct += pct;
+        if (pct < 30) {
+          atRisk += 1;
+        }
+      }
+
+      const attempts = await prisma.assessmentAttempt.findMany({
+        where: {
+          tenantId,
+          status: 'SUBMITTED',
+          studentId: { in: studentIds },
+          assessment: { courseId: c.id },
+          maxScore: { gt: 0 },
+          autoScore: { not: null },
+        },
+        select: { autoScore: true, maxScore: true },
+        take: 200,
+        orderBy: { submittedAt: 'desc' },
+      });
+
+      let avgQuiz: number | null = null;
+      if (attempts.length > 0) {
+        const total = attempts.reduce(
+          (acc, x) => acc + ((x.autoScore ?? 0) / (x.maxScore ?? 1)) * 100,
+          0,
+        );
+        avgQuiz = Math.round(total / attempts.length);
+      }
+
+      items.push({
+        courseId: c.id,
+        courseTitle: c.title,
+        enrolledStudents: enrollments.length,
+        publishedLessons: totalLessons,
+        avgCompletionPercent: Math.round(sumPct / enrollments.length),
+        atRiskCount: atRisk,
+        avgQuizScorePercent: avgQuiz,
+      });
+    }
+
+    return { items };
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {
