@@ -196,6 +196,7 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
       isSystem: true,
       permissions: [
         PERMISSIONS.STUDENT_MY_COURSES_READ,
+        PERMISSIONS.ASSIGNMENTS_SUBMIT,
         PERMISSIONS.ASSESSMENTS_SUBMIT,
         PERMISSIONS.FILES_UPLOAD,
       ],

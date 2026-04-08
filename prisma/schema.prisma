@@ -198,6 +198,8 @@ model Tenant {
   programs             Program[]
   payments             Payment[]
   paymentsAsBuyer      Payment[]            @relation("PaymentBuyerTenant")
+  academySubscriptions AcademySubscription[]
+  academySubscriptionPayments AcademySubscriptionPayment[]
   programEnrollments ProgramEnrollment[]
   timetableSlots  TimetableSlot[]
   announcements   Announcement[]
@@ -297,6 +299,8 @@ model User {
   govAuditorScopes         GovAuditorScope[]   @relation("GovAuditorUser")
   assignedGovAuditorScopes GovAuditorScope[]   @relation("GovAuditorScopeAssignedBy")
   payments                 Payment[]
+  academySubscriptions     AcademySubscription[]
+  academySubscriptionPayments AcademySubscriptionPayment[]
   programEnrollments       ProgramEnrollment[]
   authoredSystemAnnouncements SystemAnnouncement[] @relation("SystemAnnouncementAuthor")
 
@@ -1320,6 +1324,23 @@ enum PaymentStatus {
   CANCELLED
 }
 
+enum AcademyPlanCode {
+  TRIAL
+  TEST
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum AcademySubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING_PAYMENT
+}
+
 model Program {
   id                     String   @id @default(uuid())
   tenantId               String
@@ -1370,23 +1391,72 @@ model Payment {
   @@index([buyerTenantId])
 }
 
-model ProgramEnrollment {
-  id        String   @id @default(uuid())
-  tenantId  String
-  userId    String
-  programId String
-  expiresAt DateTime?
-  isActive  Boolean  @default(true)
-  isTrial   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model AcademySubscription {
+  id          String                    @id @default(uuid())
+  tenantId    String
+  userId      String
+  planCode    AcademyPlanCode
+  status      AcademySubscriptionStatus
+  isTrial     Boolean                   @default(false)
+  courseLimit Int                       @default(3)
+  expiresAt   DateTime?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments    AcademySubscriptionPayment[]
+  enrollments ProgramEnrollment[]
+
+  @@unique([tenantId, userId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+}
+
+model AcademySubscriptionPayment {
+  id                    String            @id @default(uuid())
+  tenantId              String
+  userId                String
+  academySubscriptionId String?
+  planCode              AcademyPlanCode
+  amount                Float
+  durationDays          Int
+  currency              String            @default("RWF")
+  status                PaymentStatus     @default(PENDING)
+  channel               String?
+  paypackRef            String?           @unique
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  academySubscription   AcademySubscription? @relation(fields: [academySubscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([userId, status])
+  @@index([academySubscriptionId])
+}
+
+model ProgramEnrollment {
+  id                    String               @id @default(uuid())
+  tenantId              String
+  userId                String
+  programId             String
+  academySubscriptionId String?
+  expiresAt             DateTime?
+  isActive              Boolean              @default(true)
+  isTrial               Boolean              @default(false)
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  tenant                Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user                  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program               Program              @relation(fields: [programId], references: [id], onDelete: Cascade)
+  academySubscription   AcademySubscription? @relation(fields: [academySubscriptionId], references: [id], onDelete: SetNull)
 
   @@unique([userId, programId])
   @@index([tenantId, isActive])
+  @@index([academySubscriptionId])
 }
 
 enum AnnouncementAudience {

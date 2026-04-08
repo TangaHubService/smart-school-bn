@@ -7,13 +7,21 @@ import { PaypackService } from '../../common/services/paypack.service';
 import { getIO } from '../../common/utils/socket-server';
 import { env } from '../../config/env';
 import { resolveAcademyCatalogTenantId } from './academy-catalog';
+import {
+  AcademySubscriptionService,
+  type AcademyCheckoutPlanId,
+} from './academy-subscription.service';
+import type { AcademyPlanCheckoutInput, AcademyProgramSelectionInput } from './public-academy.schemas';
 
 const PLAN_DURATION_MAP: Record<string, number> = {
+  test: 1,
   weekly: 7,
   monthly: 30,
   quarterly: 90,
   yearly: 365,
 };
+
+const academySubscriptionService = new AcademySubscriptionService();
 
 type CatalogProgramResult =
   | { ok: true; program: Program; catalogTenantId: string }
@@ -83,6 +91,79 @@ export class PublicAcademyController {
         return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
       }
       return sendSuccess(req, res, result.program);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getSubscriptionSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const summary = await academySubscriptionService.getSummary(userId, tenantId);
+      return sendSuccess(req, res, summary);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async startPlanCheckout(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const { planId, phoneNumber } = req.body as AcademyPlanCheckoutInput;
+      const result = await academySubscriptionService.startPlanCheckout(userId, tenantId, {
+        planId: planId as AcademyCheckoutPlanId,
+        phoneNumber,
+      });
+      return sendSuccess(req, res, result, 202);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async selectProgram(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const { programId } = req.body as AcademyProgramSelectionInput;
+      const result = await academySubscriptionService.selectProgram(userId, tenantId, programId);
+      return sendSuccess(req, res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async removeProgram(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const result = await academySubscriptionService.removeProgram(
+        userId,
+        tenantId,
+        req.params.programId,
+      );
+      return sendSuccess(req, res, result);
     } catch (error) {
       next(error);
     }
@@ -185,7 +266,19 @@ export class PublicAcademyController {
       });
 
       if (!payment) {
-        return res.status(200).send('Payment not found (ignored)');
+        const academyResult = await academySubscriptionService.handlePaymentWebhook(ref, status);
+        if (!academyResult.handled) {
+          return res.status(200).send('Payment not found (ignored)');
+        }
+
+        getIO().to(`trx-${ref}`).emit('transactionUpdate', {
+          event: 'payment:processed',
+          status: academyResult.status,
+          paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
+          ref,
+        });
+
+        return res.status(200).send('OK');
       }
 
       if (payment.status !== 'PENDING') {

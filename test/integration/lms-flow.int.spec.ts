@@ -7,6 +7,7 @@ jest.mock('../../src/db/prisma', () => {
     student: { findFirst: jest.fn() },
     programEnrollment: { findMany: jest.fn() },
     studentLessonProgress: { findMany: jest.fn() },
+    assessmentAttempt: { findMany: jest.fn() },
     course: {
       create: jest.fn(),
       findFirst: jest.fn(),
@@ -134,6 +135,7 @@ describe('lms integration flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockedPrisma.auditLog.create.mockResolvedValue({ id: 1n });
+    mockedPrisma.assessmentAttempt.findMany.mockResolvedValue([]);
   });
 
   it('course -> lesson publish -> student access', async () => {
@@ -428,7 +430,7 @@ describe('lms integration flow', () => {
             id: 'assignment-1',
             title: 'Count five objects',
             instructions: 'Submit five counted items.',
-            dueAt: new Date('2026-03-15T17:00:00.000Z'),
+            dueAt: new Date('2026-05-15T17:00:00.000Z'),
             maxPoints: 20,
             isPublished: true,
             createdAt: new Date('2026-03-06T09:00:00.000Z'),
@@ -455,7 +457,7 @@ describe('lms integration flow', () => {
         lessonId: 'lesson-1',
         title: 'Count five objects',
         instructions: 'Submit five counted items.',
-        dueAt: '2026-03-15T17:00:00.000Z',
+        dueAt: '2026-05-15T17:00:00.000Z',
         maxPoints: 20,
         isPublished: true,
       },
@@ -472,7 +474,7 @@ describe('lms integration flow', () => {
           id: 'assignment-1',
           title: 'Count five objects',
           instructions: 'Submit five counted items.',
-          dueAt: new Date('2026-03-15T17:00:00.000Z'),
+          dueAt: new Date('2026-05-15T17:00:00.000Z'),
           maxPoints: 20,
           isPublished: true,
           createdAt: new Date('2026-03-06T09:00:00.000Z'),
@@ -525,7 +527,7 @@ describe('lms integration flow', () => {
 
     mockedPrisma.assignment.findFirst.mockResolvedValue({
       id: 'assignment-1',
-      dueAt: new Date('2026-03-15T17:00:00.000Z'),
+      dueAt: new Date('2026-05-15T17:00:00.000Z'),
       isPublished: true,
       course: {
         id: 'course-1',
@@ -667,7 +669,7 @@ describe('lms integration flow', () => {
               id: 'assignment-1',
               title: 'Count five objects',
               instructions: 'Submit five counted items.',
-              dueAt: new Date('2026-03-15T17:00:00.000Z'),
+              dueAt: new Date('2026-05-15T17:00:00.000Z'),
               maxPoints: 20,
               isPublished: true,
               createdAt: new Date('2026-03-06T09:00:00.000Z'),

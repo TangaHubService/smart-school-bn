@@ -13,8 +13,8 @@ import { normalizePermissions } from '../../common/utils/permission-utils';
 import { ttlToSeconds } from '../../common/utils/time';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../notifications/email.service';
-import { grantCatalogTrialEnrollments } from '../public-academy/academy-trial';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
+import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
 import {
   ForgotPasswordInput,
   LoginInput,
@@ -27,6 +27,7 @@ import {
 
 const PUBLIC_LEARNER_PERMISSIONS = [
   'students.my_courses.read',
+  'assignments.submit',
   'assessments.submit',
   'files.upload',
 ];
@@ -34,6 +35,7 @@ const PUBLIC_LEARNER_PERMISSIONS = [
 export class AuthService {
   private readonly auditService = new AuditService();
   private readonly emailService = new EmailService();
+  private readonly academySubscriptionService = new AcademySubscriptionService();
 
   async login(input: LoginInput, context: RequestAuditContext) {
     const { identifier, password } = input;
@@ -228,6 +230,12 @@ export class AuthService {
         },
       });
 
+      await this.academySubscriptionService.ensureTrialSubscription(
+        newUser.id,
+        academyTenant.id,
+        tx,
+      );
+
       return tx.user.findUniqueOrThrow({
         where: { id: newUser.id },
         include: {
@@ -239,8 +247,6 @@ export class AuthService {
         },
       });
     });
-
-    await grantCatalogTrialEnrollments(user.id, academyTenant.id);
 
     return this.completeLogin(academyTenant.id, user, context);
   }

@@ -1005,7 +1005,12 @@ export class LmsService {
       throw new AppError(404, 'ASSIGNMENT_NOT_FOUND', 'Assignment not found');
     }
 
-    this.ensureStudentAssignedToCourse(student, assignment.course.classRoomId, assignment.course.academicYearId);
+    await this.ensureStudentAssignedToCourse(
+      student,
+      assignment.course.id,
+      assignment.course.classRoomId,
+      assignment.course.academicYearId,
+    );
 
     if (assignment.dueAt && assignment.dueAt < new Date()) {
       throw new AppError(400, 'ASSIGNMENT_SUBMISSION_CLOSED', 'Assignment due date has passed');
@@ -1432,41 +1437,14 @@ export class LmsService {
       throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
     }
 
-    const student = await prisma.student.findFirst({
-      where: {
-        tenantId,
-        userId: actor.sub,
-        isActive: true,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-      },
-    });
+    const student = await this.getStudentProfile(tenantId, actor.sub);
 
-    if (!student) {
-      throw new AppError(403, 'NOT_A_STUDENT', 'Student record not found for this user');
-    }
-
-    const enrollment = await prisma.studentEnrollment.findFirst({
-      where: {
-        studentId: student.id,
-        classRoomId: course.classRoomId,
-        academicYearId: course.academicYearId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!enrollment) {
-      throw new AppError(
-        403,
-        'NOT_ENROLLED_IN_COURSE',
-        'Student is not enrolled in the course containing this lesson',
-      );
-    }
+    await this.ensureStudentAssignedToCourse(
+      student,
+      course.id,
+      course.classRoomId,
+      course.academicYearId,
+    );
 
     return { lesson, course, student };
   }
@@ -1716,8 +1694,9 @@ export class LmsService {
     return student;
   }
 
-  private ensureStudentAssignedToCourse(
+  private async ensureStudentAssignedToCourse(
     student: Awaited<ReturnType<LmsService['getStudentProfile']>>,
+    courseId: string,
     classRoomId: string,
     academicYearId: string,
   ) {
@@ -1725,13 +1704,41 @@ export class LmsService {
       (item) => item.classRoomId === classRoomId && item.academicYearId === academicYearId,
     );
 
-    if (!assigned) {
+    if (assigned) {
+      return;
+    }
+
+    if (!student.userId) {
       throw new AppError(
         403,
         'COURSE_ACCESS_DENIED',
         'Student is not assigned to this course class and academic year',
       );
     }
+
+    const academyAccess = await prisma.programEnrollment.findFirst({
+      where: {
+        userId: student.userId,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        program: {
+          courseId,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (academyAccess) {
+      return;
+    }
+
+    throw new AppError(
+      403,
+      'COURSE_ACCESS_DENIED',
+      'Student is not assigned to this course class and academic year',
+    );
   }
 
   private isTeacherOnly(actor: JwtUser) {
