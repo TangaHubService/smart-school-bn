@@ -47,8 +47,10 @@ const envSchema = z.object({
   PAYPACK_CLIENT_ID: z.string().optional(),
   PAYPACK_CLIENT_SECRET: z.string().optional(),
   PAYPACK_BASE_URL: z.string().url().default('https://payments.paypack.rw/api'),
+  PAYPACK_API_BASE_URL: z.string().url().optional(),
   PAYPACK_WEBHOOK_SECRET: z.string().optional(),
-  PAYPACK_WEBHOOK_MODE: z.string().default('development'),
+  PAYPACK_WEBHOOK_MODE: z.string().optional(),
+  PAYPACK_INITIATE_PATH: z.string().optional(),
   ACADEMY_CATALOG_TENANT_ID: z.string().uuid().optional(),
   ACADEMY_TRIAL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   /** Shown on /health/info for ops / demo (e.g. Kigali, RW). */
