@@ -47,6 +47,18 @@ async function assertCatalogProgram(programId: string): Promise<CatalogProgramRe
 }
 
 export class PublicAcademyController {
+  static webhookProbe(req: Request, res: Response) {
+    if (req.method === 'HEAD') {
+      return res.status(200).end();
+    }
+
+    return res.status(200).json({
+      ok: true,
+      message: 'Paypack webhook endpoint is reachable.',
+      method: 'POST',
+    });
+  }
+
   static async getPrograms(req: Request, res: Response, next: NextFunction) {
     try {
       const catalogTenantId = await resolveAcademyCatalogTenantId();

@@ -12,6 +12,8 @@ const router = Router();
 // Public routes
 router.get('/programs', PublicAcademyController.getPrograms);
 router.get('/programs/:id', PublicAcademyController.getProgramById);
+router.head('/webhook/paypack', PublicAcademyController.webhookProbe);
+router.get('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.post('/webhook/paypack', PublicAcademyController.handleWebhook);
 
 // Authenticated routes
