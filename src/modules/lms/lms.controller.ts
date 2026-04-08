@@ -37,6 +37,29 @@ export class LmsController {
     return sendSuccess(req, res, result, 201);
   }
 
+  async updateCourse(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.updateCourse(
+      req.tenantId!,
+      req.params.courseId,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteCourse(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.deleteCourse(
+      req.tenantId!,
+      req.params.courseId,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async listCourses(req: Request, res: Response): Promise<Response> {
     const query = listCoursesQuerySchema.parse(req.query);
     const result = await lmsService.listCourses(req.tenantId!, query, req.user!);
@@ -105,6 +128,29 @@ export class LmsController {
     );
 
     return sendSuccess(req, res, result, 201);
+  }
+
+  async updateLesson(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.updateLesson(
+      req.tenantId!,
+      req.params.lessonId,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteLesson(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.deleteLesson(
+      req.tenantId!,
+      req.params.lessonId,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
   }
 
   async publishLesson(req: Request, res: Response): Promise<Response> {

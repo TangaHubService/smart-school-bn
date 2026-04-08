@@ -26,6 +26,8 @@ import {
   UploadedAssetInput,
   CreateAcademyProgramInput,
   UpdateAcademyProgramInput,
+  UpdateCourseInput,
+  UpdateLessonInput,
 } from './lms.schemas';
 
 type TxClient = Prisma.TransactionClient;
@@ -90,6 +92,142 @@ export class LmsService {
       this.handleUniqueError(error, 'Course title already exists for this class, year, and teacher');
       throw error;
     }
+  }
+
+  async updateCourse(
+    tenantId: string,
+    courseId: string,
+    input: UpdateCourseInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const existing = await prisma.course.findFirst({
+      where: {
+        id: courseId,
+        tenantId,
+        isActive: true,
+      },
+      include: this.courseInclude,
+    });
+
+    if (!existing) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    this.ensureCanManageCourse(existing.teacherUser.id, actor);
+
+    const academicYearId = input.academicYearId ?? existing.academicYear.id;
+    const classRoomId = input.classRoomId ?? existing.classRoom.id;
+    const subjectId =
+      input.subjectId !== undefined ? input.subjectId : existing.subject?.id ?? null;
+    const title = input.title ?? existing.title;
+    const description = input.description !== undefined ? input.description : existing.description;
+
+    await this.ensureAcademicTargets(
+      tenantId,
+      academicYearId,
+      classRoomId,
+      subjectId ?? undefined,
+    );
+
+    if (this.isTeacherOnly(actor)) {
+      if (!subjectId) {
+        throw new AppError(
+          400,
+          'COURSE_SUBJECT_REQUIRED',
+          'Subject is required when teachers edit courses',
+        );
+      }
+
+      await this.ensureTeacherCanUseSubject(tenantId, actor.sub, subjectId);
+    }
+
+    try {
+      const updated = await prisma.course.update({
+        where: {
+          id: courseId,
+        },
+        data: {
+          academicYearId,
+          classRoomId,
+          subjectId,
+          title,
+          description,
+        },
+        include: this.courseInclude,
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.COURSE_UPDATED,
+        entity: 'Course',
+        entityId: updated.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          academicYearId,
+          classRoomId,
+          subjectId,
+        },
+      });
+
+      return this.mapCourse(updated);
+    } catch (error) {
+      this.handleUniqueError(error, 'Course title already exists for this class, year, and teacher');
+      throw error;
+    }
+  }
+
+  async deleteCourse(
+    tenantId: string,
+    courseId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const course = await prisma.course.findFirst({
+      where: {
+        id: courseId,
+        tenantId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        title: true,
+        teacherUserId: true,
+      },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    this.ensureCanManageCourse(course.teacherUserId, actor);
+
+    await prisma.course.update({
+      where: { id: course.id },
+      data: { isActive: false },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.COURSE_DELETED,
+      entity: 'Course',
+      entityId: course.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        title: course.title,
+      },
+    });
+
+    return {
+      id: course.id,
+      deleted: true,
+    };
   }
 
   async listCourses(
@@ -660,6 +798,144 @@ export class LmsService {
       this.handleUniqueError(error, 'Lesson sequence already exists for this course');
       throw error;
     }
+  }
+
+  async updateLesson(
+    tenantId: string,
+    lessonId: string,
+    input: UpdateLessonInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const lesson = await prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        tenantId,
+      },
+      include: {
+        course: {
+          select: {
+            teacherUserId: true,
+          },
+        },
+        fileAsset: true,
+      },
+    });
+
+    if (!lesson) {
+      throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found');
+    }
+
+    this.ensureCanManageCourse(lesson.course.teacherUserId, actor);
+
+    try {
+      const updated = await prisma.$transaction(async (tx) => {
+        const nextAssetId =
+          input.asset
+            ? await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub)
+            : input.removeAsset
+              ? null
+              : undefined;
+
+        const contentType = input.contentType ?? lesson.contentType;
+        const body = input.body !== undefined ? input.body || null : lesson.body;
+        const externalUrl =
+          input.externalUrl !== undefined ? input.externalUrl || null : lesson.externalUrl;
+        const fileAssetId =
+          nextAssetId !== undefined ? nextAssetId : lesson.fileAsset?.id ?? null;
+
+        this.assertLessonContentState(contentType, body, externalUrl, fileAssetId);
+
+        return tx.lesson.update({
+          where: {
+            id: lesson.id,
+          },
+          data: {
+            title: input.title ?? lesson.title,
+            summary: input.summary !== undefined ? input.summary || null : lesson.summary,
+            contentType,
+            body,
+            externalUrl,
+            sequence: input.sequence ?? lesson.sequence,
+            fileAssetId,
+          },
+          include: {
+            fileAsset: true,
+          },
+        });
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.LESSON_UPDATED,
+        entity: 'Lesson',
+        entityId: updated.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          contentType: updated.contentType,
+          sequence: updated.sequence,
+        },
+      });
+
+      return this.mapLesson(updated);
+    } catch (error) {
+      this.handleUniqueError(error, 'Lesson sequence already exists for this course');
+      throw error;
+    }
+  }
+
+  async deleteLesson(
+    tenantId: string,
+    lessonId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const lesson = await prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        tenantId,
+      },
+      include: {
+        course: {
+          select: {
+            teacherUserId: true,
+          },
+        },
+      },
+    });
+
+    if (!lesson) {
+      throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found');
+    }
+
+    this.ensureCanManageCourse(lesson.course.teacherUserId, actor);
+
+    await prisma.lesson.delete({
+      where: { id: lesson.id },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.LESSON_DELETED,
+      entity: 'Lesson',
+      entityId: lesson.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        title: lesson.title,
+        courseId: lesson.courseId,
+      },
+    });
+
+    return {
+      id: lesson.id,
+      deleted: true,
+    };
   }
 
   async publishLesson(
@@ -1885,6 +2161,43 @@ export class LmsService {
     });
 
     return created.id;
+  }
+
+  private assertLessonContentState(
+    contentType: string,
+    body: string | null | undefined,
+    externalUrl: string | null | undefined,
+    fileAssetId: string | null,
+  ) {
+    const normalizedExternalUrl = externalUrl?.trim() ?? '';
+
+    if (contentType === 'TEXT' && !this.hasLessonTextContent(body)) {
+      throw new AppError(400, 'LESSON_BODY_REQUIRED', 'Text lessons require body content');
+    }
+
+    if (contentType === 'PDF' && !fileAssetId) {
+      throw new AppError(400, 'LESSON_ASSET_REQUIRED', 'PDF lessons require an uploaded file');
+    }
+
+    if (contentType === 'LINK' && !normalizedExternalUrl) {
+      throw new AppError(400, 'LESSON_URL_REQUIRED', 'Link lessons require an external URL');
+    }
+
+    if (contentType === 'VIDEO' && !normalizedExternalUrl && !fileAssetId) {
+      throw new AppError(
+        400,
+        'LESSON_VIDEO_SOURCE_REQUIRED',
+        'Video lessons require a video URL or uploaded video file',
+      );
+    }
+  }
+
+  private hasLessonTextContent(value: string | null | undefined) {
+    return (value ?? '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim().length > 0;
   }
 
   private mapCourse(course: {

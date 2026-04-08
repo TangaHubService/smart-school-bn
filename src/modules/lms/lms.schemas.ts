@@ -34,6 +34,16 @@ export const createCourseSchema = z
   })
   .strict();
 
+export const updateCourseSchema = z
+  .object({
+    academicYearId: z.string().uuid().optional(),
+    classRoomId: z.string().uuid().optional(),
+    subjectId: z.string().uuid().nullable().optional(),
+    title: z.string().trim().min(2).max(120).optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict();
+
 export const assignCourseTeacherSchema = z
   .object({
     teacherUserId: z.string().uuid(),
@@ -109,6 +119,19 @@ export const createLessonSchema = z
       });
     }
   });
+
+export const updateLessonSchema = z
+  .object({
+    title: z.string().trim().min(2).max(120).optional(),
+    summary: z.string().trim().max(500).nullable().optional(),
+    contentType: z.nativeEnum(LessonContentType).optional(),
+    body: z.string().max(40_000).nullable().optional(),
+    externalUrl: z.union([z.string().trim().url(), z.literal(''), z.null()]).optional(),
+    sequence: z.number().int().min(1).optional(),
+    asset: uploadedAssetSchema.optional(),
+    removeAsset: z.boolean().optional(),
+  })
+  .strict();
 
 /** Capped per request so clients cannot inflate time in one shot. */
 export const recordLessonActivitySchema = z
@@ -217,12 +240,14 @@ export const updateAcademyProgramSchema = z
   .strict();
 
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;
+export type UpdateCourseInput = z.infer<typeof updateCourseSchema>;
 export type AssignCourseTeacherInput = z.infer<typeof assignCourseTeacherSchema>;
 export type AssignTeacherBySubjectInput = z.infer<typeof assignTeacherBySubjectSchema>;
 export type ListCoursesQueryInput = z.infer<typeof listCoursesQuerySchema>;
 export type CourseDetailQueryInput = z.infer<typeof courseDetailQuerySchema>;
 export type UploadedAssetInput = z.infer<typeof uploadedAssetSchema>;
 export type CreateLessonInput = z.infer<typeof createLessonSchema>;
+export type UpdateLessonInput = z.infer<typeof updateLessonSchema>;
 export type PublishLessonInput = z.infer<typeof publishLessonSchema>;
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;

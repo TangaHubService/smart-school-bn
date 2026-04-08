@@ -32,6 +32,8 @@ import { auditorReadExtraGuard } from '../middleware/auditor-guard';
 
 export const apiRouter = Router();
 
+apiRouter.use('/health', healthRoutes);
+apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/public-academy', publicAcademyRouter);
 apiRouter.use('/auth', authRoutes);
 apiRouter.use(auditorReadExtraGuard); // Global read-only enforcement for Auditors
@@ -60,6 +62,4 @@ if (env.FEATURE_GOV_AUDITING_ENABLED) {
 apiRouter.use('/', timetableRoutes);
 apiRouter.use('/', announcementsRoutes);
 apiRouter.use('/', dashboardRoutes);
-apiRouter.use('/health', healthRoutes);
-apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/roles', rolesRoutes);

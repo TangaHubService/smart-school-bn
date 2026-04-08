@@ -19,6 +19,8 @@ import {
   publishLessonSchema,
   recordLessonActivitySchema,
   updateAcademyProgramSchema,
+  updateCourseSchema,
+  updateLessonSchema,
 } from './lms.schemas';
 
 const lmsController = new LmsController();
@@ -92,11 +94,37 @@ lmsRoutes.get(
   asyncHandler((req, res) => lmsController.getCourseDetail(req, res)),
 );
 
+lmsRoutes.patch(
+  '/courses/:courseId',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(updateCourseSchema),
+  asyncHandler((req, res) => lmsController.updateCourse(req, res)),
+);
+
+lmsRoutes.delete(
+  '/courses/:courseId',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  asyncHandler((req, res) => lmsController.deleteCourse(req, res)),
+);
+
 lmsRoutes.post(
   '/courses/:courseId/lessons',
   requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
   validateBody(createLessonSchema),
   asyncHandler((req, res) => lmsController.createLesson(req, res)),
+);
+
+lmsRoutes.patch(
+  '/lessons/:lessonId',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  validateBody(updateLessonSchema),
+  asyncHandler((req, res) => lmsController.updateLesson(req, res)),
+);
+
+lmsRoutes.delete(
+  '/lessons/:lessonId',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  asyncHandler((req, res) => lmsController.deleteLesson(req, res)),
 );
 
 lmsRoutes.patch(
