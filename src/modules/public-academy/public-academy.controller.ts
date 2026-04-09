@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import type { Program } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma';
 import { sendSuccess, sendError } from '../../common/utils/response';
 import { PaypackService } from '../../common/services/paypack.service';
@@ -12,7 +12,11 @@ import {
   AcademySubscriptionService,
   type AcademyCheckoutPlanId,
 } from './academy-subscription.service';
-import type { AcademyPlanCheckoutInput, AcademyProgramSelectionInput } from './public-academy.schemas';
+import type {
+  AcademyPlanCheckoutInput,
+  AcademyProgramSelectionInput,
+  AcademySubjectSelectionInput,
+} from './public-academy.schemas';
 
 const PLAN_DURATION_MAP: Record<string, number> = {
   test: 1,
@@ -25,9 +29,60 @@ const PLAN_DURATION_MAP: Record<string, number> = {
 const academySubscriptionService = new AcademySubscriptionService();
 const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' });
 
+type CatalogProgramRow = Prisma.ProgramGetPayload<{
+  include: {
+    course: {
+      include: {
+        subject: true;
+      };
+    };
+  };
+}>;
+
 type CatalogProgramResult =
-  | { ok: true; program: Program; catalogTenantId: string }
+  | { ok: true; program: CatalogProgramRow; catalogTenantId: string }
   | { ok: false; reason: 'no_catalog' | 'not_found' };
+
+function buildCatalogSubjectStats(programs: CatalogProgramRow[]) {
+  const subjectIds = [...new Set(programs.map((program) => program.course?.subjectId).filter(Boolean))];
+  return prisma.course.findMany({
+    where: {
+      tenantId: programs[0]?.tenantId ?? '',
+      isActive: true,
+      subjectId: { in: subjectIds as string[] },
+    },
+    select: {
+      id: true,
+      title: true,
+      subjectId: true,
+    },
+    orderBy: [{ title: 'asc' }],
+  });
+}
+
+function mapCatalogProgram(
+  program: CatalogProgramRow,
+  subjectStats: Map<string, { count: number; titles: string[] }>,
+) {
+  const subject = program.course?.subject ?? null;
+  const stats = subject ? subjectStats.get(subject.id) : null;
+
+  return {
+    id: program.id,
+    title: program.title,
+    description: program.description,
+    thumbnail: program.thumbnail,
+    price: program.price,
+    durationDays: program.durationDays,
+    courseId: program.courseId,
+    subjectId: subject?.id ?? null,
+    subjectName: subject?.name ?? null,
+    subjectCode: subject?.code ?? null,
+    subjectDescription: subject?.description ?? null,
+    subjectCourseCount: stats?.count ?? (program.courseId ? 1 : 0),
+    subjectCourseTitles: stats?.titles ?? [],
+  };
+}
 
 async function assertCatalogProgram(programId: string): Promise<CatalogProgramResult> {
   const catalogTenantId = await resolveAcademyCatalogTenantId();
@@ -40,6 +95,13 @@ async function assertCatalogProgram(programId: string): Promise<CatalogProgramRe
       tenantId: catalogTenantId,
       isActive: true,
       listedInPublicCatalog: true,
+    },
+    include: {
+      course: {
+        include: {
+          subject: true,
+        },
+      },
     },
   });
   if (!program) {
@@ -75,9 +137,31 @@ export class PublicAcademyController {
           isActive: true,
           listedInPublicCatalog: true,
         },
+        include: {
+          course: {
+            include: {
+              subject: true,
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       });
-      return sendSuccess(req, res, programs, 200, null, {
+      const subjectStats = new Map<string, { count: number; titles: string[] }>();
+      if (programs.length) {
+        const subjectCourses = await buildCatalogSubjectStats(programs);
+        for (const course of subjectCourses) {
+          if (!course.subjectId) {
+            continue;
+          }
+          const current = subjectStats.get(course.subjectId) ?? { count: 0, titles: [] };
+          current.count += 1;
+          if (current.titles.length < 6) {
+            current.titles.push(course.title);
+          }
+          subjectStats.set(course.subjectId, current);
+        }
+      }
+      return sendSuccess(req, res, programs.map((program) => mapCatalogProgram(program, subjectStats)), 200, null, {
         academyCatalog: {
           resolved: true,
           publicProgramCount: programs.length,
@@ -104,7 +188,16 @@ export class PublicAcademyController {
         }
         return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
       }
-      return sendSuccess(req, res, result.program);
+      const subjectStats = new Map<string, { count: number; titles: string[] }>();
+      const subjectId = result.program.course?.subject?.id ?? null;
+      if (subjectId) {
+        const subjectCourses = await buildCatalogSubjectStats([result.program]);
+        subjectStats.set(subjectId, {
+          count: subjectCourses.length,
+          titles: subjectCourses.slice(0, 6).map((course) => course.title),
+        });
+      }
+      return sendSuccess(req, res, mapCatalogProgram(result.program, subjectStats));
     } catch (error) {
       next(error);
     }
@@ -163,6 +256,23 @@ export class PublicAcademyController {
     }
   }
 
+  static async selectSubject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const { subjectId } = req.body as AcademySubjectSelectionInput;
+      const result = await academySubscriptionService.selectSubject(userId, tenantId, subjectId);
+      return sendSuccess(req, res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async removeProgram(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.sub;
@@ -176,6 +286,26 @@ export class PublicAcademyController {
         userId,
         tenantId,
         req.params.programId,
+      );
+      return sendSuccess(req, res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async removeSubject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const result = await academySubscriptionService.removeSubject(
+        userId,
+        tenantId,
+        req.params.subjectId,
       );
       return sendSuccess(req, res, result);
     } catch (error) {

@@ -5,6 +5,7 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import {
   academyPlanCheckoutSchema,
   academyProgramSelectionSchema,
+  academySubjectSelectionSchema,
 } from './public-academy.schemas';
 
 const router = Router();
@@ -30,10 +31,21 @@ router.post(
   validateBody(academyProgramSelectionSchema),
   PublicAcademyController.selectProgram,
 );
+router.post(
+  '/subscription/subjects/select',
+  authenticate,
+  validateBody(academySubjectSelectionSchema),
+  PublicAcademyController.selectSubject,
+);
 router.delete(
   '/subscription/programs/:programId',
   authenticate,
   PublicAcademyController.removeProgram,
+);
+router.delete(
+  '/subscription/subjects/:subjectId',
+  authenticate,
+  PublicAcademyController.removeSubject,
 );
 router.post('/purchase', authenticate, PublicAcademyController.purchaseProgram);
 router.get('/my-enrollments', authenticate, PublicAcademyController.getMyEnrollments);

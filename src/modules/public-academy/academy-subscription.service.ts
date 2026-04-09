@@ -12,7 +12,8 @@ import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
 import { resolveAcademyCatalogTenantId } from './academy-catalog';
 
-export const ACADEMY_COURSE_LIMIT = 3;
+export const ACADEMY_SUBJECT_LIMIT = 3;
+export const ACADEMY_COURSE_LIMIT = ACADEMY_SUBJECT_LIMIT;
 
 export const ACADEMY_CHECKOUT_PLANS = {
   test: {
@@ -44,6 +45,19 @@ export const ACADEMY_CHECKOUT_PLANS = {
 
 export type AcademyCheckoutPlanId = keyof typeof ACADEMY_CHECKOUT_PLANS;
 type AcademySubscriptionDb = Prisma.TransactionClient | typeof prisma;
+type AcademyEnrollmentRow = Prisma.ProgramEnrollmentGetPayload<{
+  include: {
+    program: {
+      include: {
+        course: {
+          include: {
+            subject: true;
+          };
+        };
+      };
+    };
+  };
+}>;
 
 function addDays(base: Date, days: number) {
   const next = new Date(base);
@@ -144,6 +158,214 @@ export class AcademySubscriptionService {
     return subscription;
   }
 
+  private async ensureSelectableSubscription(userId: string, tenantId: string) {
+    const subscription = await this.ensureTrialSubscription(userId, tenantId);
+    const current = await this.syncSubscriptionStatus(subscription);
+
+    if (
+      current.status !== AcademySubscriptionStatus.ACTIVE &&
+      current.status !== AcademySubscriptionStatus.TRIAL
+    ) {
+      throw new AppError(
+        403,
+        'ACADEMY_SUBSCRIPTION_REQUIRED',
+        'Activate a plan or trial before selecting subjects.',
+      );
+    }
+
+    if (current.expiresAt && current.expiresAt.getTime() <= Date.now()) {
+      throw new AppError(
+        403,
+        'ACADEMY_SUBSCRIPTION_EXPIRED',
+        'Your academy plan has expired. Renew to manage subject access.',
+      );
+    }
+
+    return current;
+  }
+
+  private collectSubjectIds(rows: AcademyEnrollmentRow[]) {
+    const subjectIds = new Set<string>();
+    for (const row of rows) {
+      const subjectId = row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null;
+      if (subjectId) {
+        subjectIds.add(subjectId);
+      }
+    }
+    return subjectIds;
+  }
+
+  private buildSubjectSelections(rows: AcademyEnrollmentRow[], currentSubscriptionId: string) {
+    const map = new Map<
+      string,
+      {
+        subjectId: string;
+        subjectName: string;
+        subjectCode: string;
+        subjectDescription: string | null;
+        thumbnail: string | null;
+        courseCount: number;
+        programCount: number;
+        courseIds: string[];
+        programIds: string[];
+        programTitles: string[];
+        expiresAt: string | null;
+        isTrial: boolean;
+        isLegacy: boolean;
+      }
+    >();
+
+    for (const row of rows) {
+      const subject = row.program.course?.subject;
+      if (!subject) {
+        continue;
+      }
+
+      const current = map.get(subject.id) ?? {
+        subjectId: subject.id,
+        subjectName: subject.name,
+        subjectCode: subject.code,
+        subjectDescription: subject.description,
+        thumbnail: row.program.thumbnail,
+        courseCount: 0,
+        programCount: 0,
+        courseIds: [],
+        programIds: [],
+        programTitles: [],
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+        isTrial: row.isTrial,
+        isLegacy: row.academySubscriptionId !== currentSubscriptionId,
+      };
+
+      if (!current.thumbnail && row.program.thumbnail) {
+        current.thumbnail = row.program.thumbnail;
+      }
+      if (row.program.courseId && !current.courseIds.includes(row.program.courseId)) {
+        current.courseIds.push(row.program.courseId);
+        current.courseCount = current.courseIds.length;
+      }
+      if (!current.programIds.includes(row.programId)) {
+        current.programIds.push(row.programId);
+        current.programCount = current.programIds.length;
+      }
+      if (row.program.title && !current.programTitles.includes(row.program.title)) {
+        current.programTitles.push(row.program.title);
+      }
+      if (
+        row.expiresAt &&
+        (!current.expiresAt || row.expiresAt.getTime() > new Date(current.expiresAt).getTime())
+      ) {
+        current.expiresAt = row.expiresAt.toISOString();
+      }
+
+      current.isTrial = current.isTrial || row.isTrial;
+      current.isLegacy = current.isLegacy && row.academySubscriptionId !== currentSubscriptionId;
+
+      map.set(subject.id, current);
+    }
+
+    return [...map.values()].sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+  }
+
+  private async getCurrentSubjectSelections(userId: string, subscriptionId: string) {
+    const rows = await prisma.programEnrollment.findMany({
+      where: {
+        userId,
+        academySubscriptionId: subscriptionId,
+        isActive: true,
+      },
+      include: {
+        program: {
+          include: {
+            course: {
+              include: {
+                subject: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    });
+
+    return {
+      rows,
+      subjectIds: this.collectSubjectIds(rows),
+    };
+  }
+
+  private async getCatalogProgram(programId: string) {
+    const catalogTenantId = await resolveAcademyCatalogTenantId();
+    if (!catalogTenantId) {
+      throw new AppError(
+        503,
+        'ACADEMY_CATALOG_NOT_CONFIGURED',
+        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+      );
+    }
+
+    const program = await prisma.program.findFirst({
+      where: {
+        id: programId,
+        tenantId: catalogTenantId,
+        isActive: true,
+        listedInPublicCatalog: true,
+      },
+      include: {
+        course: {
+          include: {
+            subject: true,
+          },
+        },
+      },
+    });
+
+    if (!program) {
+      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
+    }
+
+    return program;
+  }
+
+  private async getCatalogProgramsForSubject(subjectId: string) {
+    const catalogTenantId = await resolveAcademyCatalogTenantId();
+    if (!catalogTenantId) {
+      throw new AppError(
+        503,
+        'ACADEMY_CATALOG_NOT_CONFIGURED',
+        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+      );
+    }
+
+    const programs = await prisma.program.findMany({
+      where: {
+        tenantId: catalogTenantId,
+        isActive: true,
+        listedInPublicCatalog: true,
+        course: {
+          is: {
+            isActive: true,
+            subjectId,
+          },
+        },
+      },
+      include: {
+        course: {
+          include: {
+            subject: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    if (!programs.length) {
+      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found in academy catalog.');
+    }
+
+    return programs;
+  }
+
   async ensureTrialSubscription(
     userId: string,
     tenantId: string,
@@ -171,36 +393,10 @@ export class AcademySubscriptionService {
         planCode: AcademyPlanCode.TRIAL,
         status: AcademySubscriptionStatus.TRIAL,
         isTrial: true,
-        courseLimit: ACADEMY_COURSE_LIMIT,
+        courseLimit: ACADEMY_SUBJECT_LIMIT,
         expiresAt: createTrialExpiry(),
       },
     });
-  }
-
-  private async getCatalogProgram(programId: string) {
-    const catalogTenantId = await resolveAcademyCatalogTenantId();
-    if (!catalogTenantId) {
-      throw new AppError(
-        503,
-        'ACADEMY_CATALOG_NOT_CONFIGURED',
-        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
-      );
-    }
-
-    const program = await prisma.program.findFirst({
-      where: {
-        id: programId,
-        tenantId: catalogTenantId,
-        isActive: true,
-        listedInPublicCatalog: true,
-      },
-    });
-
-    if (!program) {
-      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
-    }
-
-    return program;
   }
 
   private async buildSummary(subscription: AcademySubscription, userId: string) {
@@ -214,7 +410,15 @@ export class AcademySubscriptionService {
           isActive: true,
         },
         include: {
-          program: true,
+          program: {
+            include: {
+              course: {
+                include: {
+                  subject: true,
+                },
+              },
+            },
+          },
         },
         orderBy: [{ updatedAt: 'desc' }],
       }),
@@ -225,7 +429,15 @@ export class AcademySubscriptionService {
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         include: {
-          program: true,
+          program: {
+            include: {
+              course: {
+                include: {
+                  subject: true,
+                },
+              },
+            },
+          },
         },
         orderBy: [{ updatedAt: 'desc' }],
       }),
@@ -239,6 +451,10 @@ export class AcademySubscriptionService {
       }),
     ]);
 
+    const selectedSubjects = this.buildSubjectSelections(selectedRows, current.id);
+    const accessibleSubjects = this.buildSubjectSelections(accessibleRows, current.id);
+    const remainingSubjectSlots = Math.max(0, current.courseLimit - selectedSubjects.length);
+
     const selectedPrograms = selectedRows.map((row) => ({
       enrollmentId: row.id,
       programId: row.programId,
@@ -246,6 +462,8 @@ export class AcademySubscriptionService {
       description: row.program.description,
       thumbnail: row.program.thumbnail,
       courseId: row.program.courseId,
+      subjectId: row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null,
+      subjectName: row.program.course?.subject?.name ?? null,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       isTrial: row.isTrial,
     }));
@@ -257,9 +475,13 @@ export class AcademySubscriptionService {
         status: academyStatusToApi(current.status),
         isTrial: current.isTrial,
         expiresAt: current.expiresAt?.toISOString() ?? null,
+        subjectLimit: current.courseLimit,
+        remainingSubjectSlots,
         courseLimit: current.courseLimit,
-        remainingSlots: Math.max(0, current.courseLimit - selectedPrograms.length),
+        remainingSlots: remainingSubjectSlots,
       },
+      selectedSubjects,
+      accessibleSubjects,
       selectedPrograms,
       accessiblePrograms: accessibleRows.map((row) => ({
         enrollmentId: row.id,
@@ -268,6 +490,8 @@ export class AcademySubscriptionService {
         description: row.program.description,
         thumbnail: row.program.thumbnail,
         courseId: row.program.courseId,
+        subjectId: row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null,
+        subjectName: row.program.course?.subject?.name ?? null,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         isTrial: row.isTrial,
         isLegacy: row.academySubscriptionId !== current.id,
@@ -339,28 +563,6 @@ export class AcademySubscriptionService {
   }
 
   async selectProgram(userId: string, tenantId: string, programId: string) {
-    const subscription = await this.ensureTrialSubscription(userId, tenantId);
-    const current = await this.syncSubscriptionStatus(subscription);
-
-    if (
-      current.status !== AcademySubscriptionStatus.ACTIVE &&
-      current.status !== AcademySubscriptionStatus.TRIAL
-    ) {
-      throw new AppError(
-        403,
-        'ACADEMY_SUBSCRIPTION_REQUIRED',
-        'Activate a plan or trial before selecting courses.',
-      );
-    }
-
-    if (current.expiresAt && current.expiresAt.getTime() <= Date.now()) {
-      throw new AppError(
-        403,
-        'ACADEMY_SUBSCRIPTION_EXPIRED',
-        'Your academy plan has expired. Renew to manage course access.',
-      );
-    }
-
     const program = await this.getCatalogProgram(programId);
     if (!program.courseId) {
       throw new AppError(
@@ -370,87 +572,114 @@ export class AcademySubscriptionService {
       );
     }
 
-    const [selectedCount, existing] = await Promise.all([
-      prisma.programEnrollment.count({
-        where: {
-          userId,
-          academySubscriptionId: current.id,
-          isActive: true,
-        },
-      }),
-      prisma.programEnrollment.findUnique({
-        where: {
-          userId_programId: {
-            userId,
-            programId,
-          },
-        },
-      }),
-    ]);
-
-    const alreadySelected =
-      existing && existing.academySubscriptionId === current.id && existing.isActive;
-    if (!alreadySelected && selectedCount >= current.courseLimit) {
+    const subjectId = program.course?.subject?.id ?? program.course?.subjectId ?? null;
+    if (!subjectId) {
       throw new AppError(
-        409,
-        'ACADEMY_SELECTION_LIMIT_REACHED',
-        `You can only keep ${current.courseLimit} academy courses active at a time.`,
+        400,
+        'PROGRAM_SUBJECT_NOT_READY',
+        'This program is not linked to a subject yet.',
       );
     }
 
-    await prisma.programEnrollment.upsert({
-      where: {
-        userId_programId: {
-          userId,
-          programId,
-        },
-      },
-      update: {
-        tenantId,
-        academySubscriptionId: current.id,
-        expiresAt: current.expiresAt,
-        isActive: true,
-        isTrial: current.isTrial,
-      },
-      create: {
-        tenantId,
-        userId,
-        programId,
-        academySubscriptionId: current.id,
-        expiresAt: current.expiresAt,
-        isActive: true,
-        isTrial: current.isTrial,
-      },
-    });
+    return this.selectSubject(userId, tenantId, subjectId);
+  }
+
+  async selectSubject(userId: string, tenantId: string, subjectId: string) {
+    const current = await this.ensureSelectableSubscription(userId, tenantId);
+    const programs = await this.getCatalogProgramsForSubject(subjectId);
+    const { subjectIds } = await this.getCurrentSubjectSelections(userId, current.id);
+
+    if (!subjectIds.has(subjectId) && subjectIds.size >= current.courseLimit) {
+      throw new AppError(
+        409,
+        'ACADEMY_SELECTION_LIMIT_REACHED',
+        `You can only keep ${current.courseLimit} academy subjects active at a time.`,
+      );
+    }
+
+    await prisma.$transaction(
+      programs.map((program) =>
+        prisma.programEnrollment.upsert({
+          where: {
+            userId_programId: {
+              userId,
+              programId: program.id,
+            },
+          },
+          update: {
+            tenantId,
+            academySubscriptionId: current.id,
+            expiresAt: current.expiresAt,
+            isActive: true,
+            isTrial: current.isTrial,
+          },
+          create: {
+            tenantId,
+            userId,
+            programId: program.id,
+            academySubscriptionId: current.id,
+            expiresAt: current.expiresAt,
+            isActive: true,
+            isTrial: current.isTrial,
+          },
+        }),
+      ),
+    );
 
     return this.buildSummary(current, userId);
   }
 
   async removeProgram(userId: string, tenantId: string, programId: string) {
-    const subscription = await this.ensureTrialSubscription(userId, tenantId);
-
-    const existing = await prisma.programEnrollment.findUnique({
-      where: {
-        userId_programId: {
-          userId,
-          programId,
-        },
-      },
-    });
-
-    if (!existing || existing.academySubscriptionId !== subscription.id || !existing.isActive) {
-      throw new AppError(404, 'PROGRAM_NOT_SELECTED', 'This program is not selected on your plan.');
+    const program = await this.getCatalogProgram(programId);
+    const subjectId = program.course?.subject?.id ?? program.course?.subjectId ?? null;
+    if (!subjectId) {
+      throw new AppError(
+        400,
+        'PROGRAM_SUBJECT_NOT_READY',
+        'This program is not linked to a subject yet.',
+      );
     }
 
-    await prisma.programEnrollment.update({
-      where: { id: existing.id },
+    return this.removeSubject(userId, tenantId, subjectId);
+  }
+
+  async removeSubject(userId: string, tenantId: string, subjectId: string) {
+    const subscription = await this.ensureTrialSubscription(userId, tenantId);
+    const current = await this.syncSubscriptionStatus(subscription);
+
+    const selectedRows = await prisma.programEnrollment.findMany({
+      where: {
+        userId,
+        academySubscriptionId: current.id,
+        isActive: true,
+        program: {
+          course: {
+            is: {
+              subjectId,
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!selectedRows.length) {
+      throw new AppError(404, 'SUBJECT_NOT_SELECTED', 'This subject is not selected on your plan.');
+    }
+
+    await prisma.programEnrollment.updateMany({
+      where: {
+        id: {
+          in: selectedRows.map((row) => row.id),
+        },
+      },
       data: {
         academySubscriptionId: null,
         isActive: false,
       },
     });
 
-    return this.buildSummary(subscription, userId);
+    return this.buildSummary(current, userId);
   }
 
   async handlePaymentWebhook(ref: string, rawStatus: string) {
@@ -499,7 +728,7 @@ export class AcademySubscriptionService {
                 planCode: payment.planCode,
                 status: AcademySubscriptionStatus.ACTIVE,
                 isTrial: false,
-                courseLimit: ACADEMY_COURSE_LIMIT,
+                courseLimit: ACADEMY_SUBJECT_LIMIT,
                 expiresAt,
               },
             })
@@ -510,7 +739,7 @@ export class AcademySubscriptionService {
                 planCode: payment.planCode,
                 status: AcademySubscriptionStatus.ACTIVE,
                 isTrial: false,
-                courseLimit: ACADEMY_COURSE_LIMIT,
+                courseLimit: ACADEMY_SUBJECT_LIMIT,
                 expiresAt,
               },
             });

@@ -15,7 +15,7 @@ jest.mock('../../src/db/prisma', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
-    program: { findFirst: jest.fn() },
+    program: { findFirst: jest.fn(), findMany: jest.fn() },
     programEnrollment: {
       count: jest.fn(),
       findUnique: jest.fn(),
@@ -52,7 +52,7 @@ const mockedPrisma = prisma as unknown as {
     findFirst: jest.Mock;
     findUnique: jest.Mock;
   };
-  program: { findFirst: jest.Mock };
+  program: { findFirst: jest.Mock; findMany: jest.Mock };
   programEnrollment: {
     count: jest.Mock;
     findUnique: jest.Mock;
@@ -109,7 +109,7 @@ describe('AcademySubscriptionService', () => {
     expect(result.courseLimit).toBe(3);
   });
 
-  it('blocks selecting a fourth academy course under the same subscription', async () => {
+  it('blocks selecting a fourth academy subject under the same subscription', async () => {
     mockedPrisma.academySubscription.findUnique.mockResolvedValue({
       id: 'sub-1',
       tenantId: 'academy-tenant',
@@ -122,18 +122,75 @@ describe('AcademySubscriptionService', () => {
       createdAt: new Date('2026-04-08T00:00:00.000Z'),
       updatedAt: new Date('2026-04-08T00:00:00.000Z'),
     });
-    mockedPrisma.program.findFirst.mockResolvedValue({
-      id: 'program-4',
-      tenantId: 'academy-tenant',
-      title: 'Program 4',
-      courseId: 'course-4',
-      isActive: true,
-      listedInPublicCatalog: true,
-    });
-    mockedPrisma.programEnrollment.count.mockResolvedValue(3);
-    mockedPrisma.programEnrollment.findUnique.mockResolvedValue(null);
+    mockedPrisma.program.findMany.mockResolvedValue([
+      {
+        id: 'program-4',
+        tenantId: 'academy-tenant',
+        title: 'Program 4',
+        courseId: 'course-4',
+        isActive: true,
+        listedInPublicCatalog: true,
+        course: {
+          id: 'course-4',
+          subjectId: 'subject-4',
+          subject: {
+            id: 'subject-4',
+            code: 'SCI',
+            name: 'Science',
+            description: 'Science subject',
+          },
+        },
+      },
+    ]);
+    mockedPrisma.programEnrollment.findMany.mockResolvedValueOnce([
+      {
+        id: 'enrollment-1',
+        programId: 'program-1',
+        academySubscriptionId: 'sub-1',
+        isActive: true,
+        isTrial: false,
+        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        program: {
+          courseId: 'course-1',
+          course: {
+            subjectId: 'subject-1',
+            subject: { id: 'subject-1', code: 'MATH', name: 'Mathematics', description: null },
+          },
+        },
+      },
+      {
+        id: 'enrollment-2',
+        programId: 'program-2',
+        academySubscriptionId: 'sub-1',
+        isActive: true,
+        isTrial: false,
+        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        program: {
+          courseId: 'course-2',
+          course: {
+            subjectId: 'subject-2',
+            subject: { id: 'subject-2', code: 'ENG', name: 'English', description: null },
+          },
+        },
+      },
+      {
+        id: 'enrollment-3',
+        programId: 'program-3',
+        academySubscriptionId: 'sub-1',
+        isActive: true,
+        isTrial: false,
+        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        program: {
+          courseId: 'course-3',
+          course: {
+            subjectId: 'subject-3',
+            subject: { id: 'subject-3', code: 'HIST', name: 'History', description: null },
+          },
+        },
+      },
+    ]);
 
-    await expect(service.selectProgram('user-1', 'academy-tenant', 'program-4')).rejects.toMatchObject({
+    await expect(service.selectSubject('user-1', 'academy-tenant', 'subject-4')).rejects.toMatchObject({
       code: 'ACADEMY_SELECTION_LIMIT_REACHED',
       statusCode: 409,
     });

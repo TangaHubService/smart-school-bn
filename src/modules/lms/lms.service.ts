@@ -1497,19 +1497,35 @@ export class LmsService {
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
-      include: { program: { select: { courseId: true } } },
+      include: {
+        program: {
+          select: {
+            courseId: true,
+            course: {
+              select: {
+                subjectId: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     const academyCourseIds = programEnrollments
       .map((pe) => pe.program.courseId)
       .filter((id): id is string => Boolean(id));
+    const academySubjectIds = [...new Set(
+      programEnrollments
+        .map((pe) => pe.program.course?.subjectId)
+        .filter((id): id is string => Boolean(id)),
+    )];
 
     const enrollmentPairs = student?.enrollments.map((item) => ({
       classRoomId: item.classRoomId,
       academicYearId: item.academicYearId,
     })) ?? [];
 
-    if (!enrollmentPairs.length && !academyCourseIds.length) {
+    if (!enrollmentPairs.length && !academyCourseIds.length && !academySubjectIds.length) {
       return {
         student: {
           id: student?.id ?? actor.sub,
@@ -1535,6 +1551,12 @@ export class LmsService {
     }
     if (academyCourseIds.length) {
       orBlocks.push({ id: { in: academyCourseIds } });
+    }
+    if (academySubjectIds.length) {
+      orBlocks.push({
+        tenantId,
+        subjectId: { in: academySubjectIds },
+      });
     }
 
     const where: Prisma.CourseWhereInput = {

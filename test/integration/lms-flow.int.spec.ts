@@ -300,6 +300,59 @@ describe('lms integration flow', () => {
     expect(myCourses.items[0].lessons[0].isPublished).toBe(true);
   });
 
+  it('expands academy subject access to every course under the selected subject', async () => {
+    mockedPrisma.student.findFirst.mockResolvedValue(null);
+    mockedPrisma.programEnrollment.findMany.mockResolvedValue([
+      {
+        id: 'academy-enrollment-1',
+        programId: 'program-1',
+        program: {
+          courseId: null,
+          course: {
+            subjectId: 'subject-1',
+          },
+        },
+      },
+    ]);
+
+    mockedPrisma.$transaction.mockResolvedValueOnce([
+      2,
+      [
+        {
+          ...buildCourseRow(),
+          lessons: [],
+          assignments: [],
+        },
+        {
+          ...buildCourseRow(),
+          id: 'course-2',
+          title: 'Geometry Basics',
+          lessons: [],
+          assignments: [],
+        },
+      ],
+    ]);
+
+    const myCourses = await lmsService.listMyCourses('tenant-1', studentActor, {
+      page: 1,
+      pageSize: 10,
+    });
+
+    expect(mockedPrisma.course.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({
+              tenantId: 'tenant-1',
+              subjectId: { in: ['subject-1'] },
+            }),
+          ]),
+        }),
+      }),
+    );
+    expect(myCourses.items).toHaveLength(2);
+  });
+
   it('teacher cannot create a course without selecting a subject', async () => {
     mockedPrisma.academicYear.findFirst.mockResolvedValue({ id: 'year-1' });
     mockedPrisma.classRoom.findFirst.mockResolvedValue({ id: 'class-1' });
