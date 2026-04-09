@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
+import { StaffService } from '../staff/staff.service';
 import { AuthService } from './auth.service';
 import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, ResetPasswordInput, VerifyOtpInput } from './auth.schemas';
 
 const authService = new AuthService();
+const staffService = new StaffService();
 
 function buildContext(req: Request) {
   return {
@@ -15,6 +17,11 @@ function buildContext(req: Request) {
 }
 
 export class AuthController {
+  async acceptInvite(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.acceptInvite(req.body, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
   async login(req: Request, res: Response): Promise<Response> {
     const result = await authService.login(req.body as LoginInput, buildContext(req));
     return sendSuccess(req, res, result);

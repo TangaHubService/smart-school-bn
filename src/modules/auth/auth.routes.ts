@@ -4,6 +4,7 @@ import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
+import { acceptInviteSchema } from '../staff/staff.schemas';
 import { AuthController } from './auth.controller';
 import { forgotPasswordSchema, loginSchema, logoutSchema, refreshSchema, registerSchema, resetPasswordSchema, verifyOtpSchema } from './auth.schemas';
 
@@ -22,6 +23,13 @@ authRoutes.post(
   validateBody(loginSchema),
   asyncHandler((req, res) => authController.login(req, res)),
 );
+
+authRoutes.post(
+  '/accept-invite',
+  validateBody(acceptInviteSchema),
+  asyncHandler((req, res) => authController.acceptInvite(req, res)),
+);
+
 authRoutes.post(
   '/refresh',
   validateBody(refreshSchema),

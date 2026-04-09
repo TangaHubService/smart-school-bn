@@ -29,7 +29,10 @@ export class StaffService {
     const role = await prisma.role.findFirst({
       where: {
         tenantId,
-        name: input.roleName,
+        name: {
+          equals: input.roleName,
+          mode: 'insensitive',
+        },
       },
     });
 
