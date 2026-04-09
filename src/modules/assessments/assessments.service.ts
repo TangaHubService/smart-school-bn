@@ -2099,7 +2099,10 @@ export class AssessmentsService {
       return;
     }
 
-    if (actor.roles.includes('STUDENT') && actor.sub === attempt.studentUserId) {
+    if (
+      actor.sub === attempt.studentUserId &&
+      (actor.roles.includes('STUDENT') || actor.roles.includes('PUBLIC_LEARNER'))
+    ) {
       return;
     }
 
