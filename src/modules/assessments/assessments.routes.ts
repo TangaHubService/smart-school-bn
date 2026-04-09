@@ -17,6 +17,7 @@ import {
   regradeAttemptSchema,
   replaceAssessmentAssigneesSchema,
   saveAttemptAnswersSchema,
+  updateAssessmentSchema,
   updateAssessmentPortalSchema,
   updateQuestionSchema,
 } from './assessments.schemas';
@@ -44,6 +45,13 @@ assessmentsRoutes.get(
   '/assessments/:id',
   requirePermissions([PERMISSIONS.ASSESSMENTS_READ]),
   asyncHandler((req, res) => assessmentsController.getAssessmentDetail(req, res)),
+);
+
+assessmentsRoutes.patch(
+  '/assessments/:id',
+  requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
+  validateBody(updateAssessmentSchema),
+  asyncHandler((req, res) => assessmentsController.updateAssessment(req, res)),
 );
 
 assessmentsRoutes.post(

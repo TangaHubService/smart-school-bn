@@ -21,6 +21,7 @@ import {
   ReplaceAssessmentAssigneesInput,
   SaveAttemptAnswersInput,
   StartAssessmentAttemptInput,
+  UpdateAssessmentInput,
   UpdateAssessmentPortalInput,
   UpdateQuestionInput,
 } from './assessments.schemas';
@@ -163,6 +164,71 @@ export class AssessmentsService {
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
 
     return this.mapAssessmentDetail(assessment);
+  }
+
+  async updateAssessment(
+    tenantId: string,
+    assessmentId: string,
+    input: UpdateAssessmentInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
+    this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
+
+    if (assessment._count.attempts > 0) {
+      throw new AppError(
+        409,
+        'ASSESSMENT_ALREADY_HAS_ATTEMPTS',
+        'Assessment settings are locked after students start attempting this assessment',
+      );
+    }
+
+    if (input.lessonId) {
+      await this.ensureLessonInCourse(tenantId, input.lessonId, assessment.course.id);
+    }
+
+    const instructions =
+      input.instructions === undefined
+        ? undefined
+        : input.instructions && input.instructions.trim().length > 0
+          ? input.instructions
+          : null;
+
+    const updated: any = await prisma.assessment.update({
+      where: {
+        id: assessment.id,
+      },
+      data: {
+        ...(input.lessonId !== undefined ? { lessonId: input.lessonId } : {}),
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(instructions !== undefined ? { instructions } : {}),
+        ...(input.dueAt !== undefined ? { dueAt: input.dueAt ? new Date(input.dueAt) : null } : {}),
+        ...(input.timeLimitMinutes !== undefined ? { timeLimitMinutes: input.timeLimitMinutes } : {}),
+        ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
+        updatedByUserId: actor.sub,
+      },
+      include: this.assessmentSummaryInclude,
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.ASSESSMENT_UPDATED,
+      entity: 'Assessment',
+      entityId: updated.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        lessonId: updated.lessonId,
+        dueAt: updated.dueAt,
+        timeLimitMinutes: updated.timeLimitMinutes,
+        maxAttempts: updated.maxAttempts,
+      },
+    });
+
+    return this.mapAssessmentSummary(updated);
   }
 
   async addQuestion(

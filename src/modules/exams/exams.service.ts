@@ -18,11 +18,12 @@ import {
   ListExamsQueryInput,
   MarksGridQueryInput,
   MarksGridSaveInput,
-  ParentReportCardsQueryInput,
   MyExamScheduleQueryInput,
+  ParentReportCardsQueryInput,
   ReportCardsCatalogQueryInput,
   ReportCardsQueryInput,
   ResultsActionInput,
+  UpdateExamInput,
 } from './exams.schemas';
 import {
   loadLedgerConductDisplayMap,
@@ -118,62 +119,27 @@ export class ExamsService {
     actor: JwtUser,
     context: RequestAuditContext,
   ) {
-    const term = await prisma.term.findFirst({
-      where: { id: input.termId, tenantId, isActive: true },
-      include: { academicYear: { select: { id: true, name: true } } },
-    });
-
-    if (!term) {
-      throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
-    }
-
-    const classRoom = await prisma.classRoom.findFirst({
-      where: { id: input.classRoomId, tenantId, isActive: true },
-      select: { id: true, code: true, name: true },
-    });
-    if (!classRoom) {
-      throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found');
-    }
-
-    const subject = await prisma.subject.findFirst({
-      where: { id: input.subjectId, tenantId, isActive: true },
-      select: { id: true, code: true, name: true },
-    });
-    if (!subject) {
-      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
-    }
-
-    const gradingScheme = await this.getGradingSchemeForUse(tenantId, input.gradingSchemeId);
-
-    const course = await prisma.course.findFirst({
-      where: {
-        tenantId,
-        academicYearId: term.academicYearId,
+    const scope = await this.resolveExamScope(
+      tenantId,
+      {
+        termId: input.termId,
         classRoomId: input.classRoomId,
         subjectId: input.subjectId,
-        isActive: true,
       },
-      orderBy: [{ createdAt: 'asc' }],
-      select: { id: true, teacherUserId: true },
-    });
-
-    if (!course && actor.roles.includes('TEACHER')) {
-      throw new AppError(409, 'EXAM_SCOPE_COURSE_REQUIRED', 'Create the course before creating an exam for this class and subject');
-    }
-
-    const teacherUserId = course?.teacherUserId ?? actor.sub;
-    this.ensureCanManageTeacherOwnedEntity(teacherUserId, actor);
+      actor,
+    );
+    const gradingScheme = await this.getGradingSchemeForUse(tenantId, input.gradingSchemeId);
 
     try {
       const created = await prisma.exam.create({
         data: {
           tenantId,
-          academicYearId: term.academicYearId,
+          academicYearId: scope.term.academicYearId,
           termId: input.termId,
           classRoomId: input.classRoomId,
           subjectId: input.subjectId,
           gradingSchemeId: gradingScheme.id,
-          teacherUserId,
+          teacherUserId: scope.teacherUserId,
           examType: input.examType ?? 'EXAM',
           name: input.name,
           description: input.description,
@@ -302,6 +268,173 @@ export class ExamsService {
       warnings: {
         missingCount: students.filter((student) => !this.isExamMarkComplete(markByStudentId.get(student.id))).length,
       },
+    };
+  }
+
+  async updateExam(
+    tenantId: string,
+    examId: string,
+    input: UpdateExamInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const exam = await this.getExamForManage(tenantId, examId, actor);
+    await this.ensureResultsUnlocked(tenantId, exam.termId, exam.classRoomId);
+
+    const nextTermId = input.termId ?? exam.termId;
+    const nextClassRoomId = input.classRoomId ?? exam.classRoomId;
+    const nextSubjectId = input.subjectId ?? exam.subjectId;
+    const scopeChanged =
+      nextTermId !== exam.termId ||
+      nextClassRoomId !== exam.classRoomId ||
+      nextSubjectId !== exam.subjectId;
+
+    if (scopeChanged && exam.marks.length > 0) {
+      throw new AppError(
+        409,
+        'EXAM_SCOPE_LOCKED_BY_MARKS',
+        'Remove existing marks before changing the term, class, or subject for this exam',
+      );
+    }
+
+    let nextAcademicYearId = exam.academicYearId;
+    let nextTeacherUserId = exam.teacherUserId;
+
+    if (scopeChanged) {
+      const scope = await this.resolveExamScope(
+        tenantId,
+        {
+          termId: nextTermId,
+          classRoomId: nextClassRoomId,
+          subjectId: nextSubjectId,
+        },
+        actor,
+        exam.teacherUserId,
+      );
+      await this.ensureResultsUnlocked(tenantId, nextTermId, nextClassRoomId);
+      nextAcademicYearId = scope.term.academicYearId;
+      nextTeacherUserId = scope.teacherUserId;
+    }
+
+    let nextGradingSchemeId = exam.gradingSchemeId;
+    if (input.gradingSchemeId !== undefined) {
+      const gradingScheme = await this.getGradingSchemeForUse(
+        tenantId,
+        input.gradingSchemeId ?? undefined,
+      );
+      nextGradingSchemeId = gradingScheme.id;
+    }
+
+    const nextTotalMarks = input.totalMarks ?? exam.totalMarks;
+    const highestRecordedMark = exam.marks.reduce(
+      (highest, mark: any) => Math.max(highest, mark.marksObtained ?? 0),
+      0,
+    );
+    if (nextTotalMarks < highestRecordedMark) {
+      throw new AppError(
+        400,
+        'EXAM_TOTAL_MARKS_TOO_LOW',
+        `Total marks cannot be lower than the highest recorded mark (${highestRecordedMark})`,
+      );
+    }
+
+    try {
+      const updated = await prisma.exam.update({
+        where: { id: exam.id },
+        data: {
+          academicYearId: nextAcademicYearId,
+          termId: nextTermId,
+          classRoomId: nextClassRoomId,
+          subjectId: nextSubjectId,
+          gradingSchemeId: nextGradingSchemeId,
+          teacherUserId: nextTeacherUserId,
+          examType: input.examType ?? exam.examType ?? 'EXAM',
+          name: input.name ?? exam.name,
+          description: input.description !== undefined ? input.description || null : exam.description,
+          totalMarks: nextTotalMarks,
+          weight: input.weight ?? exam.weight,
+          examDate:
+            input.examDate !== undefined
+              ? input.examDate
+                ? new Date(input.examDate)
+                : null
+              : exam.examDate,
+          updatedByUserId: actor.sub,
+        },
+        include: this.examListInclude,
+      });
+
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.EXAM_UPDATED,
+        entity: 'Exam',
+        entityId: updated.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          scopeChanged,
+          previousScope: {
+            termId: exam.termId,
+            classRoomId: exam.classRoomId,
+            subjectId: exam.subjectId,
+          },
+          nextScope: {
+            termId: nextTermId,
+            classRoomId: nextClassRoomId,
+            subjectId: nextSubjectId,
+          },
+          totalMarks: updated.totalMarks,
+          weight: updated.weight,
+          examType: updated.examType,
+        },
+      });
+
+      return {
+        ...this.mapExamSummary(updated),
+        resultStatus: 'UNLOCKED' as const,
+      };
+    } catch (error) {
+      this.handleUniqueError(error, 'Exam already exists for this term, class, and subject');
+      throw error;
+    }
+  }
+
+  async deleteExam(
+    tenantId: string,
+    examId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const exam = await this.getExamForManage(tenantId, examId, actor);
+    await this.ensureResultsUnlocked(tenantId, exam.termId, exam.classRoomId);
+
+    await prisma.exam.delete({
+      where: { id: exam.id },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.EXAM_DELETED,
+      entity: 'Exam',
+      entityId: exam.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        name: exam.name,
+        termId: exam.termId,
+        classRoomId: exam.classRoomId,
+        subjectId: exam.subjectId,
+        marksDeletedCount: exam.marks.length,
+      },
+    });
+
+    return {
+      id: exam.id,
+      deleted: true,
     };
   }
 
@@ -2390,6 +2523,72 @@ export class ExamsService {
     });
 
     return students.map((row) => row.student);
+  }
+
+  private async resolveExamScope(
+    tenantId: string,
+    input: {
+      termId: string;
+      classRoomId: string;
+      subjectId: string;
+    },
+    actor: JwtUser,
+    fallbackTeacherUserId?: string,
+  ) {
+    const [term, classRoom, subject] = await prisma.$transaction([
+      prisma.term.findFirst({
+        where: { id: input.termId, tenantId, isActive: true },
+        include: { academicYear: { select: { id: true, name: true } } },
+      }),
+      prisma.classRoom.findFirst({
+        where: { id: input.classRoomId, tenantId, isActive: true },
+        select: { id: true, code: true, name: true },
+      }),
+      prisma.subject.findFirst({
+        where: { id: input.subjectId, tenantId, isActive: true },
+        select: { id: true, code: true, name: true },
+      }),
+    ]);
+
+    if (!term) {
+      throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
+    }
+    if (!classRoom) {
+      throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found');
+    }
+    if (!subject) {
+      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
+    }
+
+    const course = await prisma.course.findFirst({
+      where: {
+        tenantId,
+        academicYearId: term.academicYearId,
+        classRoomId: input.classRoomId,
+        subjectId: input.subjectId,
+        isActive: true,
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      select: { teacherUserId: true },
+    });
+
+    if (!course && this.isTeacherOnly(actor)) {
+      throw new AppError(
+        409,
+        'EXAM_SCOPE_COURSE_REQUIRED',
+        'Create the course before managing an exam for this class and subject',
+      );
+    }
+
+    const teacherUserId = course?.teacherUserId ?? fallbackTeacherUserId ?? actor.sub;
+    this.ensureCanManageTeacherOwnedEntity(teacherUserId, actor);
+
+    return {
+      term,
+      classRoom,
+      subject,
+      teacherUserId,
+    };
   }
 
   private async getExamForRead(tenantId: string, examId: string, actor: JwtUser) {

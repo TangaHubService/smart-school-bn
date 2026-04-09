@@ -8,6 +8,7 @@ import {
   listMyAssessmentsQuerySchema,
   replaceAssessmentAssigneesSchema,
   startAssessmentAttemptSchema,
+  updateAssessmentSchema,
   updateAssessmentPortalSchema,
 } from './assessments.schemas';
 
@@ -45,6 +46,19 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       req.user!,
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async updateAssessment(req: Request, res: Response): Promise<Response> {
+    const body = updateAssessmentSchema.parse(req.body ?? {});
+    const result = await assessmentsService.updateAssessment(
+      req.tenantId!,
+      req.params.id,
+      body,
+      req.user!,
+      buildContext(req),
     );
 
     return sendSuccess(req, res, result);

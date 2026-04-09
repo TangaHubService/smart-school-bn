@@ -14,6 +14,7 @@ import {
   createGradingSchemeSchema,
   marksGridSaveSchema,
   resultsActionSchema,
+  updateExamSchema,
 } from './exams.schemas';
 
 const examsController = new ExamsController();
@@ -57,6 +58,19 @@ examsRoutes.get(
   '/exams/:examId',
   requirePermissions([PERMISSIONS.EXAMS_READ]),
   asyncHandler((req, res) => examsController.getExamDetail(req, res)),
+);
+
+examsRoutes.patch(
+  '/exams/:examId',
+  requirePermissions([PERMISSIONS.EXAMS_MANAGE]),
+  validateBody(updateExamSchema),
+  asyncHandler((req, res) => examsController.updateExam(req, res)),
+);
+
+examsRoutes.delete(
+  '/exams/:examId',
+  requirePermissions([PERMISSIONS.EXAMS_MANAGE]),
+  asyncHandler((req, res) => examsController.deleteExam(req, res)),
 );
 
 examsRoutes.get(

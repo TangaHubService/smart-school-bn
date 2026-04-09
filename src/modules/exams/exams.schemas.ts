@@ -39,6 +39,24 @@ export const createExamSchema = z
   })
   .strict();
 
+export const updateExamSchema = z
+  .object({
+    termId: z.string().uuid().optional(),
+    classRoomId: z.string().uuid().optional(),
+    subjectId: z.string().uuid().optional(),
+    gradingSchemeId: z.string().uuid().nullable().optional(),
+    examType: examTypeSchema.optional(),
+    name: z.string().trim().min(2).max(120).optional(),
+    description: z.string().trim().max(500).nullable().optional(),
+    totalMarks: z.number().int().min(1).max(500).optional(),
+    weight: z.number().int().min(1).max(500).optional(),
+    examDate: z.string().datetime().nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  });
+
 export const listExamsQuerySchema = z.object({
   termId: z.string().uuid().optional(),
   classId: z.string().uuid().optional(),
@@ -171,6 +189,7 @@ export const marksGridSaveSchema = z
 
 export type CreateGradingSchemeInput = z.infer<typeof createGradingSchemeSchema>;
 export type CreateExamInput = z.infer<typeof createExamSchema>;
+export type UpdateExamInput = z.infer<typeof updateExamSchema>;
 export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
 export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;

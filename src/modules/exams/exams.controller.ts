@@ -56,6 +56,16 @@ export class ExamsController {
     return sendSuccess(req, res, result);
   }
 
+  async updateExam(req: Request, res: Response) {
+    const result = await examsService.updateExam(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteExam(req: Request, res: Response) {
+    const result = await examsService.deleteExam(req.tenantId!, req.params.examId, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
   async bulkSaveMarks(req: Request, res: Response) {
     const result = await examsService.bulkSaveMarks(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
     return sendSuccess(req, res, result);

@@ -490,6 +490,7 @@ export class StudentsService {
     actor: JwtUser,
     context: RequestAuditContext,
   ) {
+    const effectiveTenantId = await this.resolveImportTenantId(tenantId, input.targetTenantId, actor);
     const parsedRows = this.parseCsvContent(input.csv);
 
     if (!parsedRows.length) {
@@ -507,7 +508,7 @@ export class StudentsService {
 
     const academicYears = await prisma.academicYear.findMany({
       where: {
-        tenantId,
+        tenantId: effectiveTenantId,
         isActive: true,
       },
       select: {
@@ -518,7 +519,7 @@ export class StudentsService {
 
     const classRooms = await prisma.classRoom.findMany({
       where: {
-        tenantId,
+        tenantId: effectiveTenantId,
         isActive: true,
       },
       select: {
@@ -586,10 +587,10 @@ export class StudentsService {
       }
 
       const yearIdRaw =
-        this.readCsvField(source, CSV_HEADER_ALIASES.academicYearId) ??
-        input.defaultAcademicYearId ??
+        this.readCsvField(source, CSV_HEADER_ALIASES.academicYearId) ||
+        input.defaultAcademicYearId ||
         null;
-      const yearNameRaw = this.readCsvField(source, CSV_HEADER_ALIASES.academicYearName);
+      const yearNameRaw = this.readCsvField(source, CSV_HEADER_ALIASES.academicYearName) || null;
 
       let academicYearId: string | null = null;
       if (yearIdRaw && yearById.has(yearIdRaw)) {
@@ -603,10 +604,10 @@ export class StudentsService {
       }
 
       const classIdRaw =
-        this.readCsvField(source, CSV_HEADER_ALIASES.classRoomId) ??
-        input.defaultClassRoomId ??
+        this.readCsvField(source, CSV_HEADER_ALIASES.classRoomId) ||
+        input.defaultClassRoomId ||
         null;
-      const classCodeRaw = this.readCsvField(source, CSV_HEADER_ALIASES.classCode);
+      const classCodeRaw = this.readCsvField(source, CSV_HEADER_ALIASES.classCode) || null;
 
       let classRoomId: string | null = null;
       if (classIdRaw && classById.has(classIdRaw)) {
@@ -652,7 +653,7 @@ export class StudentsService {
     if (candidateCodes.length) {
       const existing = await prisma.student.findMany({
         where: {
-          tenantId,
+          tenantId: effectiveTenantId,
           studentCode: {
             in: candidateCodes,
           },
@@ -683,6 +684,7 @@ export class StudentsService {
     if (input.mode === 'preview') {
       return {
         mode: 'preview',
+        targetTenantId: effectiveTenantId,
         summary,
         rows: previewRows,
       };
@@ -703,6 +705,7 @@ export class StudentsService {
     if (!validRows.length) {
       return {
         mode: 'commit',
+        targetTenantId: effectiveTenantId,
         summary: {
           ...summary,
           importedRows: 0,
@@ -718,7 +721,7 @@ export class StudentsService {
       await prisma.$transaction(async (tx) => {
         await tx.student.createMany({
           data: validRows.map((row) => ({
-            tenantId,
+            tenantId: effectiveTenantId,
             studentCode: row.studentCode,
             firstName: row.firstName,
             lastName: row.lastName,
@@ -729,7 +732,7 @@ export class StudentsService {
 
         const insertedStudents = await tx.student.findMany({
           where: {
-            tenantId,
+            tenantId: effectiveTenantId,
             studentCode: {
               in: importedStudentCodes,
             },
@@ -757,7 +760,7 @@ export class StudentsService {
             }
 
             return {
-              tenantId,
+              tenantId: effectiveTenantId,
               studentId,
               academicYearId: row.academicYearId,
               classRoomId: row.classRoomId,
@@ -769,7 +772,7 @@ export class StudentsService {
       });
 
       await this.auditService.log({
-        tenantId,
+        tenantId: effectiveTenantId,
         actorUserId: actor.sub,
         event: AUDIT_EVENT.STUDENT_IMPORT_COMMITTED,
         entity: 'Student',
@@ -779,11 +782,13 @@ export class StudentsService {
         payload: {
           importedRows: validRows.length,
           skippedRows: invalidRows,
+          sourceTenantId: tenantId,
         },
       });
 
       return {
         mode: 'commit',
+        targetTenantId: effectiveTenantId,
         summary: {
           ...summary,
           importedRows: validRows.length,
@@ -795,6 +800,40 @@ export class StudentsService {
       this.handleUniqueError(error, 'Import failed because some student codes already exist');
       throw error;
     }
+  }
+
+  private async resolveImportTenantId(
+    tenantId: string,
+    targetTenantId: string | undefined,
+    actor: JwtUser,
+  ) {
+    if (!targetTenantId || targetTenantId === tenantId) {
+      return tenantId;
+    }
+
+    if (!actor.roles.includes('SUPER_ADMIN')) {
+      throw new AppError(
+        403,
+        'STUDENT_IMPORT_TENANT_FORBIDDEN',
+        'You cannot import students into another school',
+      );
+    }
+
+    const tenant = await prisma.tenant.findFirst({
+      where: {
+        id: targetTenantId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!tenant) {
+      throw new AppError(404, 'TENANT_NOT_FOUND', 'Selected school was not found');
+    }
+
+    return tenant.id;
   }
 
   async exportStudents(tenantId: string, query: ListStudentsQueryInput) {

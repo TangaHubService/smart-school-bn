@@ -84,6 +84,37 @@ export const createAssessmentSchema = z
   })
   .strict();
 
+export const updateAssessmentSchema = z
+  .object({
+    lessonId: z.string().uuid().nullable().optional(),
+    title: z.string().trim().min(2).max(160).optional(),
+    instructions: z
+      .string()
+      .max(20_000)
+      .nullable()
+      .optional()
+      .refine(
+        (value) => value === null || !value || htmlToPlainText(value).length >= 2,
+        'Instructions must contain readable text',
+      ),
+    dueAt: z.string().datetime().nullable().optional(),
+    timeLimitMinutes: z.number().int().min(1).max(240).nullable().optional(),
+    maxAttempts: z.number().int().min(1).max(5).optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.lessonId !== undefined ||
+      data.title !== undefined ||
+      data.instructions !== undefined ||
+      data.dueAt !== undefined ||
+      data.timeLimitMinutes !== undefined ||
+      data.maxAttempts !== undefined,
+    {
+      message: 'Provide at least one field to update',
+    },
+  );
+
 export const updateAssessmentPortalSchema = z
   .object({
     accessCode: z.string().trim().min(4).max(64).nullable().optional(),
@@ -174,6 +205,7 @@ export const listAssessmentAttemptsQuerySchema = z.object({
 });
 
 export type CreateAssessmentInput = z.infer<typeof createAssessmentSchema>;
+export type UpdateAssessmentInput = z.infer<typeof updateAssessmentSchema>;
 export type UpdateAssessmentPortalInput = z.infer<typeof updateAssessmentPortalSchema>;
 export type ReplaceAssessmentAssigneesInput = z.infer<typeof replaceAssessmentAssigneesSchema>;
 export type StartAssessmentAttemptInput = z.infer<typeof startAssessmentAttemptSchema>;

@@ -51,6 +51,7 @@ export const studentImportSchema = z.object({
   allowPartial: z.boolean().default(false),
   defaultAcademicYearId: z.string().uuid().optional(),
   defaultClassRoomId: z.string().uuid().optional(),
+  targetTenantId: z.string().uuid().optional(),
 });
 
 export type CreateStudentInput = z.infer<typeof createStudentSchema>;
