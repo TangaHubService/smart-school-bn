@@ -1563,6 +1563,21 @@ export class LmsService {
       isActive: true,
       OR: orBlocks,
     };
+    const publishedAssessmentVisibilityWhere: Prisma.AssessmentWhereInput = {
+      isPublished: true,
+      OR: student?.id
+        ? [
+            { portalAssignOnly: false },
+            {
+              studentAssignments: {
+                some: {
+                  studentId: student.id,
+                },
+              },
+            },
+          ]
+        : [{ portalAssignOnly: false }],
+    };
 
     // Get student's completed lessons for all courses
     const completedProgressMap = new Map<string, string[]>();
@@ -1619,7 +1634,7 @@ export class LmsService {
               attachmentAsset: true,
               submissions: {
                 where: {
-                  studentId: student?.id,
+                  studentId: student?.id ?? '__missing_student__',
                 },
                 include: {
                   student: {
@@ -1643,6 +1658,32 @@ export class LmsService {
               },
             },
             orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+          },
+          assessments: {
+            where: publishedAssessmentVisibilityWhere,
+            include: {
+              lesson: {
+                select: {
+                  id: true,
+                  title: true,
+                  sequence: true,
+                },
+              },
+              attempts: {
+                where: {
+                  studentId: student?.id ?? '__missing_student__',
+                },
+                orderBy: [{ attemptNumber: 'desc' }],
+                take: 1,
+              },
+              _count: {
+                select: {
+                  questions: true,
+                  attempts: true,
+                },
+              },
+            },
+            orderBy: [{ dueAt: 'asc' }, { updatedAt: 'desc' }],
           },
         },
         orderBy: [{ updatedAt: 'desc' }, { title: 'asc' }],
@@ -1679,18 +1720,25 @@ export class LmsService {
         firstName: student?.firstName ?? actor.email.split('@')[0],
         lastName: student?.lastName ?? '',
       },
-      items: items.map((item) => ({
-        ...this.mapCourse(item),
-        lessons: item.lessons.map((lesson) => this.mapLesson(lesson)),
-        assignments: item.assignments.map((assignment) => ({
-          ...this.mapAssignment(assignment),
-          mySubmission: assignment.submissions[0]
-            ? this.mapSubmission(assignment.submissions[0])
-            : null,
-        })),
-        completedLessonIds: completedProgressMap.get(item.id) ?? [],
-        submittedAssessmentIds: submittedByCourse.get(item.id) ?? [],
-      })),
+      items: items.map((item) => {
+        const mappedCourse = this.mapCourse(item);
+
+        return {
+          ...mappedCourse,
+          lessons: item.lessons.map((lesson) => this.mapLesson(lesson)),
+          assignments: item.assignments.map((assignment) => ({
+            ...this.mapAssignment(assignment),
+            mySubmission: assignment.submissions[0]
+              ? this.mapSubmission(assignment.submissions[0])
+              : null,
+          })),
+          assessments: item.assessments.map((assessment) =>
+            this.mapCourseAssessment(assessment, mappedCourse),
+          ),
+          completedLessonIds: completedProgressMap.get(item.id) ?? [],
+          submittedAssessmentIds: submittedByCourse.get(item.id) ?? [],
+        };
+      }),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -2357,6 +2405,125 @@ export class LmsService {
           }
         : null,
       submissionCount: assignment._count?.submissions ?? 0,
+    };
+  }
+
+  private mapCourseAssessment(
+    assessment: {
+      id: string;
+      type: string;
+      title: string;
+      instructions: string | null;
+      dueAt: Date | null;
+      timeLimitMinutes: number | null;
+      maxAttempts: number;
+      isPublished: boolean;
+      publishedAt: Date | null;
+      accessCode?: string | null;
+      portalAssignOnly: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+      lesson?: { id: string; title: string; sequence: number } | null;
+      attempts: Array<{
+        id: string;
+        attemptNumber: number;
+        status: string;
+        startedAt: Date;
+        submittedAt: Date | null;
+        autoScore: number | null;
+        manualScore: number | null;
+        maxScore: number | null;
+        manualFeedback?: string | null;
+        manuallyGradedAt?: Date | null;
+        manuallyGradedByUser?: {
+          id: string;
+          firstName: string;
+          lastName: string;
+        } | null;
+      }>;
+      _count: {
+        questions: number;
+        attempts: number;
+      };
+    },
+    course: {
+      id: string;
+      title: string;
+      description: string | null;
+      isActive: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+      academicYear: { id: string; name: string };
+      classRoom: { id: string; code: string; name: string };
+      subject: { id: string; code: string; name: string } | null;
+      teacher: { id: string; firstName: string; lastName: string; email: string };
+    },
+  ) {
+    return {
+      id: assessment.id,
+      type: assessment.type,
+      title: assessment.title,
+      instructions: assessment.instructions,
+      dueAt: assessment.dueAt,
+      timeLimitMinutes: assessment.timeLimitMinutes,
+      maxAttempts: assessment.maxAttempts,
+      isPublished: assessment.isPublished,
+      publishedAt: assessment.publishedAt,
+      portalAssignOnly: assessment.portalAssignOnly,
+      requiresAccessCode: Boolean(assessment.accessCode),
+      createdAt: assessment.createdAt,
+      updatedAt: assessment.updatedAt,
+      course: {
+        id: course.id,
+        title: course.title,
+        classRoom: course.classRoom,
+        academicYear: course.academicYear,
+        subject: course.subject,
+      },
+      lesson: assessment.lesson ?? null,
+      counts: {
+        questions: assessment._count.questions,
+        attempts: assessment._count.attempts,
+      },
+      latestAttempt: assessment.attempts[0]
+        ? this.mapCourseAssessmentAttemptSummary(assessment.attempts[0])
+        : null,
+    };
+  }
+
+  private mapCourseAssessmentAttemptSummary(attempt: {
+    id: string;
+    attemptNumber: number;
+    status: string;
+    startedAt: Date;
+    submittedAt: Date | null;
+    autoScore: number | null;
+    manualScore: number | null;
+    maxScore: number | null;
+    manualFeedback?: string | null;
+    manuallyGradedAt?: Date | null;
+    manuallyGradedByUser?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+    } | null;
+  }) {
+    const score = attempt.manualScore ?? attempt.autoScore ?? 0;
+
+    return {
+      id: attempt.id,
+      attemptNumber: attempt.attemptNumber,
+      status: attempt.status,
+      startedAt: attempt.startedAt,
+      submittedAt: attempt.submittedAt,
+      autoScore: attempt.autoScore,
+      manualScore: attempt.manualScore ?? null,
+      score,
+      maxScore: attempt.maxScore,
+      manualFeedback: attempt.manualFeedback ?? null,
+      manuallyGradedAt: attempt.manuallyGradedAt ?? null,
+      manuallyGradedByUser: attempt.manuallyGradedByUser ?? null,
+      student: null,
     };
   }
 

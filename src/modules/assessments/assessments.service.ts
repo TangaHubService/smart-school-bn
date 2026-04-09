@@ -231,6 +231,49 @@ export class AssessmentsService {
     return this.mapAssessmentSummary(updated);
   }
 
+  async deleteAssessment(
+    tenantId: string,
+    assessmentId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
+    this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
+
+    if (assessment._count.attempts > 0) {
+      throw new AppError(
+        409,
+        'ASSESSMENT_ALREADY_HAS_ATTEMPTS',
+        'Assessments cannot be deleted after students start attempting them',
+      );
+    }
+
+    await prisma.assessment.delete({
+      where: {
+        id: assessment.id,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.ASSESSMENT_DELETED,
+      entity: 'Assessment',
+      entityId: assessment.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        courseId: assessment.course.id,
+        questionCount: assessment._count.questions,
+        studentAssignmentCount: assessment._count.studentAssignments,
+        wasPublished: assessment.isPublished,
+      },
+    });
+
+    return { id: assessment.id, deleted: true };
+  }
+
   async addQuestion(
     tenantId: string,
     assessmentId: string,
@@ -708,12 +751,13 @@ export class AssessmentsService {
     query: ListMyAssessmentsQueryInput,
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
-    const enrollmentPairs = student.enrollments.map((enrollment) => ({
-      classRoomId: enrollment.classRoomId,
-      academicYearId: enrollment.academicYearId,
-    }));
+    const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
-    if (!enrollmentPairs.length) {
+    if (
+      !accessScope.enrollmentPairs.length &&
+      !accessScope.academyCourseIds.length &&
+      !accessScope.academySubjectIds.length
+    ) {
       return {
         student: this.mapStudentProfile(student),
         items: [],
@@ -747,12 +791,7 @@ export class AssessmentsService {
       isPublished: true,
       AND: [
         {
-          OR: enrollmentPairs.map((pair) => ({
-            course: {
-              classRoomId: pair.classRoomId,
-              academicYearId: pair.academicYearId,
-            },
-          })),
+          OR: this.buildStudentAssessmentCourseAccessFilters(tenantId, accessScope),
         },
         {
           OR: [
@@ -807,12 +846,13 @@ export class AssessmentsService {
     actor: JwtUser,
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
-    const enrollmentPairs = student.enrollments.map((enrollment) => ({
-      classRoomId: enrollment.classRoomId,
-      academicYearId: enrollment.academicYearId,
-    }));
+    const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
-    if (!enrollmentPairs.length) {
+    if (
+      !accessScope.enrollmentPairs.length &&
+      !accessScope.academyCourseIds.length &&
+      !accessScope.academySubjectIds.length
+    ) {
       throw new AppError(403, 'ASSESSMENT_ACCESS_DENIED', 'Student is not assigned to an active class');
     }
 
@@ -823,12 +863,7 @@ export class AssessmentsService {
         isPublished: true,
         AND: [
           {
-            OR: enrollmentPairs.map((pair) => ({
-              course: {
-                classRoomId: pair.classRoomId,
-                academicYearId: pair.academicYearId,
-              },
-            })),
+            OR: this.buildStudentAssessmentCourseAccessFilters(tenantId, accessScope),
           },
           {
             OR: [
@@ -875,8 +910,9 @@ export class AssessmentsService {
     context: RequestAuditContext,
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
+    const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
     const assessment = await this.getAssessmentForStudent(tenantId, assessmentId);
-    this.ensureStudentAssignedToCourse(student, assessment.course.classRoomId, assessment.course.academicYearId);
+    this.ensureStudentCanAccessAssessmentCourse(accessScope, assessment.course);
     await this.ensureStudentPortalAccess(tenantId, assessment.id, assessment.portalAssignOnly, student.id);
     this.ensureAccessCode(assessment.accessCode, input?.accessCode);
     this.ensureAssessmentOpen(assessment.dueAt);
@@ -1823,18 +1859,123 @@ export class AssessmentsService {
     return student;
   }
 
-  private ensureStudentAssignedToCourse(
+  private async getStudentAssessmentAccessScope(
+    tenantId: string,
+    userId: string,
     student: Awaited<ReturnType<AssessmentsService['getStudentProfile']>>,
-    classRoomId: string,
-    academicYearId: string,
   ) {
-    const assigned = student.enrollments.some(
+    const enrollmentPairs = student.enrollments.map((enrollment) => ({
+      classRoomId: enrollment.classRoomId,
+      academicYearId: enrollment.academicYearId,
+    }));
+
+    const programEnrollments = await prisma.programEnrollment.findMany({
+      where: {
+        userId,
+        isActive: true,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      include: {
+        program: {
+          select: {
+            courseId: true,
+            course: {
+              select: {
+                subjectId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const academyCourseIds = programEnrollments
+      .map((item) => item.program.courseId)
+      .filter((id): id is string => Boolean(id));
+    const academySubjectIds = [
+      ...new Set(
+        programEnrollments
+          .map((item) => item.program.course?.subjectId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    return {
+      enrollmentPairs,
+      academyCourseIds,
+      academySubjectIds,
+    };
+  }
+
+  private buildStudentAssessmentCourseAccessFilters(
+    tenantId: string,
+    accessScope: {
+      enrollmentPairs: Array<{ classRoomId: string; academicYearId: string }>;
+      academyCourseIds: string[];
+      academySubjectIds: string[];
+    },
+  ): Prisma.AssessmentWhereInput[] {
+    const filters: Prisma.AssessmentWhereInput[] = [];
+
+    if (accessScope.enrollmentPairs.length) {
+      filters.push(
+        ...accessScope.enrollmentPairs.map((pair) => ({
+          course: {
+            classRoomId: pair.classRoomId,
+            academicYearId: pair.academicYearId,
+          },
+        })),
+      );
+    }
+
+    if (accessScope.academyCourseIds.length) {
+      filters.push({
+        courseId: {
+          in: accessScope.academyCourseIds,
+        },
+      });
+    }
+
+    if (accessScope.academySubjectIds.length) {
+      filters.push({
+        course: {
+          tenantId,
+          subjectId: {
+            in: accessScope.academySubjectIds,
+          },
+        },
+      });
+    }
+
+    return filters;
+  }
+
+  private ensureStudentCanAccessAssessmentCourse(
+    accessScope: {
+      enrollmentPairs: Array<{ classRoomId: string; academicYearId: string }>;
+      academyCourseIds: string[];
+      academySubjectIds: string[];
+    },
+    course: {
+      id: string;
+      classRoomId: string;
+      academicYearId: string;
+      subject?: {
+        id: string;
+      } | null;
+    },
+  ) {
+    const assigned = accessScope.enrollmentPairs.some(
       (enrollment) =>
-        enrollment.classRoomId === classRoomId &&
-        enrollment.academicYearId === academicYearId,
+        enrollment.classRoomId === course.classRoomId &&
+        enrollment.academicYearId === course.academicYearId,
     );
 
-    if (!assigned) {
+    const academyCourseAccess = accessScope.academyCourseIds.includes(course.id);
+    const academySubjectAccess =
+      Boolean(course.subject?.id) && accessScope.academySubjectIds.includes(course.subject!.id);
+
+    if (!assigned && !academyCourseAccess && !academySubjectAccess) {
       throw new AppError(403, 'ASSESSMENT_ACCESS_DENIED', 'Student is not assigned to this course');
     }
   }

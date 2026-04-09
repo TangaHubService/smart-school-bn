@@ -54,6 +54,12 @@ assessmentsRoutes.patch(
   asyncHandler((req, res) => assessmentsController.updateAssessment(req, res)),
 );
 
+assessmentsRoutes.delete(
+  '/assessments/:id',
+  requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
+  asyncHandler((req, res) => assessmentsController.deleteAssessment(req, res)),
+);
+
 assessmentsRoutes.post(
   '/assessments/:id/questions',
   requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),

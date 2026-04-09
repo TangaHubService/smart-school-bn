@@ -64,6 +64,17 @@ export class AssessmentsController {
     return sendSuccess(req, res, result);
   }
 
+  async deleteAssessment(req: Request, res: Response): Promise<Response> {
+    const result = await assessmentsService.deleteAssessment(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async addQuestion(req: Request, res: Response): Promise<Response> {
     const result = await assessmentsService.addQuestion(
       req.tenantId!,
