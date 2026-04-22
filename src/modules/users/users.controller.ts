@@ -36,4 +36,10 @@ export class UsersController {
     const result = await this.usersService.updateUserStatus(req.user!, req.params.id, body.status);
     return sendSuccess(req, res, result);
   }
+
+  async exportUsers(req: Request, res: Response): Promise<Response> {
+    const query = listUsersQuerySchema.parse(req.query);
+    const result = await this.usersService.exportUsers(req.user!, query);
+    return sendSuccess(req, res, result);
+  }
 }

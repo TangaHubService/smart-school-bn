@@ -329,4 +329,62 @@ export class UsersService {
 
     return { id: userId, status };
   }
+
+  async exportUsers(currentUser: JwtUser, input: ListUsersQueryInput) {
+    const where = this.buildListWhere(currentUser, input);
+
+    const users = await prisma.user.findMany({
+      where,
+      include: {
+        tenant: true,
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      take: 10000,
+    });
+
+    const header = [
+      'email',
+      'firstName',
+      'lastName',
+      'phone',
+      'school',
+      'roles',
+      'status',
+    ];
+
+    const lines = users.map((user) => {
+      return [
+        user.email,
+        user.firstName ?? '',
+        user.lastName ?? '',
+        user.phone ?? '',
+        user.tenant?.name ?? '',
+        user.userRoles.map((ur) => ur.role.name).join('; '),
+        user.status,
+      ]
+        .map((value) => this.escapeCsvValue(value))
+        .join(',');
+    });
+
+    const csv = [header.join(','), ...lines].join('\n');
+    const fileName = `users-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    return {
+      fileName,
+      rowCount: users.length,
+      csv,
+    };
+  }
+
+  private escapeCsvValue(value: string): string {
+    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+  }
 }

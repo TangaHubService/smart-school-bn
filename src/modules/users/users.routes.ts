@@ -44,3 +44,11 @@ usersRoutes.patch(
   validateBody(updateUserStatusSchema),
   asyncHandler((req, res) => usersController.updateUserStatus(req, res)),
 );
+
+usersRoutes.get(
+  '/users/export',
+  authenticate,
+  enforceTenant,
+  requirePermissions([PERMISSIONS.USERS_READ]),
+  asyncHandler((req, res) => usersController.exportUsers(req, res)),
+);
