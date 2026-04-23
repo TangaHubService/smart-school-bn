@@ -912,6 +912,7 @@ model AssessmentQuestion {
   tenantId      String
   assessmentId  String
   prompt        String
+  imageUrl      String?
   explanation   String?
   hint          String?
   remedialLessonId String?

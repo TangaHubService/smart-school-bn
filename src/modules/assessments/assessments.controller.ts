@@ -99,6 +99,18 @@ export class AssessmentsController {
     return sendSuccess(req, res, result);
   }
 
+  async bulkAddQuestions(req: Request, res: Response): Promise<Response> {
+    const result = await assessmentsService.bulkAddQuestions(
+      req.tenantId!,
+      req.params.id,
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
   async deleteQuestion(req: Request, res: Response): Promise<Response> {
     const result = await assessmentsService.deleteQuestion(
       req.tenantId!,

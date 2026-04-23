@@ -12,6 +12,7 @@ import { PERMISSIONS } from '../../constants/permissions';
 import { AssessmentsController } from './assessments.controller';
 import {
   addQuestionSchema,
+  bulkAddQuestionsSchema,
   createAssessmentSchema,
   publishAssessmentSchema,
   regradeAttemptSchema,
@@ -65,6 +66,13 @@ assessmentsRoutes.post(
   requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
   validateBody(addQuestionSchema),
   asyncHandler((req, res) => assessmentsController.addQuestion(req, res)),
+);
+
+assessmentsRoutes.post(
+  '/assessments/:id/questions/bulk',
+  requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
+  validateBody(bulkAddQuestionsSchema),
+  asyncHandler((req, res) => assessmentsController.bulkAddQuestions(req, res)),
 );
 
 assessmentsRoutes.patch(

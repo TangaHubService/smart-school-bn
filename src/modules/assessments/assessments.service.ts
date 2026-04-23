@@ -12,6 +12,7 @@ import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
   AddQuestionInput,
+  BulkAddQuestionsInput,
   CreateAssessmentInput,
   ListAssessmentResultsQueryInput,
   ListAssessmentsQueryInput,
@@ -303,6 +304,7 @@ export class AssessmentsService {
           tenantId,
           assessmentId,
           prompt: input.prompt,
+          imageUrl: input.imageUrl?.trim() ? input.imageUrl.trim() : null,
           explanation: input.explanation,
           hint: input.hint?.trim() ? input.hint.trim() : null,
           remedialLessonId: input.remedialLessonId ?? null,
@@ -356,6 +358,95 @@ export class AssessmentsService {
     return this.mapQuestionForTeacher(created);
   }
 
+  async bulkAddQuestions(
+    tenantId: string,
+    assessmentId: string,
+    input: BulkAddQuestionsInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
+    this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
+    this.ensureAssessmentQuestionsEditable(assessment);
+
+    const createdQuestions: any[] = await prisma.$transaction(async (tx) => {
+      const startSequence =
+        ((await tx.assessmentQuestion.aggregate({
+          where: {
+            tenantId,
+            assessmentId,
+          },
+          _max: {
+            sequence: true,
+          },
+        }))._max.sequence ?? 0) + 1;
+
+      const created: any[] = [];
+
+      for (const [index, questionInput] of input.questions.entries()) {
+        const question = await tx.assessmentQuestion.create({
+          data: {
+            tenantId,
+            assessmentId,
+            prompt: questionInput.prompt,
+            imageUrl: questionInput.imageUrl?.trim() ? questionInput.imageUrl.trim() : null,
+            explanation: questionInput.explanation,
+            hint: questionInput.hint?.trim() ? questionInput.hint.trim() : null,
+            remedialLessonId: questionInput.remedialLessonId ?? null,
+            type: questionInput.type,
+            sequence: startSequence + index,
+            points: questionInput.points,
+            options:
+              questionInput.type === AssessmentQuestionType.MCQ_SINGLE
+                ? {
+                    create: questionInput.options.map((option, optionIndex) => ({
+                      tenantId,
+                      label: option.label,
+                      isCorrect: option.isCorrect,
+                      sequence: option.sequence ?? optionIndex + 1,
+                    })),
+                  }
+                : undefined,
+          },
+          include: {
+            options: {
+              orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+            },
+          },
+        });
+
+        created.push(question);
+      }
+
+      await tx.assessment.update({
+        where: { id: assessment.id },
+        data: { updatedByUserId: actor.sub },
+      });
+
+      return created;
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.ASSESSMENT_QUESTIONS_IMPORTED,
+      entity: 'Assessment',
+      entityId: assessment.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        assessmentId,
+        createdCount: createdQuestions.length,
+      },
+    });
+
+    return {
+      createdCount: createdQuestions.length,
+      questions: createdQuestions.map((question) => this.mapQuestionForTeacher(question)),
+    };
+  }
+
   async updateQuestion(
     tenantId: string,
     questionId: string,
@@ -379,6 +470,7 @@ export class AssessmentsService {
         where: { id: question.id },
         data: {
           prompt: input.prompt,
+          imageUrl: input.imageUrl?.trim() ? input.imageUrl.trim() : null,
           explanation: input.explanation,
           hint: input.hint === undefined ? undefined : input.hint?.trim() ? input.hint.trim() : null,
           remedialLessonId:
@@ -2195,6 +2287,7 @@ export class AssessmentsService {
     return {
       id: question.id,
       prompt: question.prompt,
+      imageUrl: question.imageUrl ?? null,
       explanation: question.explanation,
       hint: question.hint ?? null,
       remedialLessonId: question.remedialLessonId ?? null,
@@ -2327,6 +2420,7 @@ export class AssessmentsService {
         return {
           id: question.id,
           prompt: question.prompt,
+          imageUrl: question.imageUrl ?? null,
           explanation: includeCorrectness ? question.explanation : null,
           hint: question.hint ?? null,
           remedialLessonId: question.remedialLessonId ?? null,

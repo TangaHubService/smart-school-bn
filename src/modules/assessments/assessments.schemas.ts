@@ -20,6 +20,7 @@ const assessmentOptionSchema = z
 const assessmentQuestionSchema = z
   .object({
     prompt: z.string().trim().min(2).max(5_000),
+    imageUrl: z.string().trim().url().max(2_000).nullable().optional(),
     explanation: z.string().trim().max(5_000).optional(),
     hint: z.string().trim().max(2_000).optional(),
     remedialLessonId: z.string().uuid().optional().nullable(),
@@ -139,6 +140,11 @@ export const startAssessmentAttemptSchema = z
 
 export const addQuestionSchema = assessmentQuestionSchema;
 export const updateQuestionSchema = assessmentQuestionSchema;
+export const bulkAddQuestionsSchema = z
+  .object({
+    questions: z.array(assessmentQuestionSchema).min(1).max(200),
+  })
+  .strict();
 
 export const publishAssessmentSchema = z
   .object({
@@ -211,6 +217,7 @@ export type ReplaceAssessmentAssigneesInput = z.infer<typeof replaceAssessmentAs
 export type StartAssessmentAttemptInput = z.infer<typeof startAssessmentAttemptSchema>;
 export type AddQuestionInput = z.infer<typeof addQuestionSchema>;
 export type UpdateQuestionInput = z.infer<typeof updateQuestionSchema>;
+export type BulkAddQuestionsInput = z.infer<typeof bulkAddQuestionsSchema>;
 export type PublishAssessmentInput = z.infer<typeof publishAssessmentSchema>;
 export type ListAssessmentsQueryInput = z.infer<typeof listAssessmentsQuerySchema>;
 export type ListAssessmentResultsQueryInput = z.infer<typeof listAssessmentResultsQuerySchema>;
