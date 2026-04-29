@@ -16,3 +16,10 @@ auditRoutes.get(
   requirePermissions([PERMISSIONS.TENANTS_READ]),
   asyncHandler((req, res) => controller.list(req, res)),
 );
+
+auditRoutes.get(
+  '/activity-logs',
+  authenticate,
+  requirePermissions([PERMISSIONS.TENANTS_READ]),
+  asyncHandler((req, res) => controller.listTenant(req, res)),
+);

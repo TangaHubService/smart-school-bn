@@ -12,4 +12,10 @@ export class AuditController {
     const result = await auditListService.listSuperAdmin(req.user!, query);
     return sendSuccess(req, res, result);
   }
+
+  async listTenant(req: Request, res: Response): Promise<Response> {
+    const query = listAuditLogsQuerySchema.parse(req.query);
+    const result = await auditListService.listTenant(req.user!, query);
+    return sendSuccess(req, res, result);
+  }
 }

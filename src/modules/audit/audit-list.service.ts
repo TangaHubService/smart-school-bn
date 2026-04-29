@@ -104,4 +104,79 @@ export class AuditListService {
       pagination: buildPagination(page, pageSize, totalItems),
     };
   }
+
+  async listTenant(actor: JwtUser, query: ListAuditLogsQueryInput) {
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 30;
+
+    const where: Prisma.AuditLogWhereInput = {
+      tenantId: actor.tenantId,
+    };
+
+    if (query.event) {
+      where.event = query.event;
+    }
+
+    if (query.actorUserId) {
+      where.actorUserId = query.actorUserId;
+    }
+
+    if (query.from || query.to) {
+      where.createdAt = {};
+      if (query.from) {
+        where.createdAt.gte = new Date(query.from);
+      }
+      if (query.to) {
+        where.createdAt.lte = new Date(query.to);
+      }
+    }
+
+    if (query.search) {
+      const s = query.search.trim();
+      where.OR = [
+        { event: { contains: s, mode: 'insensitive' } },
+        { entity: { contains: s, mode: 'insensitive' } },
+      ];
+    }
+
+    const [totalItems, rows] = await prisma.$transaction([
+      prisma.auditLog.count({ where }),
+      prisma.auditLog.findMany({
+        where,
+        include: {
+          actorUser: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    return {
+      items: rows.map((r) => ({
+        id: String(r.id),
+        event: r.event,
+        entity: r.entity,
+        entityId: r.entityId,
+        createdAt: r.createdAt.toISOString(),
+        ipAddress: r.ipAddress,
+        actor: r.actorUser
+          ? {
+              id: r.actorUser.id,
+              email: r.actorUser.email,
+              name: `${r.actorUser.firstName} ${r.actorUser.lastName}`.trim(),
+            }
+          : null,
+        payload: r.payload,
+      })),
+      pagination: buildPagination(page, pageSize, totalItems),
+    };
+  }
 }
