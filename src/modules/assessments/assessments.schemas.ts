@@ -11,7 +11,7 @@ function htmlToPlainText(value: string | undefined) {
 
 const assessmentOptionSchema = z
   .object({
-    label: z.string().trim().min(1).max(500),
+    label: z.string().trim().min(1),
     isCorrect: z.boolean(),
     sequence: z.number().int().min(1).optional(),
   })
@@ -19,15 +19,15 @@ const assessmentOptionSchema = z
 
 const assessmentQuestionSchema = z
   .object({
-    prompt: z.string().trim().min(2).max(5_000),
-    imageUrl: z.string().trim().url().max(2_000).nullable().optional(),
-    explanation: z.string().trim().max(5_000).optional(),
-    hint: z.string().trim().max(2_000).optional(),
+    prompt: z.string().trim().min(2),
+    imageUrl: z.string().trim().url().nullable().optional(),
+    explanation: z.string().trim().optional(),
+    hint: z.string().trim().optional(),
     remedialLessonId: z.string().uuid().optional().nullable(),
     type: z.nativeEnum(AssessmentQuestionType).default(AssessmentQuestionType.MCQ_SINGLE),
     sequence: z.number().int().min(1).optional(),
     points: z.number().int().min(1).max(100).default(1),
-    options: z.array(assessmentOptionSchema).max(6).default([]),
+    options: z.array(assessmentOptionSchema).default([]),
   })
   .superRefine((value, context) => {
     if (value.type === AssessmentQuestionType.MCQ_SINGLE) {
@@ -142,7 +142,7 @@ export const addQuestionSchema = assessmentQuestionSchema;
 export const updateQuestionSchema = assessmentQuestionSchema;
 export const bulkAddQuestionsSchema = z
   .object({
-    questions: z.array(assessmentQuestionSchema).min(1).max(200),
+    questions: z.array(assessmentQuestionSchema).min(1),
   })
   .strict();
 
