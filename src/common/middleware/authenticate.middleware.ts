@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env';
+import { mergeAuditRequestContext } from '../utils/request-audit-context';
 import { AppError } from '../errors/app-error';
 import { JwtUser } from '../types/auth.types';
 
@@ -21,6 +22,11 @@ export function authenticate(
   try {
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as JwtUser;
     req.user = decoded;
+    mergeAuditRequestContext({
+      actor: decoded,
+      tenantId: decoded.tenantId,
+      sessionId: decoded.sessionId ?? null,
+    });
     next();
   } catch (_error) {
     next(new AppError(401, 'AUTH_UNAUTHORIZED', 'Invalid or expired token'));

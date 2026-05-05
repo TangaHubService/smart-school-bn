@@ -1,9 +1,12 @@
 import { AnnouncementAudience } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
+import { RequestAuditContext } from '../../common/types/auth.types';
 import { JwtUser } from '../../common/types/auth.types';
+import { AUDIT_EVENT } from '../../constants/audit-events';
 import { buildPagination } from '../../common/utils/pagination';
 import { prisma } from '../../db/prisma';
+import { AuditService } from '../audit/audit.service';
 import { SystemAnnouncementsService } from '../system-announcements/system-announcements.service';
 import {
   CreateAnnouncementInput,
@@ -22,6 +25,7 @@ const announcementInclude = {
 };
 
 export class AnnouncementsService {
+  private readonly auditService = new AuditService();
   private readonly systemAnnouncements = new SystemAnnouncementsService();
 
   async list(
@@ -184,7 +188,12 @@ export class AnnouncementsService {
     };
   }
 
-  async create(tenantId: string, input: CreateAnnouncementInput, actor: JwtUser) {
+  async create(
+    tenantId: string,
+    input: CreateAnnouncementInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
     const publishedAt = input.publishedAt ? new Date(input.publishedAt) : null;
     const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
 
@@ -203,6 +212,22 @@ export class AnnouncementsService {
       include: announcementInclude,
     });
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.ANNOUNCEMENT_CREATED,
+      module: 'Announcements',
+      description: `Created announcement "${created.title}"`,
+      entity: 'Announcement',
+      entityId: created.id,
+      recordId: created.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      newValue: this.summarizeAnnouncement(created),
+    });
+
     return this.getById(tenantId, created.id);
   }
 
@@ -210,6 +235,8 @@ export class AnnouncementsService {
     tenantId: string,
     id: string,
     input: UpdateAnnouncementInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
   ) {
     const existing = await prisma.announcement.findFirst({
       where: { id, tenantId },
@@ -219,7 +246,7 @@ export class AnnouncementsService {
       throw new AppError(404, 'ANNOUNCEMENT_NOT_FOUND', 'Announcement not found');
     }
 
-    await prisma.announcement.update({
+    const updated = await prisma.announcement.update({
       where: { id },
       data: {
         ...(input.title != null && { title: input.title }),
@@ -234,12 +261,35 @@ export class AnnouncementsService {
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         }),
       },
+      include: announcementInclude,
+    });
+
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.ANNOUNCEMENT_UPDATED,
+      module: 'Announcements',
+      description: `Updated announcement "${updated.title}"`,
+      entity: 'Announcement',
+      entityId: updated.id,
+      recordId: updated.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      oldValue: this.summarizeAnnouncement(existing),
+      newValue: this.summarizeAnnouncement(updated),
     });
 
     return this.getById(tenantId, id);
   }
 
-  async delete(tenantId: string, id: string) {
+  async delete(
+    tenantId: string,
+    id: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
     const existing = await prisma.announcement.findFirst({
       where: { id, tenantId },
     });
@@ -252,6 +302,44 @@ export class AnnouncementsService {
       where: { id },
     });
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.ANNOUNCEMENT_DELETED,
+      module: 'Announcements',
+      description: `Deleted announcement "${existing.title}"`,
+      entity: 'Announcement',
+      entityId: existing.id,
+      recordId: existing.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      oldValue: this.summarizeAnnouncement(existing),
+    });
+
     return { deleted: true };
+  }
+
+  private summarizeAnnouncement(input: {
+    id: string;
+    title: string;
+    body: string;
+    audience: AnnouncementAudience;
+    targetClassRoomIds: string[];
+    targetGradeLevelIds: string[];
+    publishedAt: Date | null;
+    expiresAt: Date | null;
+  }) {
+    return {
+      id: input.id,
+      title: input.title,
+      body: input.body,
+      audience: input.audience,
+      targetClassRoomIds: input.targetClassRoomIds,
+      targetGradeLevelIds: input.targetGradeLevelIds,
+      publishedAt: input.publishedAt?.toISOString() ?? null,
+      expiresAt: input.expiresAt?.toISOString() ?? null,
+    };
   }
 }

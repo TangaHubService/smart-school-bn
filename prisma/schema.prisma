@@ -145,6 +145,19 @@ enum GovScopeLevel {
   COUNTRY
 }
 
+enum AuditActionType {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+}
+
+enum AuditLogStatus {
+  SUCCESS
+  FAILED
+}
+
 model Tenant {
   id                 String   @id @default(uuid())
   code               String   @unique
@@ -1283,6 +1296,7 @@ model RefreshToken {
   tenantId          String
   userId            String
   tokenHash         String   @unique
+  sessionId         String?
   expiresAt         DateTime
   revokedAt         DateTime?
   replacedByTokenId String?
@@ -1295,18 +1309,31 @@ model RefreshToken {
 
   @@index([tenantId, userId, revokedAt])
   @@index([tenantId, expiresAt])
+  @@index([sessionId])
 }
 
 model AuditLog {
   id          BigInt   @id @default(autoincrement())
   tenantId    String
   actorUserId String?
+  actorName   String?
+  actorRole   String?
+  schoolName  String?
   event       String
+  actionType  AuditActionType?
+  module      String?
+  description String?
   entity      String?
   entityId    String?
+  recordId    String?
   requestId   String?
   ipAddress   String?
   userAgent   String?
+  device      String?
+  status      AuditLogStatus?
+  sessionId   String?
+  oldValue    Json?
+  newValue    Json?
   payload     Json?
   createdAt   DateTime @default(now())
 
@@ -1315,7 +1342,13 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, event, createdAt])
+  @@index([tenantId, actorUserId, createdAt])
+  @@index([tenantId, actorRole, createdAt])
+  @@index([tenantId, module, createdAt])
+  @@index([tenantId, actionType, createdAt])
+  @@index([tenantId, status, createdAt])
   @@index([requestId])
+  @@index([sessionId])
 }
 
 enum PaymentStatus {

@@ -1,6 +1,6 @@
 import { UserStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env';
@@ -12,6 +12,7 @@ import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { normalizePermissions } from '../../common/utils/permission-utils';
 import { ttlToSeconds } from '../../common/utils/time';
 import { AuditService } from '../audit/audit.service';
+import { resolvePrimaryRole } from '../audit/audit-log.utils';
 import { EmailService } from '../notifications/email.service';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
@@ -55,6 +56,16 @@ export class AuthService {
         },
       },
       include: {
+        tenant: {
+          select: {
+            name: true,
+            school: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
         userRoles: {
           include: {
             role: true,
@@ -239,6 +250,16 @@ export class AuthService {
       return tx.user.findUniqueOrThrow({
         where: { id: newUser.id },
         include: {
+          tenant: {
+            select: {
+              name: true,
+              school: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
           userRoles: {
             include: {
               role: true,
@@ -257,7 +278,18 @@ export class AuthService {
     const existingToken = await prisma.refreshToken.findUnique({
       where: { tokenHash: hashedToken },
       include: {
-        tenant: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            school: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
         user: {
           include: {
             userRoles: {
@@ -291,6 +323,16 @@ export class AuthService {
       email: existingToken.user.email,
       roles,
       permissions,
+      firstName: existingToken.user.firstName,
+      lastName: existingToken.user.lastName,
+      primaryRole: resolvePrimaryRole(roles) ?? undefined,
+      schoolName:
+        existingToken.tenant.school?.displayName ??
+        existingToken.tenant.name,
+      sessionId:
+        existingToken.sessionId ??
+        context.sessionId ??
+        randomUUID(),
     };
 
     const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -309,6 +351,7 @@ export class AuthService {
           tenantId: existingToken.tenantId,
           userId: existingToken.userId,
           tokenHash: nextRefreshHash,
+          sessionId: payload.sessionId,
           expiresAt: nextRefreshExpiry,
           createdByIp: context.ipAddress,
           userAgent: context.userAgent,
@@ -331,6 +374,7 @@ export class AuthService {
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
+      sessionId: payload.sessionId,
     });
 
     return {
@@ -349,6 +393,8 @@ export class AuthService {
       );
     }
 
+    let logoutSessionId = user.sessionId ?? context.sessionId ?? null;
+
     if (input.allDevices) {
       await prisma.refreshToken.updateMany({
         where: {
@@ -362,6 +408,11 @@ export class AuthService {
       });
     } else if (input.refreshToken) {
       const tokenHash = this.hashRefreshToken(input.refreshToken);
+      const existingToken = await prisma.refreshToken.findUnique({
+        where: { tokenHash },
+        select: { sessionId: true },
+      });
+      logoutSessionId = existingToken?.sessionId ?? logoutSessionId;
       await prisma.refreshToken.updateMany({
         where: {
           tenantId: user.tenantId,
@@ -382,6 +433,7 @@ export class AuthService {
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
+      sessionId: logoutSessionId,
       payload: {
         allDevices: input.allDevices,
       },
@@ -429,11 +481,18 @@ export class AuthService {
       email: string;
       firstName: string;
       lastName: string;
+      tenant?: {
+        name: string;
+        school?: {
+          displayName: string;
+        } | null;
+      } | null;
       userRoles: Array<{ role: { name: string; permissions: unknown } }>;
     },
     context: RequestAuditContext,
   ) {
     const { roles, permissions } = this.extractRolesAndPermissions(user.userRoles);
+    const sessionId = randomUUID();
 
     const payload: JwtUser = {
       sub: user.id,
@@ -441,6 +500,11 @@ export class AuthService {
       email: user.email,
       roles,
       permissions,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      primaryRole: resolvePrimaryRole(roles) ?? undefined,
+      schoolName: user.tenant?.school?.displayName ?? user.tenant?.name ?? null,
+      sessionId,
     };
 
     const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -453,22 +517,24 @@ export class AuthService {
       Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
     );
 
-    await prisma.$transaction([
-      prisma.refreshToken.create({
+    await prisma.$transaction(async (tx) => {
+      await tx.refreshToken.create({
         data: {
           tenantId,
           userId: user.id,
           tokenHash: refreshTokenHash,
+          sessionId,
           expiresAt: refreshExpiry,
           createdByIp: context.ipAddress,
           userAgent: context.userAgent,
         },
-      }),
-      prisma.user.update({
+      });
+
+      await tx.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
-      }),
-    ]);
+      });
+    });
 
     await this.auditService.log({
       tenantId,
@@ -479,6 +545,7 @@ export class AuthService {
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
+      sessionId,
     });
 
     return {

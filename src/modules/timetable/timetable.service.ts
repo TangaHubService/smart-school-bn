@@ -1,6 +1,8 @@
 import { AppError } from '../../common/errors/app-error';
-import { JwtUser } from '../../common/types/auth.types';
+import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
+import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
+import { AuditService } from '../audit/audit.service';
 import {
   BulkUpsertTimetableSlotsInput,
   CreateTimetableSlotInput,
@@ -64,6 +66,8 @@ type CandidateSlot = {
 };
 
 export class TimetableService {
+  private readonly auditService = new AuditService();
+
   async listSlots(
     tenantId: string,
     query: ListTimetableSlotsQueryInput,
@@ -107,6 +111,7 @@ export class TimetableService {
     tenantId: string,
     input: CreateTimetableSlotInput,
     actor: JwtUser,
+    context: RequestAuditContext,
   ) {
     this.ensureActorCanManageTimetable(actor);
     await this.ensureSlotTargets(tenantId, input);
@@ -146,6 +151,22 @@ export class TimetableService {
       include: slotInclude,
     });
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.TIMETABLE_SLOT_CREATED,
+      module: 'Timetable',
+      description: `Created timetable slot for course ${slot.course.title}`,
+      entity: 'TimetableSlot',
+      entityId: slot.id,
+      recordId: slot.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      newValue: this.summarizeSlot(slot),
+    });
+
     return slot;
   }
 
@@ -154,6 +175,7 @@ export class TimetableService {
     slotId: string,
     input: UpdateTimetableSlotInput,
     actor: JwtUser,
+    context: RequestAuditContext,
   ) {
     const existing = await prisma.timetableSlot.findFirst({
       where: { id: slotId, tenantId },
@@ -223,10 +245,32 @@ export class TimetableService {
       include: slotInclude,
     });
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.TIMETABLE_SLOT_UPDATED,
+      module: 'Timetable',
+      description: `Updated timetable slot ${updated.id}`,
+      entity: 'TimetableSlot',
+      entityId: updated.id,
+      recordId: updated.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      oldValue: this.summarizeSlot(existing),
+      newValue: this.summarizeSlot(updated),
+    });
+
     return updated;
   }
 
-  async deleteSlot(tenantId: string, slotId: string, actor: JwtUser) {
+  async deleteSlot(
+    tenantId: string,
+    slotId: string,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
     const existing = await prisma.timetableSlot.findFirst({
       where: { id: slotId, tenantId },
       include: { course: true },
@@ -242,6 +286,22 @@ export class TimetableService {
       where: { id: slotId },
     });
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.TIMETABLE_SLOT_DELETED,
+      module: 'Timetable',
+      description: `Deleted timetable slot ${existing.id}`,
+      entity: 'TimetableSlot',
+      entityId: existing.id,
+      recordId: existing.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      oldValue: this.summarizeSlot(existing),
+    });
+
     return { deleted: true };
   }
 
@@ -249,6 +309,7 @@ export class TimetableService {
     tenantId: string,
     input: BulkUpsertTimetableSlotsInput,
     actor: JwtUser,
+    context: RequestAuditContext,
   ) {
     this.ensureActorCanManageTimetable(actor);
     const uniqueCourseIds = [...new Set(input.slots.map((s) => s.courseId))];
@@ -284,6 +345,7 @@ export class TimetableService {
     });
 
     const existing = await this.getExistingSlots(tenantId, input.academicYearId, input.termId);
+    const replacedExisting = existing.filter((slot) => slot.classRoomId === input.classRoomId);
     const unaffected = existing.filter((slot) => slot.classRoomId !== input.classRoomId);
     this.validateScheduleChanges(unaffected, candidates);
 
@@ -322,7 +384,54 @@ export class TimetableService {
       actor,
     );
 
+    await this.auditService.logActivity({
+      tenantId,
+      actor: { userId: actor.sub },
+      event: AUDIT_EVENT.TIMETABLE_SLOTS_REPLACED,
+      module: 'Timetable',
+      description: `Replaced timetable slots for class ${input.classRoomId}`,
+      entity: 'TimetableSlot',
+      recordId: input.classRoomId,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      sessionId: context.sessionId,
+      oldValue: {
+        count: replacedExisting.length,
+        slots: replacedExisting.slice(0, 50).map((slot) => this.summarizeSlot(slot)),
+      },
+      newValue: {
+        count: slots.slots.length,
+        slots: slots.slots.slice(0, 50).map((slot) => this.summarizeSlot(slot)),
+      },
+    });
+
     return { created: created.count, slots: slots.slots };
+  }
+
+  private summarizeSlot(input: {
+    id?: string;
+    academicYearId: string;
+    termId: string;
+    classRoomId: string;
+    courseId?: string;
+    course?: { id: string };
+    dayOfWeek: number;
+    periodNumber: number;
+    startTime: string;
+    endTime: string;
+  }) {
+    return {
+      id: input.id ?? null,
+      academicYearId: input.academicYearId,
+      termId: input.termId,
+      classRoomId: input.classRoomId,
+      courseId: input.courseId ?? input.course?.id ?? null,
+      dayOfWeek: input.dayOfWeek,
+      periodNumber: input.periodNumber,
+      startTime: input.startTime,
+      endTime: input.endTime,
+    };
   }
 
   private async ensureSlotTargets(

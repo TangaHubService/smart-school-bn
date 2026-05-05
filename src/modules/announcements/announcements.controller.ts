@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 
+import { buildRequestAuditContext } from '../../common/utils/request-audit-context';
 import { sendSuccess } from '../../common/utils/response';
 import {
   createAnnouncementSchema,
@@ -38,18 +39,34 @@ export class AnnouncementsController {
 
   async create(req: Request, res: Response): Promise<Response> {
     const body = createAnnouncementSchema.parse(req.body);
-    const result = await service.create(req.tenantId!, body, req.user!);
+    const result = await service.create(
+      req.tenantId!,
+      body,
+      req.user!,
+      buildRequestAuditContext(req),
+    );
     return sendSuccess(req, res, result, 201);
   }
 
   async update(req: Request, res: Response): Promise<Response> {
     const body = updateAnnouncementSchema.parse(req.body);
-    const result = await service.update(req.tenantId!, req.params.id, body);
+    const result = await service.update(
+      req.tenantId!,
+      req.params.id,
+      body,
+      req.user!,
+      buildRequestAuditContext(req),
+    );
     return sendSuccess(req, res, result);
   }
 
   async delete(req: Request, res: Response): Promise<Response> {
-    const result = await service.delete(req.tenantId!, req.params.id);
+    const result = await service.delete(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildRequestAuditContext(req),
+    );
     return sendSuccess(req, res, result);
   }
 

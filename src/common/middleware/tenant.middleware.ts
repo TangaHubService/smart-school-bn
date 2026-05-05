@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../errors/app-error';
+import { mergeAuditRequestContext } from '../utils/request-audit-context';
 
 export function enforceTenant(
   req: Request,
@@ -20,5 +21,6 @@ export function enforceTenant(
   }
 
   req.tenantId = tenantId;
+  mergeAuditRequestContext({ tenantId });
   next();
 }

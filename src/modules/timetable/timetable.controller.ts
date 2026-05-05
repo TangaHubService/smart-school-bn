@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 
+import { buildRequestAuditContext } from '../../common/utils/request-audit-context';
 import { sendSuccess } from '../../common/utils/response';
 import {
   bulkUpsertTimetableSlotsSchema,
@@ -26,6 +27,7 @@ export class TimetableController {
       req.tenantId!,
       req.body,
       req.user!,
+      buildRequestAuditContext(req),
     );
     return sendSuccess(req, res, result, 201);
   }
@@ -37,6 +39,7 @@ export class TimetableController {
       req.params.id,
       body,
       req.user!,
+      buildRequestAuditContext(req),
     );
     return sendSuccess(req, res, result);
   }
@@ -46,6 +49,7 @@ export class TimetableController {
       req.tenantId!,
       req.params.id,
       req.user!,
+      buildRequestAuditContext(req),
     );
     return sendSuccess(req, res, result);
   }
@@ -56,6 +60,7 @@ export class TimetableController {
       req.tenantId!,
       body,
       req.user!,
+      buildRequestAuditContext(req),
     );
     return sendSuccess(req, res, result);
   }
