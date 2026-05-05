@@ -1,4 +1,10 @@
-import { ConductFeedbackAuthorType, GovScopeLevel, Prisma } from '@prisma/client';
+import {
+  AuditStatus,
+  AuditorLevel,
+  ConductFeedbackAuthorType,
+  GovScopeLevel,
+  Prisma,
+} from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 import { AppError } from '../../common/errors/app-error';
@@ -20,10 +26,15 @@ import {
 import {
   AddGovFeedbackInput,
   AssignGovAuditorScopeInput,
+  CreateGovAuditInput,
   CreateGovAuditorInput,
+  ListGovActivityLogsQueryInput,
+  ListGovAuditsQueryInput,
   ListGovAuditorsQueryInput,
   ListGovIncidentsQueryInput,
+  ListGovReportsQueryInput,
   ListGovSchoolsQueryInput,
+  SubmitGovAuditReportInput,
   UpdateGovAuditorInput,
   UpdateGovAuditorScopeInput,
 } from './gov.schemas';
@@ -33,6 +44,8 @@ type PlatformContext = {
   schoolWhere: Prisma.SchoolWhereInput | null;
   isSuperAdmin: boolean;
 };
+
+type PrismaExecutor = typeof prisma | Prisma.TransactionClient;
 
 export class GovService {
   private readonly auditService = new AuditService();
@@ -45,6 +58,8 @@ export class GovService {
   ) {
     const platformTenantId = await this.assertPlatformActor(actor);
     const auditorRole = await this.ensureGovAuditorRole(platformTenantId);
+    const profileInput = this.normalizeAuditorProfileInput(input);
+    const scopeInput = this.auditorProfileToScope(profileInput);
 
     const existingUser = await prisma.user.findFirst({
       where: {
@@ -71,11 +86,6 @@ export class GovService {
           lastName: input.lastName,
           phone: input.phone,
         },
-        include: {
-          govAuditorScopes: {
-            orderBy: { createdAt: 'desc' },
-          },
-        },
       });
 
       await tx.userRole.create({
@@ -87,13 +97,50 @@ export class GovService {
         },
       });
 
-      return user;
+      await tx.auditor.create({
+        data: {
+          userId: user.id,
+          level: profileInput.level,
+          country: profileInput.country,
+          province: profileInput.province,
+          district: profileInput.district,
+          sector: profileInput.sector,
+          isActive: true,
+        },
+      });
+
+      await tx.govAuditorScope.create({
+        data: {
+          auditorUserId: user.id,
+          assignedByUserId: actor.sub,
+          scopeLevel: scopeInput.scopeLevel,
+          country: scopeInput.country,
+          province: scopeInput.province,
+          district: scopeInput.district,
+          sector: scopeInput.sector,
+          notes: null,
+        },
+      });
+
+      return tx.user.findUniqueOrThrow({
+        where: { id: user.id },
+        include: {
+          govAuditorScopes: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              assignedByUser: { select: { firstName: true, lastName: true, email: true } },
+            },
+          },
+          auditorProfile: true,
+        },
+      });
     });
 
     await this.auditService.log({
       tenantId: platformTenantId,
       actorUserId: actor.sub,
       event: AUDIT_EVENT.GOV_AUDITOR_CREATED,
+      module: 'User',
       entity: 'User',
       entityId: created.id,
       requestId: context.requestId,
@@ -101,6 +148,11 @@ export class GovService {
       userAgent: context.userAgent,
       payload: {
         email: created.email,
+        level: profileInput.level,
+        country: profileInput.country,
+        province: profileInput.province,
+        district: profileInput.district,
+        sector: profileInput.sector,
       },
     });
 
@@ -150,7 +202,11 @@ export class GovService {
       include: {
         govAuditorScopes: {
           orderBy: { createdAt: 'desc' },
+          include: {
+            assignedByUser: { select: { firstName: true, lastName: true, email: true } },
+          },
         },
+        auditorProfile: true,
       },
       orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
     });
@@ -184,14 +240,50 @@ export class GovService {
       include: {
         govAuditorScopes: {
           orderBy: { createdAt: 'desc' },
+          include: {
+            assignedByUser: { select: { firstName: true, lastName: true, email: true } },
+          },
         },
+        auditorProfile: true,
       },
     });
+
+    if (input.status === 'INACTIVE') {
+      await prisma.$transaction([
+        prisma.govAuditorScope.updateMany({
+          where: {
+            auditorUserId,
+            isActive: true,
+          },
+          data: { isActive: false },
+        }),
+        prisma.auditor.updateMany({
+          where: { userId: auditorUserId },
+          data: { isActive: false },
+        }),
+      ]);
+    }
+
+    const refreshed = input.status === 'INACTIVE'
+      ? await prisma.user.findUniqueOrThrow({
+          where: { id: auditorUserId },
+          include: {
+            govAuditorScopes: {
+              orderBy: { createdAt: 'desc' },
+              include: {
+                assignedByUser: { select: { firstName: true, lastName: true, email: true } },
+              },
+            },
+            auditorProfile: true,
+          },
+        })
+      : updated;
 
     await this.auditService.log({
       tenantId: platformTenantId,
       actorUserId: actor.sub,
       event: AUDIT_EVENT.GOV_AUDITOR_UPDATED,
+      module: 'User',
       entity: 'User',
       entityId: auditorUserId,
       requestId: context.requestId,
@@ -202,7 +294,7 @@ export class GovService {
       },
     });
 
-    return this.mapAuditor(updated);
+    return this.mapAuditor(refreshed);
   }
 
   async listAuditorScopes(auditorUserId: string, actor: JwtUser) {
@@ -212,6 +304,9 @@ export class GovService {
     const scopes = await prisma.govAuditorScope.findMany({
       where: {
         auditorUserId,
+      },
+      include: {
+        assignedByUser: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -248,25 +343,42 @@ export class GovService {
       throw new AppError(409, 'GOV_SCOPE_EXISTS', 'An active scope already exists for this assignment');
     }
 
-    const scope = await prisma.govAuditorScope.create({
-      data: {
-        auditorUserId,
-        assignedByUserId: actor.sub,
-        scopeLevel: normalized.scopeLevel,
-        country: normalized.country,
-        province: normalized.province,
-        district: normalized.district,
-        sector: normalized.sector,
-        notes: normalized.notes,
-        startsAt: normalized.startsAt,
-        endsAt: normalized.endsAt,
-      },
+    const scope = await prisma.$transaction(async (tx) => {
+      await tx.govAuditorScope.updateMany({
+        where: {
+          auditorUserId,
+          isActive: true,
+        },
+        data: {
+          isActive: false,
+        },
+      });
+
+      const createdScope = await tx.govAuditorScope.create({
+        data: {
+          auditorUserId,
+          assignedByUserId: actor.sub,
+          scopeLevel: normalized.scopeLevel,
+          country: normalized.country,
+          province: normalized.province,
+          district: normalized.district,
+          sector: normalized.sector,
+          notes: normalized.notes,
+          startsAt: normalized.startsAt,
+          endsAt: normalized.endsAt,
+        },
+      });
+
+      await this.syncAuditorProfileFromScope(tx, auditorUserId, createdScope);
+
+      return createdScope;
     });
 
     await this.auditService.log({
       tenantId: platformTenantId,
       actorUserId: actor.sub,
       event: AUDIT_EVENT.GOV_AUDITOR_SCOPE_ASSIGNED,
+      module: 'User',
       entity: 'GovAuditorScope',
       entityId: scope.id,
       requestId: context.requestId,
@@ -321,10 +433,26 @@ export class GovService {
       },
     });
 
+    if (input.isActive === true) {
+      await prisma.govAuditorScope.updateMany({
+        where: {
+          auditorUserId: updated.auditorUserId,
+          isActive: true,
+          id: { not: updated.id },
+        },
+        data: {
+          isActive: false,
+        },
+      });
+    }
+
+    await this.syncAuditorProfileFromActiveScopes(prisma, updated.auditorUserId);
+
     await this.auditService.log({
       tenantId: platformTenantId,
       actorUserId: actor.sub,
       event: AUDIT_EVENT.GOV_AUDITOR_SCOPE_UPDATED,
+      module: 'User',
       entity: 'GovAuditorScope',
       entityId: updated.id,
       requestId: context.requestId,
@@ -339,11 +467,382 @@ export class GovService {
     return this.mapScope(updated);
   }
 
+  async createAudit(
+    input: CreateGovAuditInput,
+    actor: JwtUser,
+    context: RequestAuditContext,
+  ) {
+    const access = await this.resolvePlatformAccess(actor);
+    const school = await this.getScopedSchoolByIdOrThrow(access, input.schoolId);
+    const auditorProfile = access.isSuperAdmin
+      ? await this.resolveAuditAssigneeProfile(access.platformTenantId, school, input.auditorUserId)
+      : await this.ensureAuditorProfileForUser(actor.sub);
+
+    const created = await prisma.audit.create({
+      data: {
+        auditorId: auditorProfile.id,
+        tenantId: school.tenantId,
+        schoolId: school.id,
+        createdByUserId: actor.sub,
+        auditType: input.auditType,
+        plannedDate: new Date(input.plannedDate),
+        planNotes: input.planNotes?.trim() || null,
+      },
+      include: this.buildAuditInclude(),
+    });
+
+    await this.auditService.log({
+      tenantId: school.tenantId,
+      actorUserId: actor.sub,
+      event: 'GOV_AUDIT_PLANNED',
+      actionType: 'CREATE',
+      module: 'Audit',
+      entity: 'Audit',
+      entityId: created.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        schoolId: school.id,
+        schoolName: school.displayName,
+        auditorUserId: auditorProfile.userId,
+        auditType: created.auditType,
+        plannedDate: created.plannedDate.toISOString(),
+      },
+    });
+
+    return this.mapAudit(created);
+  }
+
+  async listAudits(actor: JwtUser, query: ListGovAuditsQueryInput) {
+    const access = await this.resolvePlatformAccess(actor);
+
+    if (!access.schoolWhere) {
+      return {
+        items: [],
+        pagination: buildPagination(query.page, query.pageSize, 0),
+      };
+    }
+
+    const where: Prisma.AuditWhereInput = access.isSuperAdmin
+      ? {}
+      : {
+          school: access.schoolWhere,
+        };
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.auditType) {
+      where.auditType = query.auditType;
+    }
+
+    if (query.schoolId) {
+      where.schoolId = query.schoolId;
+    }
+
+    const skip = (query.page - 1) * query.pageSize;
+
+    const [totalItems, audits] = await prisma.$transaction([
+      prisma.audit.count({ where }),
+      prisma.audit.findMany({
+        where,
+        skip,
+        take: query.pageSize,
+        include: this.buildAuditInclude(),
+        orderBy: [{ plannedDate: 'desc' }, { createdAt: 'desc' }],
+      }),
+    ]);
+
+    return {
+      items: audits.map((audit) => this.mapAudit(audit)),
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
+    };
+  }
+
+  async getAuditDetail(actor: JwtUser, auditId: string) {
+    const access = await this.resolvePlatformAccess(actor);
+    const audit = await this.getScopedAuditOrThrow(access, auditId);
+
+    return this.mapAudit(audit);
+  }
+
+  async submitReport(
+    actor: JwtUser,
+    input: SubmitGovAuditReportInput,
+    context: RequestAuditContext,
+  ) {
+    const access = await this.resolvePlatformAccess(actor);
+    const audit = await this.getScopedAuditOrThrow(access, input.auditId);
+
+    if (audit.report) {
+      throw new AppError(409, 'AUDIT_REPORT_EXISTS', 'This audit already has a report');
+    }
+
+    if (!access.isSuperAdmin && audit.auditor.user.id !== actor.sub) {
+      throw new AppError(403, 'GOV_AUDIT_FORBIDDEN', 'You can only submit reports for your own audits');
+    }
+
+    const score = this.calculateAuditScore(input);
+
+    const completedAudit = await prisma.$transaction(async (tx) => {
+      await tx.audit.update({
+        where: { id: audit.id },
+        data: {
+          status: AuditStatus.COMPLETED,
+          completedAt: new Date(),
+        },
+      });
+
+      await tx.auditReport.create({
+        data: {
+          auditId: audit.id,
+          submittedByUserId: actor.sub,
+          teachingQuality: input.teachingQuality,
+          infrastructure: input.infrastructure,
+          discipline: input.discipline,
+          comment: input.comment.trim(),
+          findings: input.findings.trim(),
+          recommendations: input.recommendations.trim(),
+          score,
+        },
+      });
+
+      return tx.audit.findUniqueOrThrow({
+        where: { id: audit.id },
+        include: this.buildAuditInclude(),
+      });
+    });
+
+    await this.auditService.log({
+      tenantId: audit.tenantId,
+      actorUserId: actor.sub,
+      event: 'GOV_AUDIT_REPORT_SUBMITTED',
+      actionType: 'CREATE',
+      module: 'Audit',
+      entity: 'AuditReport',
+      entityId: completedAudit.report?.id ?? audit.id,
+      recordId: audit.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        auditId: audit.id,
+        score,
+      },
+    });
+
+    return this.mapAudit(completedAudit);
+  }
+
+  async listReports(actor: JwtUser, query: ListGovReportsQueryInput) {
+    const access = await this.resolvePlatformAccess(actor);
+
+    if (!access.schoolWhere) {
+      return {
+        items: [],
+        pagination: buildPagination(query.page, query.pageSize, 0),
+      };
+    }
+
+    const where: Prisma.AuditWhereInput = {
+      status: AuditStatus.COMPLETED,
+      ...(access.isSuperAdmin
+        ? {}
+        : {
+            school: access.schoolWhere,
+          }),
+    };
+
+    if (query.auditType) {
+      where.auditType = query.auditType;
+    }
+
+    if (query.schoolId) {
+      where.schoolId = query.schoolId;
+    }
+
+    const skip = (query.page - 1) * query.pageSize;
+
+    const [totalItems, audits] = await prisma.$transaction([
+      prisma.audit.count({ where }),
+      prisma.audit.findMany({
+        where,
+        skip,
+        take: query.pageSize,
+        include: this.buildAuditInclude(),
+        orderBy: [{ completedAt: 'desc' }, { plannedDate: 'desc' }],
+      }),
+    ]);
+
+    return {
+      items: audits.map((audit) => this.mapAuditReport(audit)),
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
+    };
+  }
+
+  async listActivityLogs(actor: JwtUser, query: ListGovActivityLogsQueryInput) {
+    const access = await this.resolvePlatformAccess(actor);
+
+    if (!access.isSuperAdmin && !access.schoolWhere) {
+      return {
+        items: [],
+        pagination: buildPagination(query.page, query.pageSize, 0),
+      };
+    }
+
+    const filters: Prisma.AuditLogWhereInput[] = [
+      {
+        OR: [
+          { module: { in: ['Audit', 'School', 'User'] } },
+          { event: { startsWith: 'GOV_' } },
+        ],
+      },
+    ];
+
+    if (!access.isSuperAdmin && access.schoolWhere) {
+      filters.push({
+        tenant: {
+          school: access.schoolWhere,
+        },
+      });
+    }
+
+    if (query.actionType) {
+      filters.push({
+        actionType: query.actionType,
+      });
+    }
+
+    if (query.module) {
+      filters.push({
+        module: {
+          equals: query.module,
+          mode: 'insensitive',
+        },
+      });
+    }
+
+    if (query.search) {
+      filters.push({
+        OR: [
+          { event: { contains: query.search, mode: 'insensitive' } },
+          { module: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+          { actorName: { contains: query.search, mode: 'insensitive' } },
+          { schoolName: { contains: query.search, mode: 'insensitive' } },
+          { recordId: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where: Prisma.AuditLogWhereInput =
+      filters.length === 1 ? filters[0] : { AND: filters };
+    const skip = (query.page - 1) * query.pageSize;
+
+    const [totalItems, logs] = await prisma.$transaction([
+      prisma.auditLog.count({ where }),
+      prisma.auditLog.findMany({
+        where,
+        skip,
+        take: query.pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          actorUser: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          tenant: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              school: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: logs.map((row) => {
+        const actorName =
+          row.actorName ??
+          (`${row.actorUser?.firstName ?? ''} ${row.actorUser?.lastName ?? ''}`.trim() || null);
+
+        return {
+          id: String(row.id),
+          event: row.event,
+          actionType: row.actionType,
+          module: row.module,
+          description: row.description,
+          entity: row.entity,
+          entityId: row.entityId,
+          recordId: row.recordId ?? row.entityId,
+          createdAt: row.createdAt.toISOString(),
+          timestamp: row.createdAt.toISOString(),
+          ipAddress: row.ipAddress,
+          device: row.device ?? row.userAgent,
+          status: row.status,
+          sessionId: row.sessionId,
+          actor: row.actorUserId || actorName || row.actorRole
+            ? {
+                id: row.actorUser?.id ?? row.actorUserId ?? null,
+                email: row.actorUser?.email ?? null,
+                name: actorName,
+                role: row.actorRole,
+              }
+            : null,
+          schoolName: row.schoolName ?? row.tenant.school?.displayName ?? row.tenant.name,
+          tenant: {
+            id: row.tenant.id,
+            code: row.tenant.code,
+            name: row.tenant.name,
+          },
+          oldValue: row.oldValue,
+          newValue: row.newValue,
+          payload: row.payload,
+        };
+      }),
+      pagination: buildPagination(query.page, query.pageSize, totalItems),
+    };
+  }
+
   async getDashboard(actor: JwtUser) {
     const access = await this.resolvePlatformAccess(actor);
 
     if (!access.schoolWhere) {
       return {
+        audits: {
+          totalSchools: 0,
+          plannedAudits: 0,
+          completedAudits: 0,
+          averageScore: 0,
+          recentAudits: [] as Array<{
+            id: string;
+            schoolName: string;
+            auditType: string;
+            plannedDate: string;
+            status: string;
+            score: number | null;
+          }>,
+          upcomingAudits: [] as Array<{
+            id: string;
+            schoolName: string;
+            auditType: string;
+            plannedDate: string;
+            status: string;
+          }>,
+        },
         scope: {
           schoolsInScope: 0,
           activeAssignments: 0,
@@ -382,10 +881,24 @@ export class GovService {
         };
 
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     const scopedTenantFilter = schoolRelationFilter
       ? { tenant: schoolRelationFilter }
       : undefined;
+    const scopedAuditWhere = access.isSuperAdmin
+      ? {}
+      : {
+          school: access.schoolWhere,
+        };
+    const scopedReportWhere = access.isSuperAdmin
+      ? {}
+      : {
+          audit: {
+            school: access.schoolWhere,
+          },
+        };
 
     const [
       schoolsInScope,
@@ -395,6 +908,9 @@ export class GovService {
       resolvedIncidents,
       incidentsLast30Days,
       authoredByMe,
+      plannedAudits,
+      completedAudits,
+      averageScore,
     ] = await prisma.$transaction([
       prisma.school.count({
         where: access.schoolWhere,
@@ -433,6 +949,26 @@ export class GovService {
           authorType: ConductFeedbackAuthorType.GOV_AUDITOR,
         },
       }),
+      prisma.audit.count({
+        where: {
+          ...scopedAuditWhere,
+          status: {
+            in: [AuditStatus.PLANNED, AuditStatus.IN_PROGRESS],
+          },
+        },
+      }),
+      prisma.audit.count({
+        where: {
+          ...scopedAuditWhere,
+          status: AuditStatus.COMPLETED,
+        },
+      }),
+      prisma.auditReport.aggregate({
+        where: scopedReportWhere,
+        _avg: {
+          score: true,
+        },
+      }),
     ]);
 
     const recentRows = await prisma.conductFeedback.findMany({
@@ -459,6 +995,32 @@ export class GovService {
         },
       },
     });
+
+    const [recentAuditRows, upcomingAuditRows] = await prisma.$transaction([
+      prisma.audit.findMany({
+        where: {
+          ...scopedAuditWhere,
+          status: AuditStatus.COMPLETED,
+        },
+        take: 5,
+        orderBy: [{ completedAt: 'desc' }, { plannedDate: 'desc' }],
+        include: this.buildAuditInclude(),
+      }),
+      prisma.audit.findMany({
+        where: {
+          ...scopedAuditWhere,
+          status: {
+            in: [AuditStatus.PLANNED, AuditStatus.IN_PROGRESS],
+          },
+          plannedDate: {
+            gte: startOfToday,
+          },
+        },
+        take: 5,
+        orderBy: [{ plannedDate: 'asc' }, { createdAt: 'desc' }],
+        include: this.buildAuditInclude(),
+      }),
+    ]);
 
     let myScopes: Array<{
       id: string;
@@ -490,6 +1052,27 @@ export class GovService {
     }
 
     return {
+      audits: {
+        totalSchools: schoolsInScope,
+        plannedAudits,
+        completedAudits,
+        averageScore: Number((averageScore._avg.score ?? 0).toFixed(1)),
+        recentAudits: recentAuditRows.map((audit) => ({
+          id: audit.id,
+          schoolName: audit.school.displayName,
+          auditType: audit.auditType,
+          plannedDate: audit.plannedDate.toISOString(),
+          status: audit.status,
+          score: audit.report?.score ?? null,
+        })),
+        upcomingAudits: upcomingAuditRows.map((audit) => ({
+          id: audit.id,
+          schoolName: audit.school.displayName,
+          auditType: audit.auditType,
+          plannedDate: audit.plannedDate.toISOString(),
+          status: audit.status,
+        })),
+      },
       scope: {
         schoolsInScope,
         activeAssignments,
@@ -531,25 +1114,7 @@ export class GovService {
     });
 
     return {
-      items: scopes.map((s) => ({
-        id: s.id,
-        label: this.formatScopeLabel(s),
-        scopeLevel: s.scopeLevel,
-        country: s.country,
-        province: s.province,
-        district: s.district,
-        sector: s.sector,
-        notes: s.notes,
-        startsAt: s.startsAt?.toISOString() ?? null,
-        endsAt: s.endsAt?.toISOString() ?? null,
-        assignedBy: s.assignedByUser
-          ? {
-              firstName: s.assignedByUser.firstName,
-              lastName: s.assignedByUser.lastName,
-              email: s.assignedByUser.email,
-            }
-          : null,
-      })),
+      items: scopes.map((scope) => this.mapScope(scope)),
     };
   }
 
@@ -866,6 +1431,9 @@ export class GovService {
 
     if (
       !runtimePrisma.govAuditorScope ||
+      !runtimePrisma.auditor ||
+      !runtimePrisma.audit ||
+      !runtimePrisma.auditReport ||
       !runtimePrisma.conductIncident ||
       !runtimePrisma.conductFeedback
     ) {
@@ -1033,6 +1601,62 @@ export class GovService {
     return school;
   }
 
+  private async getScopedSchoolByIdOrThrow(access: PlatformContext, schoolId: string) {
+    if (!access.isSuperAdmin && !access.schoolWhere) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'School is outside the assigned scope');
+    }
+
+    const school = await prisma.school.findFirst({
+      where: access.isSuperAdmin
+        ? { id: schoolId }
+        : {
+            AND: [access.schoolWhere!, { id: schoolId }],
+          },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!school) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'School is outside the assigned scope');
+    }
+
+    return school;
+  }
+
+  private async getScopedAuditOrThrow(access: PlatformContext, auditId: string) {
+    if (!access.isSuperAdmin && !access.schoolWhere) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'Audit is outside the assigned scope');
+    }
+
+    const audit = await prisma.audit.findFirst({
+      where: access.isSuperAdmin
+        ? { id: auditId }
+        : {
+            AND: [
+              { id: auditId },
+              {
+                school: access.schoolWhere!,
+              },
+            ],
+          },
+      include: this.buildAuditInclude(),
+    });
+
+    if (!audit) {
+      throw new AppError(403, 'GOV_SCOPE_FORBIDDEN', 'Audit is outside the assigned scope');
+    }
+
+    return audit;
+  }
+
   private async getScopedIncidentOrThrow(
     access: PlatformContext,
     where: Prisma.ConductIncidentWhereInput,
@@ -1062,6 +1686,179 @@ export class GovService {
     }
 
     return incident;
+  }
+
+  private async ensureAuditorProfileForUser(
+    userId: string,
+    executor: PrismaExecutor = prisma,
+    defaultIsActive = false,
+  ) {
+    const existing = await executor.auditor.findUnique({
+      where: { userId },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    const latestScope = await executor.govAuditorScope.findFirst({
+      where: this.activeScopeWhere(userId),
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const profileData = latestScope
+      ? this.scopeToAuditorProfileData(latestScope)
+      : {
+          level: AuditorLevel.NATIONAL,
+          country: 'Rwanda',
+          province: null,
+          district: null,
+          sector: null,
+          isActive: defaultIsActive,
+        };
+
+    return executor.auditor.create({
+      data: {
+        userId,
+        level: profileData.level,
+        country: profileData.country,
+        province: profileData.province,
+        district: profileData.district,
+        sector: profileData.sector,
+        isActive: profileData.isActive,
+      },
+    });
+  }
+
+  private async resolveAuditAssigneeProfile(
+    platformTenantId: string,
+    school: {
+      country: string | null;
+      province: string | null;
+      district: string | null;
+      sector: string | null;
+    },
+    auditorUserId?: string,
+  ) {
+    if (!auditorUserId) {
+      throw new AppError(
+        400,
+        'GOV_AUDITOR_REQUIRED',
+        'Super admins must assign an auditor before planning an audit',
+      );
+    }
+
+    const selectedAuditor = await prisma.user.findFirst({
+      where: {
+        id: auditorUserId,
+        tenantId: platformTenantId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        userRoles: {
+          some: {
+            role: {
+              name: 'GOV_AUDITOR',
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!selectedAuditor) {
+      throw new AppError(404, 'GOV_AUDITOR_NOT_FOUND', 'Selected auditor was not found or is inactive');
+    }
+
+    const scopes = await prisma.govAuditorScope.findMany({
+      where: this.activeScopeWhere(auditorUserId),
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!scopes.length) {
+      throw new AppError(
+        400,
+        'GOV_AUDITOR_SCOPE_REQUIRED',
+        'Selected auditor must have an active assignment before you can plan an audit',
+      );
+    }
+
+    const coversSchool = scopes.some((scope) =>
+      this.schoolMatchesScope(
+        {
+          country: school.country,
+          province: school.province,
+          district: school.district,
+          sector: school.sector,
+        },
+        scope,
+      ),
+    );
+
+    if (!coversSchool) {
+      throw new AppError(
+        400,
+        'GOV_AUDITOR_SCOPE_MISMATCH',
+        'Selected auditor is not assigned to the chosen school location',
+      );
+    }
+
+    return this.ensureAuditorProfileForUser(auditorUserId);
+  }
+
+  private async syncAuditorProfileFromScope(
+    executor: PrismaExecutor,
+    auditorUserId: string,
+    scope: {
+      scopeLevel: GovScopeLevel;
+      country: string;
+      province: string | null;
+      district: string | null;
+      sector: string | null;
+      isActive: boolean;
+    },
+  ) {
+    const profile = this.scopeToAuditorProfileData(scope);
+
+    await executor.auditor.upsert({
+      where: { userId: auditorUserId },
+      update: {
+        level: profile.level,
+        country: profile.country,
+        province: profile.province,
+        district: profile.district,
+        sector: profile.sector,
+        isActive: scope.isActive,
+      },
+      create: {
+        userId: auditorUserId,
+        level: profile.level,
+        country: profile.country,
+        province: profile.province,
+        district: profile.district,
+        sector: profile.sector,
+        isActive: scope.isActive,
+      },
+    });
+  }
+
+  private async syncAuditorProfileFromActiveScopes(
+    executor: PrismaExecutor,
+    auditorUserId: string,
+  ) {
+    const latestScope = await executor.govAuditorScope.findFirst({
+      where: this.activeScopeWhere(auditorUserId),
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!latestScope) {
+      await executor.auditor.updateMany({
+        where: { userId: auditorUserId },
+        data: { isActive: false },
+      });
+      return;
+    }
+
+    await this.syncAuditorProfileFromScope(executor, auditorUserId, latestScope);
   }
 
   private combineSchoolWhere(
@@ -1144,6 +1941,159 @@ export class GovService {
       startsAt: input.startsAt ? new Date(input.startsAt) : null,
       endsAt: input.endsAt ? new Date(input.endsAt) : null,
     };
+  }
+
+  private normalizeAuditorProfileInput(input: {
+    level: AuditorLevel;
+    country: string;
+    province?: string;
+    district?: string;
+    sector?: string;
+  }) {
+    return {
+      level: input.level,
+      country: input.country,
+      province:
+        input.level === AuditorLevel.PROVINCE ||
+        input.level === AuditorLevel.DISTRICT ||
+        input.level === AuditorLevel.SECTOR
+          ? input.province ?? null
+          : null,
+      district:
+        input.level === AuditorLevel.DISTRICT ||
+        input.level === AuditorLevel.SECTOR
+          ? input.district ?? null
+          : null,
+      sector:
+        input.level === AuditorLevel.SECTOR ? input.sector ?? null : null,
+    };
+  }
+
+  private auditorProfileToScope(input: {
+    level: AuditorLevel;
+    country: string;
+    province: string | null;
+    district: string | null;
+    sector: string | null;
+  }) {
+    return {
+      scopeLevel:
+        input.level === AuditorLevel.NATIONAL
+          ? GovScopeLevel.COUNTRY
+          : input.level === AuditorLevel.PROVINCE
+            ? GovScopeLevel.PROVINCE
+            : input.level === AuditorLevel.DISTRICT
+              ? GovScopeLevel.DISTRICT
+              : GovScopeLevel.SECTOR,
+      country: input.country,
+      province: input.province,
+      district: input.district,
+      sector: input.sector,
+    };
+  }
+
+  private scopeToAuditorProfileData(scope: {
+    scopeLevel: GovScopeLevel;
+    country: string;
+    province: string | null;
+    district: string | null;
+    sector: string | null;
+    isActive?: boolean;
+  }) {
+    return {
+      level:
+        scope.scopeLevel === GovScopeLevel.COUNTRY
+          ? AuditorLevel.NATIONAL
+          : scope.scopeLevel === GovScopeLevel.PROVINCE
+            ? AuditorLevel.PROVINCE
+            : scope.scopeLevel === GovScopeLevel.DISTRICT
+              ? AuditorLevel.DISTRICT
+              : AuditorLevel.SECTOR,
+      country: scope.country,
+      province: scope.province,
+      district: scope.district,
+      sector: scope.sector,
+      isActive: scope.isActive ?? true,
+    };
+  }
+
+  private buildAuditInclude() {
+    return {
+      school: {
+        select: {
+          id: true,
+          tenantId: true,
+          displayName: true,
+          province: true,
+          district: true,
+          sector: true,
+          country: true,
+          tenant: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              isActive: true,
+            },
+          },
+        },
+      },
+      auditor: {
+        select: {
+          id: true,
+          level: true,
+          country: true,
+          province: true,
+          district: true,
+          sector: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      },
+      createdByUser: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      report: {
+        select: {
+          id: true,
+          teachingQuality: true,
+          infrastructure: true,
+          discipline: true,
+          comment: true,
+          findings: true,
+          recommendations: true,
+          score: true,
+          submittedAt: true,
+          submittedByUser: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      },
+    } as const;
+  }
+
+  private calculateAuditScore(input: {
+    teachingQuality: number;
+    infrastructure: number;
+    discipline: number;
+  }) {
+    return Math.round(((input.teachingQuality + input.infrastructure + input.discipline) / 15) * 100);
   }
 
   private scopeToSchoolWhere(scope: {
@@ -1279,6 +2229,15 @@ export class GovService {
     status?: string;
     createdAt: Date;
     updatedAt: Date;
+    auditorProfile?: {
+      id: string;
+      level: AuditorLevel;
+      country: string;
+      province: string | null;
+      district: string | null;
+      sector: string | null;
+      isActive: boolean;
+    } | null;
     govAuditorScopes: Array<{
       id: string;
       scopeLevel: GovScopeLevel;
@@ -1292,8 +2251,21 @@ export class GovService {
       isActive: boolean;
       createdAt: Date;
       updatedAt: Date;
+      assignedByUser?: {
+        firstName: string;
+        lastName: string;
+        email: string;
+      } | null;
     }>;
   }) {
+    const activeScope =
+      auditor.govAuditorScopes.find((scope) => scope.isActive) ??
+      auditor.govAuditorScopes[0] ??
+      null;
+    const profile =
+      auditor.auditorProfile ??
+      (activeScope ? this.scopeToAuditorProfileData(activeScope) : null);
+
     return {
       id: auditor.id,
       email: auditor.email,
@@ -1303,6 +2275,18 @@ export class GovService {
       status: auditor.status ?? 'ACTIVE',
       createdAt: auditor.createdAt,
       updatedAt: auditor.updatedAt,
+      level: profile?.level ?? AuditorLevel.NATIONAL,
+      country: profile?.country ?? 'Rwanda',
+      province: profile?.province ?? null,
+      district: profile?.district ?? null,
+      sector: profile?.sector ?? null,
+      assignmentLabel: this.buildAssignmentLabel({
+        level: profile?.level ?? AuditorLevel.NATIONAL,
+        country: profile?.country ?? 'Rwanda',
+        province: profile?.province ?? null,
+        district: profile?.district ?? null,
+        sector: profile?.sector ?? null,
+      }),
       scopes: auditor.govAuditorScopes.map((scope) => this.mapScope(scope)),
     };
   }
@@ -1320,9 +2304,15 @@ export class GovService {
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
+    assignedByUser?: {
+      firstName: string;
+      lastName: string;
+      email: string;
+    } | null;
   }) {
     return {
       id: scope.id,
+      label: this.formatScopeLabel(scope),
       scopeLevel: scope.scopeLevel,
       country: scope.country,
       province: scope.province,
@@ -1334,6 +2324,169 @@ export class GovService {
       isActive: scope.isActive,
       createdAt: scope.createdAt,
       updatedAt: scope.updatedAt,
+      assignedBy: scope.assignedByUser
+        ? {
+            firstName: scope.assignedByUser.firstName,
+            lastName: scope.assignedByUser.lastName,
+            email: scope.assignedByUser.email,
+          }
+        : null,
     };
+  }
+
+  private mapAudit(audit: {
+    id: string;
+    auditType: string;
+    status: AuditStatus;
+    plannedDate: Date;
+    planNotes: string | null;
+    completedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    school: {
+      id: string;
+      tenantId: string;
+      displayName: string;
+      province: string | null;
+      district: string | null;
+      sector: string | null;
+      country: string | null;
+      tenant: {
+        id: string;
+        code: string;
+        name: string;
+        isActive: boolean;
+      };
+    };
+    auditor: {
+      id: string;
+      level: AuditorLevel;
+      country: string;
+      province: string | null;
+      district: string | null;
+      sector: string | null;
+      user: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+      };
+    };
+    createdByUser: {
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+    };
+    report: {
+      id: string;
+      teachingQuality: number;
+      infrastructure: number;
+      discipline: number;
+      comment: string;
+      findings: string;
+      recommendations: string;
+      score: number;
+      submittedAt: Date;
+      submittedByUser: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+      };
+    } | null;
+  }) {
+    return {
+      id: audit.id,
+      auditType: audit.auditType,
+      status: audit.status,
+      plannedDate: audit.plannedDate.toISOString(),
+      planNotes: audit.planNotes,
+      completedAt: audit.completedAt?.toISOString() ?? null,
+      createdAt: audit.createdAt.toISOString(),
+      updatedAt: audit.updatedAt.toISOString(),
+      school: {
+        id: audit.school.id,
+        tenantId: audit.school.tenantId,
+        code: audit.school.tenant.code,
+        name: audit.school.displayName,
+        province: audit.school.province,
+        district: audit.school.district,
+        sector: audit.school.sector,
+        country: audit.school.country,
+        isActive: audit.school.tenant.isActive,
+      },
+      auditor: {
+        id: audit.auditor.id,
+        userId: audit.auditor.user.id,
+        email: audit.auditor.user.email,
+        firstName: audit.auditor.user.firstName,
+        lastName: audit.auditor.user.lastName,
+        level: audit.auditor.level,
+        country: audit.auditor.country,
+        province: audit.auditor.province,
+        district: audit.auditor.district,
+        sector: audit.auditor.sector,
+        assignmentLabel: this.buildAssignmentLabel({
+          level: audit.auditor.level,
+          country: audit.auditor.country,
+          province: audit.auditor.province,
+          district: audit.auditor.district,
+          sector: audit.auditor.sector,
+        }),
+      },
+      createdBy: {
+        id: audit.createdByUser.id,
+        email: audit.createdByUser.email,
+        firstName: audit.createdByUser.firstName,
+        lastName: audit.createdByUser.lastName,
+      },
+      report: audit.report
+        ? {
+            id: audit.report.id,
+            teachingQuality: audit.report.teachingQuality,
+            infrastructure: audit.report.infrastructure,
+            discipline: audit.report.discipline,
+            comment: audit.report.comment,
+            findings: audit.report.findings,
+            recommendations: audit.report.recommendations,
+            score: audit.report.score,
+            submittedAt: audit.report.submittedAt.toISOString(),
+            submittedBy: {
+              id: audit.report.submittedByUser.id,
+              email: audit.report.submittedByUser.email,
+              firstName: audit.report.submittedByUser.firstName,
+              lastName: audit.report.submittedByUser.lastName,
+            },
+          }
+        : null,
+    };
+  }
+
+  private mapAuditReport(audit: Parameters<GovService['mapAudit']>[0]) {
+    return this.mapAudit(audit);
+  }
+
+  private buildAssignmentLabel(input: {
+    level: AuditorLevel;
+    country: string;
+    province: string | null;
+    district: string | null;
+    sector: string | null;
+  }) {
+    const levelLabel = input.level.replace(/_/g, ' ');
+
+    if (input.level === AuditorLevel.NATIONAL) {
+      return `${levelLabel} · ${input.country}`;
+    }
+
+    const parts =
+      input.level === AuditorLevel.PROVINCE
+        ? [input.province]
+        : input.level === AuditorLevel.DISTRICT
+          ? [input.province, input.district]
+          : [input.province, input.district, input.sector];
+
+    return `${levelLabel} · ${parts.filter(Boolean).join(' › ')}`;
   }
 }

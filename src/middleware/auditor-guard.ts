@@ -2,8 +2,8 @@ import { NextFunction, Request, Response } from 'express';
 
 /**
  * Middleware to enforce read-only access for AUDITOR role.
- * Auditors are only allowed to perform GET requests.
- * Any non-GET request (POST, PUT, PATCH, DELETE) will be rejected with 403 Forbidden.
+ * Auditors are read-only by default, with a small allowlist for the
+ * government audit workflow.
  */
 export const auditorReadExtraGuard = (req: Request, res: Response, next: NextFunction) => {
   const user = (req as any).user;
@@ -14,8 +14,17 @@ export const auditorReadExtraGuard = (req: Request, res: Response, next: NextFun
 
   // Check if the user has the GOV_AUDITOR role
   const isAuditor = user.roles?.includes('GOV_AUDITOR');
+  const allowedWrites = [
+    { method: 'POST', pattern: /^\/gov\/audits$/ },
+    { method: 'POST', pattern: /^\/gov\/reports$/ },
+    { method: 'POST', pattern: /^\/gov\/incidents\/[^/]+\/feedback$/ },
+  ];
 
-  if (isAuditor && req.method !== 'GET') {
+  const isAllowedWrite = allowedWrites.some(
+    (entry) => entry.method === req.method && entry.pattern.test(req.path),
+  );
+
+  if (isAuditor && req.method !== 'GET' && !isAllowedWrite) {
     return res.status(403).json({
       error: 'Forbidden',
       message: 'Auditors have read-only access and cannot perform this action.',

@@ -7,9 +7,11 @@ import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { GovController } from './gov.controller';
 import {
+  createGovAuditSchema,
   addGovFeedbackSchema,
   assignGovAuditorScopeSchema,
   createGovAuditorSchema,
+  submitGovAuditReportSchema,
   updateGovAuditorSchema,
   updateGovAuditorScopeSchema,
 } from './gov.schemas';
@@ -64,6 +66,44 @@ govRoutes.get(
   '/gov/dashboard',
   requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
   asyncHandler((req, res) => govController.getDashboard(req, res)),
+);
+
+govRoutes.post(
+  '/gov/audits',
+  requirePermissions([PERMISSIONS.GOV_FEEDBACK_MANAGE]),
+  validateBody(createGovAuditSchema),
+  asyncHandler((req, res) => govController.createAudit(req, res)),
+);
+
+govRoutes.get(
+  '/gov/audits',
+  requirePermissions([PERMISSIONS.GOV_SCHOOLS_READ]),
+  asyncHandler((req, res) => govController.listAudits(req, res)),
+);
+
+govRoutes.get(
+  '/gov/audits/:auditId',
+  requirePermissions([PERMISSIONS.GOV_SCHOOLS_READ]),
+  asyncHandler((req, res) => govController.getAuditDetail(req, res)),
+);
+
+govRoutes.post(
+  '/gov/reports',
+  requirePermissions([PERMISSIONS.GOV_FEEDBACK_MANAGE]),
+  validateBody(submitGovAuditReportSchema),
+  asyncHandler((req, res) => govController.submitReport(req, res)),
+);
+
+govRoutes.get(
+  '/gov/reports',
+  requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
+  asyncHandler((req, res) => govController.listReports(req, res)),
+);
+
+govRoutes.get(
+  '/gov/activity-logs',
+  requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
+  asyncHandler((req, res) => govController.listActivityLogs(req, res)),
 );
 
 govRoutes.get(

@@ -4,9 +4,13 @@ import { sendSuccess } from '../../common/utils/response';
 import { conductSchoolReportQuerySchema } from '../reports/reports.schemas';
 import { GovService } from './gov.service';
 import {
+  listGovActivityLogsQuerySchema,
+  listGovAuditsQuerySchema,
   listGovAuditorsQuerySchema,
   listGovIncidentsQuerySchema,
+  listGovReportsQuerySchema,
   listGovSchoolsQuerySchema,
+  submitGovAuditReportSchema,
   updateGovAuditorSchema,
 } from './gov.schemas';
 
@@ -65,6 +69,50 @@ export class GovController {
     );
 
     return sendSuccess(req, res, result, 201);
+  }
+
+  async createAudit(req: Request, res: Response): Promise<Response> {
+    const result = await govService.createAudit(
+      req.body,
+      req.user!,
+      buildContext(req),
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listAudits(req: Request, res: Response): Promise<Response> {
+    const query = listGovAuditsQuerySchema.parse(req.query);
+    const result = await govService.listAudits(req.user!, query);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async getAuditDetail(req: Request, res: Response): Promise<Response> {
+    const result = await govService.getAuditDetail(req.user!, req.params.auditId);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async submitReport(req: Request, res: Response): Promise<Response> {
+    const body = submitGovAuditReportSchema.parse(req.body);
+    const result = await govService.submitReport(req.user!, body, buildContext(req));
+
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listReports(req: Request, res: Response): Promise<Response> {
+    const query = listGovReportsQuerySchema.parse(req.query);
+    const result = await govService.listReports(req.user!, query);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async listActivityLogs(req: Request, res: Response): Promise<Response> {
+    const query = listGovActivityLogsQuerySchema.parse(req.query);
+    const result = await govService.listActivityLogs(req.user!, query);
+
+    return sendSuccess(req, res, result);
   }
 
   async updateScope(req: Request, res: Response): Promise<Response> {

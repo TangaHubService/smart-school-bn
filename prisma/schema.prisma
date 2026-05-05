@@ -145,6 +145,26 @@ enum GovScopeLevel {
   COUNTRY
 }
 
+enum AuditorLevel {
+  NATIONAL
+  PROVINCE
+  DISTRICT
+  SECTOR
+}
+
+enum AuditType {
+  ACADEMIC
+  FINANCIAL
+  INFRASTRUCTURE
+  COMPLIANCE
+}
+
+enum AuditStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+}
+
 enum AuditActionType {
   CREATE
   UPDATE
@@ -219,6 +239,7 @@ model Tenant {
   passwordResetTokens PasswordResetToken[]
   schoolSubscription SchoolSubscription?
   studentLessonProgress StudentLessonProgress[]
+  audits        Audit[]
 
   @@index([isActive])
 }
@@ -246,6 +267,7 @@ model School {
   updatedAt          DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  audits Audit[]
 
   @@index([country])
   @@index([country, province, district, sector])
@@ -316,6 +338,9 @@ model User {
   academySubscriptionPayments AcademySubscriptionPayment[]
   programEnrollments       ProgramEnrollment[]
   authoredSystemAnnouncements SystemAnnouncement[] @relation("SystemAnnouncementAuthor")
+  auditorProfile         Auditor?
+  createdAudits          Audit[]       @relation("AuditCreatedBy")
+  submittedAuditReports  AuditReport[] @relation("AuditReportSubmittedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -707,6 +732,72 @@ model GovAuditorScope {
 
   @@index([auditorUserId, isActive, scopeLevel])
   @@index([scopeLevel, country, province, district, sector])
+}
+
+model Auditor {
+  id        String       @id @default(uuid())
+  userId     String       @unique
+  level      AuditorLevel @default(NATIONAL)
+  country    String       @default("Rwanda")
+  province   String?
+  district   String?
+  sector     String?
+  isActive   Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audits Audit[]
+
+  @@index([level, country, province, district, sector])
+  @@index([isActive, level])
+}
+
+model Audit {
+  id              String      @id @default(uuid())
+  auditorId       String
+  tenantId        String
+  schoolId        String
+  createdByUserId String
+  auditType       AuditType
+  status          AuditStatus @default(PLANNED)
+  plannedDate     DateTime
+  planNotes       String?
+  completedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  auditor       Auditor     @relation(fields: [auditorId], references: [id], onDelete: Cascade)
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  createdByUser User        @relation("AuditCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  report        AuditReport?
+
+  @@index([auditorId, status, plannedDate])
+  @@index([tenantId, plannedDate])
+  @@index([schoolId, plannedDate])
+}
+
+model AuditReport {
+  id                String   @id @default(uuid())
+  auditId           String   @unique
+  submittedByUserId String
+  teachingQuality   Int
+  infrastructure    Int
+  discipline        Int
+  comment           String
+  findings          String
+  recommendations   String
+  score             Int
+  submittedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  audit            Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  submittedByUser  User  @relation("AuditReportSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([submittedByUserId, submittedAt])
+  @@index([score, submittedAt])
 }
 
 model StudentEnrollment {
