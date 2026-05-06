@@ -26,7 +26,11 @@ export class TenantsService {
 
   private assertSuperAdminCatalog(actor: JwtUser) {
     if (!actor.roles.includes('SUPER_ADMIN')) {
-      throw new AppError(403, 'FORBIDDEN', 'Only super admins can manage the academy catalog tenant');
+      throw new AppError(
+        403,
+        'FORBIDDEN',
+        'Only super admins can manage the academy catalog tenant'
+      );
     }
   }
 
@@ -102,7 +106,7 @@ export class TenantsService {
     ]);
 
     return {
-      items: items.map((tenant) => ({
+      items: items.map(tenant => ({
         id: tenant.id,
         code: tenant.code,
         name: tenant.name,
@@ -117,16 +121,12 @@ export class TenantsService {
     };
   }
 
-  async createTenant(
-    input: CreateTenantInput,
-    actor: JwtUser,
-    context: RequestAuditContext,
-  ) {
+  async createTenant(input: CreateTenantInput, actor: JwtUser, context: RequestAuditContext) {
     if (input.isAcademyCatalog) {
       this.assertSuperAdminCatalog(actor);
     }
     try {
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async tx => {
         const tenant = await tx.tenant.create({
           data: {
             code: input.code,
@@ -170,12 +170,12 @@ export class TenantsService {
           roles.push({ id: role.id, name: role.name });
         }
 
-        const schoolAdminRole = roles.find((role) => role.name === 'SCHOOL_ADMIN');
+        const schoolAdminRole = roles.find(role => role.name === 'SCHOOL_ADMIN');
         if (!schoolAdminRole) {
           throw new AppError(
             500,
             'TENANT_ROLE_BOOTSTRAP_FAILED',
-            'SCHOOL_ADMIN role was not created',
+            'SCHOOL_ADMIN role was not created'
           );
         }
 
@@ -189,7 +189,7 @@ export class TenantsService {
         if (input.schoolAdmin) {
           const schoolAdminPasswordHash = await bcrypt.hash(
             input.schoolAdmin.password,
-            env.BCRYPT_ROUNDS,
+            env.BCRYPT_ROUNDS
           );
 
           const createdSchoolAdminUser = await tx.user.create({
@@ -265,15 +265,12 @@ export class TenantsService {
         schoolAdmin: result.schoolAdminUser,
       };
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppError(
           409,
           'TENANT_ALREADY_EXISTS',
           'Tenant code/domain or school admin email already exists',
-          error.meta,
+          error.meta
         );
       }
 
@@ -355,7 +352,7 @@ export class TenantsService {
       updatedAt: tenant.updatedAt,
       school: tenant.school,
       activeUsers: tenant.users.length,
-      pendingInvites: tenant.invites.map((invite) => ({
+      pendingInvites: tenant.invites.map(invite => ({
         id: invite.id,
         email: invite.email,
         roleName: invite.role.name,
@@ -370,7 +367,7 @@ export class TenantsService {
     tenantId: string,
     input: AssignSchoolAdminInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -417,7 +414,11 @@ export class TenantsService {
     });
 
     if (existing) {
-      throw new AppError(409, 'SCHOOL_ADMIN_ALREADY_ASSIGNED', 'This user is already a school administrator');
+      throw new AppError(
+        409,
+        'SCHOOL_ADMIN_ALREADY_ASSIGNED',
+        'This user is already a school administrator'
+      );
     }
 
     await prisma.userRole.create({
@@ -453,7 +454,7 @@ export class TenantsService {
     tenantId: string,
     input: InviteTenantAdminInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -486,24 +487,18 @@ export class TenantsService {
     const schoolAdminRole = tenant.roles[0];
 
     if (!schoolAdminRole) {
-      throw new AppError(
-        500,
-        'TENANT_ROLE_BOOTSTRAP_FAILED',
-        'SCHOOL_ADMIN role was not created',
-      );
+      throw new AppError(500, 'TENANT_ROLE_BOOTSTRAP_FAILED', 'SCHOOL_ADMIN role was not created');
     }
 
     const rawToken = randomBytes(48).toString('hex');
     const tokenHash = this.hashInviteToken(rawToken);
-    const expiresAt = new Date(
-      Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
     const inviteLink = `${env.APP_WEB_URL.replace(/\/$/, '')}/accept-invite?token=${rawToken}`;
 
     let createdInviteId = '';
 
     try {
-      const invite = await prisma.$transaction(async (tx) => {
+      const invite = await prisma.$transaction(async tx => {
         await tx.invite.deleteMany({
           where: {
             tenantId,
@@ -528,10 +523,7 @@ export class TenantsService {
 
       createdInviteId = invite.id;
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppError(409, 'INVITE_ALREADY_EXISTS', 'Pending invite already exists');
       }
 
@@ -560,7 +552,7 @@ export class TenantsService {
       throw new AppError(
         502,
         'INVITE_EMAIL_FAILED',
-        'Failed to send invite email. Check SMTP settings and retry.',
+        'Failed to send invite email. Check SMTP settings and retry.'
       );
     }
 
@@ -596,7 +588,7 @@ export class TenantsService {
     tenantId: string,
     input: UpdateTenantInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.tenant.findFirst({
       where: {
@@ -620,7 +612,7 @@ export class TenantsService {
     }
 
     try {
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async tx => {
         const tenant = await tx.tenant.update({
           where: { id: tenantId },
           data: {
@@ -704,15 +696,12 @@ export class TenantsService {
         },
       };
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppError(
           409,
           'TENANT_ALREADY_EXISTS',
           'School code or domain already exists',
-          error.meta,
+          error.meta
         );
       }
 
@@ -720,24 +709,15 @@ export class TenantsService {
     }
   }
 
-  async deactivateTenant(
-    tenantId: string,
-    actor: JwtUser,
-    context: RequestAuditContext,
-  ) {
-    return this.updateTenantStatus(
-      tenantId,
-      { isActive: false },
-      actor,
-      context,
-    );
+  async deactivateTenant(tenantId: string, actor: JwtUser, context: RequestAuditContext) {
+    return this.updateTenantStatus(tenantId, { isActive: false }, actor, context);
   }
 
   async updateTenantStatus(
     tenantId: string,
     input: UpdateTenantStatusInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.tenant.findFirst({
       where: {
@@ -759,7 +739,7 @@ export class TenantsService {
       };
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async tx => {
       const tenant = await tx.tenant.update({
         where: { id: tenantId },
         data: {
@@ -818,8 +798,6 @@ export class TenantsService {
   }
 
   private hashInviteToken(token: string): string {
-    return createHash('sha256')
-      .update(`${token}:${env.JWT_REFRESH_SECRET}`)
-      .digest('hex');
+    return createHash('sha256').update(`${token}:${env.JWT_REFRESH_SECRET}`).digest('hex');
   }
 }

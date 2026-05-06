@@ -21,7 +21,7 @@ export const auditorReadExtraGuard = (req: Request, res: Response, next: NextFun
   ];
 
   const isAllowedWrite = allowedWrites.some(
-    (entry) => entry.method === req.method && entry.pattern.test(req.path),
+    entry => entry.method === req.method && entry.pattern.test(req.path)
   );
 
   if (isAuditor && req.method !== 'GET' && !isAllowedWrite) {

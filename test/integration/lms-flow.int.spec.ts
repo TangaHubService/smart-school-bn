@@ -156,7 +156,7 @@ describe('lms integration flow', () => {
         description: 'Intro course',
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(createdCourse.title).toBe('Mathematics Grade 1');
@@ -202,7 +202,7 @@ describe('lms integration flow', () => {
         body: 'Count from one to twenty.',
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(createdLesson.isPublished).toBe(false);
@@ -237,7 +237,7 @@ describe('lms integration flow', () => {
         isPublished: true,
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(publishedLesson.isPublished).toBe(true);
@@ -348,7 +348,7 @@ describe('lms integration flow', () => {
             }),
           ]),
         }),
-      }),
+      })
     );
     expect(myCourses.items).toHaveLength(2);
   });
@@ -366,8 +366,8 @@ describe('lms integration flow', () => {
           title: 'Science Grade 1',
         },
         teacherActor,
-        context,
-      ),
+        context
+      )
     ).rejects.toMatchObject({
       statusCode: 400,
       code: 'COURSE_SUBJECT_REQUIRED',
@@ -392,8 +392,8 @@ describe('lms integration flow', () => {
           title: 'Science Grade 1',
         },
         teacherActor,
-        context,
-      ),
+        context
+      )
     ).rejects.toMatchObject({
       statusCode: 403,
       code: 'COURSE_SUBJECT_NOT_ASSIGNED',
@@ -417,7 +417,7 @@ describe('lms integration flow', () => {
         teacherUserId: 'teacher-1',
       },
       adminActor,
-      context,
+      context
     );
 
     expect(updatedCourse.teacher.id).toBe('teacher-1');
@@ -426,7 +426,7 @@ describe('lms integration flow', () => {
         data: expect.objectContaining({
           teacherUserId: 'teacher-1',
         }),
-      }),
+      })
     );
 
     mockedPrisma.$transaction.mockResolvedValueOnce([
@@ -450,7 +450,7 @@ describe('lms integration flow', () => {
         page: 1,
         pageSize: 12,
       },
-      teacherActor,
+      teacherActor
     );
 
     expect(mockedPrisma.course.count).toHaveBeenCalledWith({
@@ -515,7 +515,7 @@ describe('lms integration flow', () => {
         isPublished: true,
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(assignment.title).toBe('Count five objects');
@@ -556,7 +556,7 @@ describe('lms integration flow', () => {
         page: 1,
         pageSize: 20,
       },
-      teacherActor,
+      teacherActor
     );
 
     expect(listedAssignments.items).toHaveLength(1);
@@ -627,7 +627,7 @@ describe('lms integration flow', () => {
         textAnswer: 'Book, chair, desk, pen, bag',
       },
       studentActor,
-      context,
+      context
     );
 
     expect(submission.status).toBe('SUBMITTED');
@@ -683,7 +683,7 @@ describe('lms integration flow', () => {
         feedback: 'Good work.',
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(graded.status).toBe('GRADED');

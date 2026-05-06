@@ -33,161 +33,161 @@ lmsRoutes.post(
   '/courses',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(createCourseSchema),
-  asyncHandler((req, res) => lmsController.createCourse(req, res)),
+  asyncHandler((req, res) => lmsController.createCourse(req, res))
 );
 
 lmsRoutes.get(
   '/academy-programs',
   requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listAcademyPrograms(req, res)),
+  asyncHandler((req, res) => lmsController.listAcademyPrograms(req, res))
 );
 
 lmsRoutes.post(
   '/academy-programs',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(createAcademyProgramSchema),
-  asyncHandler((req, res) => lmsController.createAcademyProgram(req, res)),
+  asyncHandler((req, res) => lmsController.createAcademyProgram(req, res))
 );
 
 lmsRoutes.patch(
   '/academy-programs/:programId',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(updateAcademyProgramSchema),
-  asyncHandler((req, res) => lmsController.updateAcademyProgram(req, res)),
+  asyncHandler((req, res) => lmsController.updateAcademyProgram(req, res))
 );
 
 lmsRoutes.get(
   '/courses',
   requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listCourses(req, res)),
+  asyncHandler((req, res) => lmsController.listCourses(req, res))
 );
 
 lmsRoutes.get(
   '/courses/teacher-options',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  asyncHandler((req, res) => lmsController.listTeacherOptions(req, res)),
+  asyncHandler((req, res) => lmsController.listTeacherOptions(req, res))
 );
 
 lmsRoutes.get(
   '/courses/subject-options',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  asyncHandler((req, res) => lmsController.listSubjectOptions(req, res)),
+  asyncHandler((req, res) => lmsController.listSubjectOptions(req, res))
 );
 
 lmsRoutes.patch(
   '/courses/:courseId/teacher',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(assignCourseTeacherSchema),
-  asyncHandler((req, res) => lmsController.assignCourseTeacher(req, res)),
+  asyncHandler((req, res) => lmsController.assignCourseTeacher(req, res))
 );
 
 lmsRoutes.patch(
   '/courses/assign-by-subject',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(assignTeacherBySubjectSchema),
-  asyncHandler((req, res) => lmsController.assignTeacherBySubject(req, res)),
+  asyncHandler((req, res) => lmsController.assignTeacherBySubject(req, res))
 );
 
 lmsRoutes.get(
   '/courses/:courseId',
   requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.getCourseDetail(req, res)),
+  asyncHandler((req, res) => lmsController.getCourseDetail(req, res))
 );
 
 lmsRoutes.patch(
   '/courses/:courseId',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(updateCourseSchema),
-  asyncHandler((req, res) => lmsController.updateCourse(req, res)),
+  asyncHandler((req, res) => lmsController.updateCourse(req, res))
 );
 
 lmsRoutes.delete(
   '/courses/:courseId',
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  asyncHandler((req, res) => lmsController.deleteCourse(req, res)),
+  asyncHandler((req, res) => lmsController.deleteCourse(req, res))
 );
 
 lmsRoutes.post(
   '/courses/:courseId/lessons',
   requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
   validateBody(createLessonSchema),
-  asyncHandler((req, res) => lmsController.createLesson(req, res)),
+  asyncHandler((req, res) => lmsController.createLesson(req, res))
 );
 
 lmsRoutes.patch(
   '/lessons/:lessonId',
   requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
   validateBody(updateLessonSchema),
-  asyncHandler((req, res) => lmsController.updateLesson(req, res)),
+  asyncHandler((req, res) => lmsController.updateLesson(req, res))
 );
 
 lmsRoutes.delete(
   '/lessons/:lessonId',
   requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
-  asyncHandler((req, res) => lmsController.deleteLesson(req, res)),
+  asyncHandler((req, res) => lmsController.deleteLesson(req, res))
 );
 
 lmsRoutes.patch(
   '/lessons/:lessonId/publish',
   requirePermissions([PERMISSIONS.LESSONS_PUBLISH]),
   validateBody(publishLessonSchema),
-  asyncHandler((req, res) => lmsController.publishLesson(req, res)),
+  asyncHandler((req, res) => lmsController.publishLesson(req, res))
 );
 
 lmsRoutes.post(
   '/assignments',
   requirePermissions([PERMISSIONS.ASSIGNMENTS_MANAGE]),
   validateBody(createAssignmentSchema),
-  asyncHandler((req, res) => lmsController.createAssignment(req, res)),
+  asyncHandler((req, res) => lmsController.createAssignment(req, res))
 );
 
 lmsRoutes.get(
   '/assignments',
   requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listAssignments(req, res)),
+  asyncHandler((req, res) => lmsController.listAssignments(req, res))
 );
 
 lmsRoutes.get(
   '/assignments/:id/submissions',
   requirePermissions([PERMISSIONS.SUBMISSIONS_READ]),
-  asyncHandler((req, res) => lmsController.listAssignmentSubmissions(req, res)),
+  asyncHandler((req, res) => lmsController.listAssignmentSubmissions(req, res))
 );
 
 lmsRoutes.post(
   '/assignments/:id/submissions',
   requirePermissions([PERMISSIONS.ASSIGNMENTS_SUBMIT]),
   validateBody(createSubmissionSchema),
-  asyncHandler((req, res) => lmsController.submitAssignment(req, res)),
+  asyncHandler((req, res) => lmsController.submitAssignment(req, res))
 );
 
 lmsRoutes.patch(
   '/submissions/:id/grade',
   requirePermissions([PERMISSIONS.SUBMISSIONS_GRADE]),
   validateBody(gradeSubmissionSchema),
-  asyncHandler((req, res) => lmsController.gradeSubmission(req, res)),
+  asyncHandler((req, res) => lmsController.gradeSubmission(req, res))
 );
 
 lmsRoutes.get(
   '/students/me/courses',
   requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listMyCourses(req, res)),
+  asyncHandler((req, res) => lmsController.listMyCourses(req, res))
 );
 
 lmsRoutes.get(
   '/teacher/learning-insights',
   requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listTeacherLearningInsights(req, res)),
+  asyncHandler((req, res) => lmsController.listTeacherLearningInsights(req, res))
 );
 
 lmsRoutes.post(
   '/lessons/:lessonId/mark-complete',
   requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
-  asyncHandler((req, res) => lmsController.markLessonComplete(req, res)),
+  asyncHandler((req, res) => lmsController.markLessonComplete(req, res))
 );
 
 lmsRoutes.post(
   '/lessons/:lessonId/activity',
   requirePermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
   validateBody(recordLessonActivitySchema),
-  asyncHandler((req, res) => lmsController.recordLessonActivity(req, res)),
+  asyncHandler((req, res) => lmsController.recordLessonActivity(req, res))
 );

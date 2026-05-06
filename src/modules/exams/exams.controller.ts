@@ -36,12 +36,22 @@ export class ExamsController {
   }
 
   async createGradingScheme(req: Request, res: Response) {
-    const result = await examsService.createGradingScheme(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.createGradingScheme(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result, 201);
   }
 
   async createExam(req: Request, res: Response) {
-    const result = await examsService.createExam(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.createExam(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result, 201);
   }
 
@@ -57,17 +67,34 @@ export class ExamsController {
   }
 
   async updateExam(req: Request, res: Response) {
-    const result = await examsService.updateExam(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
+    const result = await examsService.updateExam(
+      req.tenantId!,
+      req.params.examId,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
   async deleteExam(req: Request, res: Response) {
-    const result = await examsService.deleteExam(req.tenantId!, req.params.examId, req.user!, buildContext(req));
+    const result = await examsService.deleteExam(
+      req.tenantId!,
+      req.params.examId,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
   async bulkSaveMarks(req: Request, res: Response) {
-    const result = await examsService.bulkSaveMarks(req.tenantId!, req.params.examId, req.body, req.user!, buildContext(req));
+    const result = await examsService.bulkSaveMarks(
+      req.tenantId!,
+      req.params.examId,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
@@ -85,7 +112,12 @@ export class ExamsController {
 
   async saveMarksGrid(req: Request, res: Response) {
     const body = marksGridSaveSchema.parse(req.body);
-    const result = await examsService.saveMarksGrid(req.tenantId!, body, req.user!, buildContext(req));
+    const result = await examsService.saveMarksGrid(
+      req.tenantId!,
+      body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
@@ -96,22 +128,42 @@ export class ExamsController {
   }
 
   async bulkSaveConductGrades(req: Request, res: Response) {
-    const result = await examsService.bulkSaveConductGrades(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.bulkSaveConductGrades(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
   async lockResults(req: Request, res: Response) {
-    const result = await examsService.lockResults(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.lockResults(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
   async unlockResults(req: Request, res: Response) {
-    const result = await examsService.unlockResults(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.unlockResults(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
   async publishResults(req: Request, res: Response) {
-    const result = await examsService.publishResults(req.tenantId!, req.body, req.user!, buildContext(req));
+    const result = await examsService.publishResults(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
     return sendSuccess(req, res, result);
   }
 
@@ -123,7 +175,12 @@ export class ExamsController {
 
   async getStudentReportCards(req: Request, res: Response) {
     const query = reportCardsQuerySchema.parse(req.query);
-    const result = await examsService.getStudentReportCards(req.tenantId!, req.params.studentId, req.user!, query);
+    const result = await examsService.getStudentReportCards(
+      req.tenantId!,
+      req.params.studentId,
+      req.user!,
+      query
+    );
     return sendSuccess(req, res, result);
   }
 
@@ -147,21 +204,37 @@ export class ExamsController {
 
   async downloadStudentReportCardPdf(req: Request, res: Response) {
     const query = reportCardsQuerySchema.parse(req.query);
-    const result = await examsService.getAdminReportCardPdf(req.tenantId!, req.params.studentId, req.user!, query, buildContext(req));
+    const result = await examsService.getAdminReportCardPdf(
+      req.tenantId!,
+      req.params.studentId,
+      req.user!,
+      query,
+      buildContext(req)
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
     return res.status(200).send(result.buffer);
   }
 
   async downloadMyReportCardPdf(req: Request, res: Response) {
-    const result = await examsService.getMyReportCardPdf(req.tenantId!, req.params.snapshotId, req.user!, buildContext(req));
+    const result = await examsService.getMyReportCardPdf(
+      req.tenantId!,
+      req.params.snapshotId,
+      req.user!,
+      buildContext(req)
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
     return res.status(200).send(result.buffer);
   }
 
   async downloadParentReportCardPdf(req: Request, res: Response) {
-    const result = await examsService.getParentReportCardPdf(req.tenantId!, req.params.snapshotId, req.user!, buildContext(req));
+    const result = await examsService.getParentReportCardPdf(
+      req.tenantId!,
+      req.params.snapshotId,
+      req.user!,
+      buildContext(req)
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
     return res.status(200).send(result.buffer);

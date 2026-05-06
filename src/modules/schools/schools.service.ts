@@ -14,11 +14,11 @@ export class SchoolsService {
     tenantId: string,
     input: SchoolSetupInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.validateChronology(input);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async tx => {
       const school = await tx.school.upsert({
         where: { tenantId },
         update: {
@@ -270,7 +270,7 @@ export class SchoolsService {
         throw new AppError(
           400,
           'SCHOOL_SETUP_INVALID_ACADEMIC_YEAR_DATES',
-          'Academic year startDate must be earlier than endDate',
+          'Academic year startDate must be earlier than endDate'
         );
       }
 
@@ -283,7 +283,7 @@ export class SchoolsService {
             400,
             'SCHOOL_SETUP_INVALID_TERM_DATES',
             'Term startDate must be earlier than endDate',
-            { term: term.name },
+            { term: term.name }
           );
         }
 
@@ -292,7 +292,7 @@ export class SchoolsService {
             400,
             'SCHOOL_SETUP_TERM_OUT_OF_RANGE',
             'Term dates must be within the academic year range',
-            { term: term.name },
+            { term: term.name }
           );
         }
       }

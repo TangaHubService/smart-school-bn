@@ -31,7 +31,7 @@ export class LmsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -43,7 +43,7 @@ export class LmsController {
       req.params.courseId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -54,7 +54,7 @@ export class LmsController {
       req.tenantId!,
       req.params.courseId,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -88,7 +88,7 @@ export class LmsController {
       req.params.courseId,
       input,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -100,7 +100,7 @@ export class LmsController {
       req.tenantId!,
       input,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -112,7 +112,7 @@ export class LmsController {
       req.tenantId!,
       req.params.courseId,
       query,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result);
@@ -124,7 +124,7 @@ export class LmsController {
       req.params.courseId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -136,7 +136,7 @@ export class LmsController {
       req.params.lessonId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -147,7 +147,7 @@ export class LmsController {
       req.tenantId!,
       req.params.lessonId,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -159,7 +159,7 @@ export class LmsController {
       req.params.lessonId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -170,7 +170,7 @@ export class LmsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -189,7 +189,7 @@ export class LmsController {
       req.tenantId!,
       req.params.id,
       query,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result);
@@ -201,7 +201,7 @@ export class LmsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -213,7 +213,7 @@ export class LmsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -231,7 +231,7 @@ export class LmsController {
       req.tenantId!,
       req.params.lessonId,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -243,7 +243,7 @@ export class LmsController {
       req.tenantId!,
       req.params.lessonId,
       body,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }
@@ -258,7 +258,7 @@ export class LmsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
     return sendSuccess(req, res, result, 201);
   }
@@ -269,7 +269,7 @@ export class LmsController {
       req.params.programId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
     return sendSuccess(req, res, result);
   }

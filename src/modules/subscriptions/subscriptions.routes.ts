@@ -17,37 +17,37 @@ subscriptionsRoutes.use(authenticate);
 subscriptionsRoutes.get(
   '/subscription-plans',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.listPlans(req, res)),
+  asyncHandler((req, res) => controller.listPlans(req, res))
 );
 
 subscriptionsRoutes.get(
   '/subscriptions/schools',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.listSchoolSubscriptions(req, res)),
+  asyncHandler((req, res) => controller.listSchoolSubscriptions(req, res))
 );
 
 subscriptionsRoutes.patch(
   '/subscriptions/schools/:tenantId',
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateSchoolSubscriptionSchema),
-  asyncHandler((req, res) => controller.updateSchoolSubscription(req, res)),
+  asyncHandler((req, res) => controller.updateSchoolSubscription(req, res))
 );
 
 subscriptionsRoutes.get(
   '/subscriptions/academy/enrollments',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.listAcademyEnrollments(req, res)),
+  asyncHandler((req, res) => controller.listAcademyEnrollments(req, res))
 );
 
 subscriptionsRoutes.get(
   '/subscriptions/academy/catalog-programs',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.listAcademyCatalogPrograms(req, res)),
+  asyncHandler((req, res) => controller.listAcademyCatalogPrograms(req, res))
 );
 
 subscriptionsRoutes.post(
   '/subscriptions/academy/grant-access',
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(grantAcademyAccessSchema),
-  asyncHandler((req, res) => controller.grantAcademyAccess(req, res)),
+  asyncHandler((req, res) => controller.grantAcademyAccess(req, res))
 );

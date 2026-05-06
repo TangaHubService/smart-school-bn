@@ -20,7 +20,7 @@ export class StaffController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -53,7 +53,7 @@ export class StaffController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -64,7 +64,7 @@ export class StaffController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -75,7 +75,7 @@ export class StaffController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
     return sendSuccess(req, res, result);
   }

@@ -11,4 +11,3 @@ export class FilesController {
     return sendSuccess(req, res, result);
   }
 }
-

@@ -64,7 +64,7 @@ export class AuditListService {
     options: {
       tenantId?: string;
       defaultEvents?: string[];
-    },
+    }
   ): Prisma.AuditLogWhereInput {
     const where: Prisma.AuditLogWhereInput = {};
 
@@ -135,10 +135,7 @@ export class AuditListService {
     return where;
   }
 
-  private async runListQuery(
-    where: Prisma.AuditLogWhereInput,
-    query: ListAuditLogsQueryInput,
-  ) {
+  private async runListQuery(where: Prisma.AuditLogWhereInput, query: ListAuditLogsQueryInput) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 30;
 
@@ -154,14 +151,11 @@ export class AuditListService {
     ]);
 
     return {
-      items: rows.map((row) => {
+      items: rows.map(row => {
         const actorName =
           row.actorName ??
           (`${row.actorUser?.firstName ?? ''} ${row.actorUser?.lastName ?? ''}`.trim() || null);
-        const schoolName =
-          row.schoolName ??
-          row.tenant.school?.displayName ??
-          row.tenant.name;
+        const schoolName = row.schoolName ?? row.tenant.school?.displayName ?? row.tenant.name;
         const timestamp = row.createdAt.toISOString();
 
         return {
@@ -179,14 +173,15 @@ export class AuditListService {
           device: row.device ?? row.userAgent,
           status: row.status,
           sessionId: row.sessionId,
-          actor: row.actorUserId || actorName || row.actorRole
-            ? {
-                id: row.actorUser?.id ?? row.actorUserId ?? null,
-                email: row.actorUser?.email ?? null,
-                name: actorName,
-                role: row.actorRole,
-              }
-            : null,
+          actor:
+            row.actorUserId || actorName || row.actorRole
+              ? {
+                  id: row.actorUser?.id ?? row.actorUserId ?? null,
+                  email: row.actorUser?.email ?? null,
+                  name: actorName,
+                  role: row.actorRole,
+                }
+              : null,
           schoolName,
           tenant: {
             id: row.tenant.id,

@@ -50,7 +50,7 @@ export const exportLogsExcel = async (req: Request, res: Response) => {
     { header: 'Timestamp', key: 'createdAt', width: 20 },
     { header: 'Session ID', key: 'sessionId', width: 25 },
   ];
-  logs.forEach((log) =>
+  logs.forEach(log =>
     sheet.addRow({
       id: String(log.id),
       userId: log.actorUserId,
@@ -66,9 +66,12 @@ export const exportLogsExcel = async (req: Request, res: Response) => {
       status: log.status,
       createdAt: log.createdAt.toISOString(),
       sessionId: log.sessionId,
-    }),
+    })
   );
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
   res.setHeader('Content-Disposition', 'attachment; filename="activity-logs.xlsx"');
   await workbook.xlsx.write(res);
   res.end();
@@ -82,9 +85,9 @@ export const exportLogsPdf = async (req: Request, res: Response) => {
   doc.pipe(res);
   doc.fontSize(12).text('Activity Logs', { align: 'center' });
   doc.moveDown();
-  logs.forEach((log) => {
+  logs.forEach(log => {
     doc.text(
-      `${String(log.id)} | ${log.actorUserId ?? '-'} | ${log.actionType ?? '-'} | ${log.module ?? '-'} | ${log.status ?? '-'} | ${log.createdAt.toISOString()}`,
+      `${String(log.id)} | ${log.actorUserId ?? '-'} | ${log.actionType ?? '-'} | ${log.module ?? '-'} | ${log.status ?? '-'} | ${log.createdAt.toISOString()}`
     );
   });
   doc.end();

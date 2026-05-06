@@ -39,17 +39,26 @@ export class LmsService {
     tenantId: string,
     input: CreateCourseInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
-    await this.ensureAcademicTargets(tenantId, input.academicYearId, input.classRoomId, input.subjectId);
-    const teacherUserId = await this.resolveCourseTeacherUserId(tenantId, input.teacherUserId, actor);
+    await this.ensureAcademicTargets(
+      tenantId,
+      input.academicYearId,
+      input.classRoomId,
+      input.subjectId
+    );
+    const teacherUserId = await this.resolveCourseTeacherUserId(
+      tenantId,
+      input.teacherUserId,
+      actor
+    );
 
     if (this.isTeacherOnly(actor)) {
       if (!input.subjectId) {
         throw new AppError(
           400,
           'COURSE_SUBJECT_REQUIRED',
-          'Subject is required when teachers create courses',
+          'Subject is required when teachers create courses'
         );
       }
 
@@ -89,7 +98,10 @@ export class LmsService {
 
       return this.mapCourse(created);
     } catch (error) {
-      this.handleUniqueError(error, 'Course title already exists for this class, year, and teacher');
+      this.handleUniqueError(
+        error,
+        'Course title already exists for this class, year, and teacher'
+      );
       throw error;
     }
   }
@@ -99,7 +111,7 @@ export class LmsService {
     courseId: string,
     input: UpdateCourseInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.course.findFirst({
       where: {
@@ -119,23 +131,18 @@ export class LmsService {
     const academicYearId = input.academicYearId ?? existing.academicYear.id;
     const classRoomId = input.classRoomId ?? existing.classRoom.id;
     const subjectId =
-      input.subjectId !== undefined ? input.subjectId : existing.subject?.id ?? null;
+      input.subjectId !== undefined ? input.subjectId : (existing.subject?.id ?? null);
     const title = input.title ?? existing.title;
     const description = input.description !== undefined ? input.description : existing.description;
 
-    await this.ensureAcademicTargets(
-      tenantId,
-      academicYearId,
-      classRoomId,
-      subjectId ?? undefined,
-    );
+    await this.ensureAcademicTargets(tenantId, academicYearId, classRoomId, subjectId ?? undefined);
 
     if (this.isTeacherOnly(actor)) {
       if (!subjectId) {
         throw new AppError(
           400,
           'COURSE_SUBJECT_REQUIRED',
-          'Subject is required when teachers edit courses',
+          'Subject is required when teachers edit courses'
         );
       }
 
@@ -175,7 +182,10 @@ export class LmsService {
 
       return this.mapCourse(updated);
     } catch (error) {
-      this.handleUniqueError(error, 'Course title already exists for this class, year, and teacher');
+      this.handleUniqueError(
+        error,
+        'Course title already exists for this class, year, and teacher'
+      );
       throw error;
     }
   }
@@ -184,7 +194,7 @@ export class LmsService {
     tenantId: string,
     courseId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const course = await prisma.course.findFirst({
       where: {
@@ -230,11 +240,7 @@ export class LmsService {
     };
   }
 
-  async listCourses(
-    tenantId: string,
-    query: ListCoursesQueryInput,
-    actor: JwtUser,
-  ) {
+  async listCourses(tenantId: string, query: ListCoursesQueryInput, actor: JwtUser) {
     const where: Prisma.CourseWhereInput = {
       tenantId,
       isActive: true,
@@ -272,7 +278,7 @@ export class LmsService {
     ]);
 
     return {
-      items: items.map((item) => ({
+      items: items.map(item => ({
         ...this.mapCourse(item),
         counts: {
           lessons: item._count.lessons,
@@ -286,7 +292,7 @@ export class LmsService {
   async listTeacherOptions(
     tenantId: string,
     query: ListCourseTeacherOptionsQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     this.ensureAdminCanAssignTeacher(actor);
 
@@ -338,7 +344,7 @@ export class LmsService {
   async listSubjectOptions(
     tenantId: string,
     query: ListCourseSubjectOptionsQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     let subjectIds: string[] | undefined;
 
@@ -358,7 +364,7 @@ export class LmsService {
         distinct: ['subjectId'],
       });
 
-      subjectIds = assigned.map((item) => item.subjectId).filter((id): id is string => Boolean(id));
+      subjectIds = assigned.map(item => item.subjectId).filter((id): id is string => Boolean(id));
       if (!subjectIds.length) {
         return [];
       }
@@ -400,7 +406,7 @@ export class LmsService {
     courseId: string,
     input: AssignCourseTeacherInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureAdminCanAssignTeacher(actor);
 
@@ -423,7 +429,7 @@ export class LmsService {
     const teacherUserId = await this.resolveCourseTeacherUserId(
       tenantId,
       input.teacherUserId,
-      actor,
+      actor
     );
 
     if (teacherUserId === course.teacherUserId) {
@@ -473,7 +479,7 @@ export class LmsService {
     } catch (error) {
       this.handleUniqueError(
         error,
-        'This teacher already has a course with the same title in this class and academic year',
+        'This teacher already has a course with the same title in this class and academic year'
       );
       throw error;
     }
@@ -483,14 +489,14 @@ export class LmsService {
     tenantId: string,
     input: AssignTeacherBySubjectInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureAdminCanAssignTeacher(actor);
 
     const teacherUserId = await this.resolveCourseTeacherUserId(
       tenantId,
       input.teacherUserId,
-      actor,
+      actor
     );
 
     const [academicYear, classRoom, subject] = await Promise.all([
@@ -594,7 +600,7 @@ export class LmsService {
       } catch (error) {
         this.handleUniqueError(
           error,
-          'This teacher already has a course with the same title in this class and academic year',
+          'This teacher already has a course with the same title in this class and academic year'
         );
         throw error;
       }
@@ -639,7 +645,7 @@ export class LmsService {
     } catch (error) {
       this.handleUniqueError(
         error,
-        'A matching subject course already exists for this teacher, class, and year',
+        'A matching subject course already exists for this teacher, class, and year'
       );
       throw error;
     }
@@ -649,7 +655,7 @@ export class LmsService {
     tenantId: string,
     courseId: string,
     query: CourseDetailQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const course = await prisma.course.findFirst({
       where: {
@@ -712,10 +718,10 @@ export class LmsService {
     return {
       course: this.mapCourse(course),
       lessons: {
-        items: lessons.map((item) => this.mapLesson(item)),
+        items: lessons.map(item => this.mapLesson(item)),
         pagination: buildPagination(query.lessonsPage, query.lessonsPageSize, lessonCount),
       },
-      assignments: assignments.map((item) => this.mapAssignment(item)),
+      assignments: assignments.map(item => this.mapAssignment(item)),
     };
   }
 
@@ -724,7 +730,7 @@ export class LmsService {
     courseId: string,
     input: CreateLessonInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const course = await prisma.course.findFirst({
       where: {
@@ -745,19 +751,21 @@ export class LmsService {
     this.ensureCanManageCourse(course.teacherUserId, actor);
 
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async tx => {
         const assetId = await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub);
         const sequence =
           input.sequence ??
-          ((await tx.lesson.aggregate({
-            where: {
-              tenantId,
-              courseId,
-            },
-            _max: {
-              sequence: true,
-            },
-          }))._max.sequence ?? 0) + 1;
+          ((
+            await tx.lesson.aggregate({
+              where: {
+                tenantId,
+                courseId,
+              },
+              _max: {
+                sequence: true,
+              },
+            })
+          )._max.sequence ?? 0) + 1;
 
         return tx.lesson.create({
           data: {
@@ -805,7 +813,7 @@ export class LmsService {
     lessonId: string,
     input: UpdateLessonInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const lesson = await prisma.lesson.findFirst({
       where: {
@@ -829,20 +837,19 @@ export class LmsService {
     this.ensureCanManageCourse(lesson.course.teacherUserId, actor);
 
     try {
-      const updated = await prisma.$transaction(async (tx) => {
-        const nextAssetId =
-          input.asset
-            ? await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub)
-            : input.removeAsset
-              ? null
-              : undefined;
+      const updated = await prisma.$transaction(async tx => {
+        const nextAssetId = input.asset
+          ? await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub)
+          : input.removeAsset
+            ? null
+            : undefined;
 
         const contentType = input.contentType ?? lesson.contentType;
         const body = input.body !== undefined ? input.body || null : lesson.body;
         const externalUrl =
           input.externalUrl !== undefined ? input.externalUrl || null : lesson.externalUrl;
         const fileAssetId =
-          nextAssetId !== undefined ? nextAssetId : lesson.fileAsset?.id ?? null;
+          nextAssetId !== undefined ? nextAssetId : (lesson.fileAsset?.id ?? null);
 
         this.assertLessonContentState(contentType, body, externalUrl, fileAssetId);
 
@@ -891,7 +898,7 @@ export class LmsService {
     tenantId: string,
     lessonId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const lesson = await prisma.lesson.findFirst({
       where: {
@@ -943,7 +950,7 @@ export class LmsService {
     lessonId: string,
     input: PublishLessonInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const lesson = await prisma.lesson.findFirst({
       where: {
@@ -1000,7 +1007,7 @@ export class LmsService {
     tenantId: string,
     input: CreateAssignmentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const course = await prisma.course.findFirst({
       where: {
@@ -1037,7 +1044,7 @@ export class LmsService {
       }
     }
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async tx => {
       const assetId = await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub);
       return tx.assignment.create({
         data: {
@@ -1086,11 +1093,7 @@ export class LmsService {
     return this.mapAssignment(created);
   }
 
-  async listAssignments(
-    tenantId: string,
-    query: ListAssignmentsQueryInput,
-    actor: JwtUser,
-  ) {
+  async listAssignments(tenantId: string, query: ListAssignmentsQueryInput, actor: JwtUser) {
     const courseWhere: Prisma.CourseWhereInput = {};
 
     if (query.classId) {
@@ -1181,7 +1184,7 @@ export class LmsService {
     ]);
 
     return {
-      items: items.map((item) => this.mapAssignment(item)),
+      items: items.map(item => this.mapAssignment(item)),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -1190,7 +1193,7 @@ export class LmsService {
     tenantId: string,
     assignmentId: string,
     query: ListAssignmentSubmissionsQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const assignment = await prisma.assignment.findFirst({
       where: {
@@ -1253,7 +1256,7 @@ export class LmsService {
         title: assignment.title,
         maxPoints: assignment.maxPoints,
       },
-      items: items.map((item) => this.mapSubmission(item)),
+      items: items.map(item => this.mapSubmission(item)),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -1263,7 +1266,7 @@ export class LmsService {
     assignmentId: string,
     input: CreateSubmissionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const assignment = await prisma.assignment.findFirst({
@@ -1285,7 +1288,7 @@ export class LmsService {
       student,
       assignment.course.id,
       assignment.course.classRoomId,
-      assignment.course.academicYearId,
+      assignment.course.academicYearId
     );
 
     if (assignment.dueAt && assignment.dueAt < new Date()) {
@@ -1306,7 +1309,7 @@ export class LmsService {
       throw new AppError(409, 'SUBMISSION_ALREADY_GRADED', 'Submission has already been graded');
     }
 
-    const submission = await prisma.$transaction(async (tx) => {
+    const submission = await prisma.$transaction(async tx => {
       const assetId = await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub);
       return tx.submission.upsert({
         where: {
@@ -1381,7 +1384,7 @@ export class LmsService {
     submissionId: string,
     input: GradeSubmissionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const submission = await prisma.submission.findFirst({
       where: {
@@ -1427,7 +1430,7 @@ export class LmsService {
       throw new AppError(
         400,
         'GRADE_EXCEEDS_MAX_POINTS',
-        'Grade cannot exceed assignment max points',
+        'Grade cannot exceed assignment max points'
       );
     }
 
@@ -1479,11 +1482,7 @@ export class LmsService {
     return this.mapSubmission(updated);
   }
 
-  async listMyCourses(
-    tenantId: string,
-    actor: JwtUser,
-    query: ListMyCoursesQueryInput,
-  ) {
+  async listMyCourses(tenantId: string, actor: JwtUser, query: ListMyCoursesQueryInput) {
     // 1. Get Student profile if exists
     const student = await prisma.student.findFirst({
       where: { tenantId, userId: actor.sub, deletedAt: null, isActive: true },
@@ -1512,18 +1511,21 @@ export class LmsService {
     });
 
     const academyCourseIds = programEnrollments
-      .map((pe) => pe.program.courseId)
+      .map(pe => pe.program.courseId)
       .filter((id): id is string => Boolean(id));
-    const academySubjectIds = [...new Set(
-      programEnrollments
-        .map((pe) => pe.program.course?.subjectId)
-        .filter((id): id is string => Boolean(id)),
-    )];
+    const academySubjectIds = [
+      ...new Set(
+        programEnrollments
+          .map(pe => pe.program.course?.subjectId)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
 
-    const enrollmentPairs = student?.enrollments.map((item) => ({
-      classRoomId: item.classRoomId,
-      academicYearId: item.academicYearId,
-    })) ?? [];
+    const enrollmentPairs =
+      student?.enrollments.map(item => ({
+        classRoomId: item.classRoomId,
+        academicYearId: item.academicYearId,
+      })) ?? [];
 
     if (!enrollmentPairs.length && !academyCourseIds.length && !academySubjectIds.length) {
       return {
@@ -1543,7 +1545,7 @@ export class LmsService {
     if (enrollmentPairs.length) {
       orBlocks.push({
         tenantId,
-        OR: enrollmentPairs.map((pair) => ({
+        OR: enrollmentPairs.map(pair => ({
           classRoomId: pair.classRoomId,
           academicYearId: pair.academicYearId,
         })),
@@ -1597,7 +1599,7 @@ export class LmsService {
         },
       });
 
-      completedLessons.forEach((progress) => {
+      completedLessons.forEach(progress => {
         // Only process if lesson still exists (not orphaned)
         if (progress.lesson) {
           const courseId = progress.lesson.courseId;
@@ -1690,7 +1692,7 @@ export class LmsService {
       }),
     ]);
 
-    const courseIds = items.map((i) => i.id);
+    const courseIds = items.map(i => i.id);
     const submittedByCourse = new Map<string, string[]>();
     if (student?.id && courseIds.length > 0) {
       const att = await prisma.assessmentAttempt.findMany({
@@ -1720,20 +1722,20 @@ export class LmsService {
         firstName: student?.firstName ?? actor.email.split('@')[0],
         lastName: student?.lastName ?? '',
       },
-      items: items.map((item) => {
+      items: items.map(item => {
         const mappedCourse = this.mapCourse(item);
 
         return {
           ...mappedCourse,
-          lessons: item.lessons.map((lesson) => this.mapLesson(lesson)),
-          assignments: item.assignments.map((assignment) => ({
+          lessons: item.lessons.map(lesson => this.mapLesson(lesson)),
+          assignments: item.assignments.map(assignment => ({
             ...this.mapAssignment(assignment),
             mySubmission: assignment.submissions[0]
               ? this.mapSubmission(assignment.submissions[0])
               : null,
           })),
-          assessments: item.assessments.map((assessment) =>
-            this.mapCourseAssessment(assessment, mappedCourse),
+          assessments: item.assessments.map(assessment =>
+            this.mapCourseAssessment(assessment, mappedCourse)
           ),
           completedLessonIds: completedProgressMap.get(item.id) ?? [],
           submittedAssessmentIds: submittedByCourse.get(item.id) ?? [],
@@ -1746,7 +1748,7 @@ export class LmsService {
   private async assertStudentPublishedLessonAccess(
     tenantId: string,
     lessonId: string,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const lesson = await prisma.lesson.findFirst({
       where: {
@@ -1789,7 +1791,7 @@ export class LmsService {
       student,
       course.id,
       course.classRoomId,
-      course.academicYearId,
+      course.academicYearId
     );
 
     return { lesson, course, student };
@@ -1799,9 +1801,13 @@ export class LmsService {
     tenantId: string,
     lessonId: string,
     input: RecordLessonActivityInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
-    const { lesson, student } = await this.assertStudentPublishedLessonAccess(tenantId, lessonId, actor);
+    const { lesson, student } = await this.assertStudentPublishedLessonAccess(
+      tenantId,
+      lessonId,
+      actor
+    );
     const now = new Date();
     const delta = Math.min(Math.max(1, input.secondsDelta), 120);
 
@@ -1848,12 +1854,12 @@ export class LmsService {
     tenantId: string,
     lessonId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const { lesson, course, student } = await this.assertStudentPublishedLessonAccess(
       tenantId,
       lessonId,
-      actor,
+      actor
     );
 
     const now = new Date();
@@ -1947,7 +1953,7 @@ export class LmsService {
     tenantId: string,
     academicYearId: string,
     classRoomId: string,
-    subjectId?: string,
+    subjectId?: string
   ) {
     const [academicYear, classRoom, subject] = await Promise.all([
       prisma.academicYear.findFirst({
@@ -2033,7 +2039,7 @@ export class LmsService {
       throw new AppError(
         403,
         'STUDENT_PROFILE_NOT_FOUND',
-        'Student profile not found for current user',
+        'Student profile not found for current user'
       );
     }
 
@@ -2044,10 +2050,10 @@ export class LmsService {
     student: Awaited<ReturnType<LmsService['getStudentProfile']>>,
     courseId: string,
     classRoomId: string,
-    academicYearId: string,
+    academicYearId: string
   ) {
     const assigned = student.enrollments.some(
-      (item) => item.classRoomId === classRoomId && item.academicYearId === academicYearId,
+      item => item.classRoomId === classRoomId && item.academicYearId === academicYearId
     );
 
     if (assigned) {
@@ -2058,7 +2064,7 @@ export class LmsService {
       throw new AppError(
         403,
         'COURSE_ACCESS_DENIED',
-        'Student is not assigned to this course class and academic year',
+        'Student is not assigned to this course class and academic year'
       );
     }
 
@@ -2083,7 +2089,7 @@ export class LmsService {
     throw new AppError(
       403,
       'COURSE_ACCESS_DENIED',
-      'Student is not assigned to this course class and academic year',
+      'Student is not assigned to this course class and academic year'
     );
   }
 
@@ -2103,7 +2109,7 @@ export class LmsService {
     throw new AppError(
       403,
       'COURSE_TEACHER_ASSIGN_FORBIDDEN',
-      'Only administrators can assign teachers to courses',
+      'Only administrators can assign teachers to courses'
     );
   }
 
@@ -2122,7 +2128,7 @@ export class LmsService {
   private async ensureTeacherCanUseSubject(
     tenantId: string,
     teacherUserId: string,
-    subjectId: string,
+    subjectId: string
   ) {
     const assigned = await prisma.course.findFirst({
       where: {
@@ -2140,7 +2146,7 @@ export class LmsService {
       throw new AppError(
         403,
         'COURSE_SUBJECT_NOT_ASSIGNED',
-        'This subject is not assigned to the current teacher',
+        'This subject is not assigned to the current teacher'
       );
     }
   }
@@ -2148,14 +2154,14 @@ export class LmsService {
   private async resolveCourseTeacherUserId(
     tenantId: string,
     requestedTeacherUserId: string | undefined,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     if (this.isTeacherOnly(actor)) {
       if (requestedTeacherUserId && requestedTeacherUserId !== actor.sub) {
         throw new AppError(
           403,
           'COURSE_TEACHER_ASSIGN_FORBIDDEN',
-          'Teachers can only create courses assigned to themselves',
+          'Teachers can only create courses assigned to themselves'
         );
       }
 
@@ -2196,7 +2202,7 @@ export class LmsService {
     tx: TxClient,
     tenantId: string,
     asset: UploadedAssetInput | undefined,
-    uploadedByUserId: string,
+    uploadedByUserId: string
   ) {
     if (!asset) {
       return undefined;
@@ -2237,7 +2243,7 @@ export class LmsService {
     contentType: string,
     body: string | null | undefined,
     externalUrl: string | null | undefined,
-    fileAssetId: string | null,
+    fileAssetId: string | null
   ) {
     const normalizedExternalUrl = externalUrl?.trim() ?? '';
 
@@ -2257,17 +2263,19 @@ export class LmsService {
       throw new AppError(
         400,
         'LESSON_VIDEO_SOURCE_REQUIRED',
-        'Video lessons require a video URL or uploaded video file',
+        'Video lessons require a video URL or uploaded video file'
       );
     }
   }
 
   private hasLessonTextContent(value: string | null | undefined) {
-    return (value ?? '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim().length > 0;
+    return (
+      (value ?? '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim().length > 0
+    );
   }
 
   private mapCourse(course: {
@@ -2457,7 +2465,7 @@ export class LmsService {
       classRoom: { id: string; code: string; name: string };
       subject: { id: string; code: string; name: string } | null;
       teacher: { id: string; firstName: string; lastName: string; email: string };
-    },
+    }
   ) {
     return {
       id: assessment.id,
@@ -2636,14 +2644,14 @@ export class LmsService {
         course: { select: { id: true, title: true } },
       },
     });
-    return items.map((row) => this.mapAcademyProgram(row));
+    return items.map(row => this.mapAcademyProgram(row));
   }
 
   async createAcademyProgram(
     tenantId: string,
     input: CreateAcademyProgramInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     if (input.courseId) {
       await this.assertCourseInTenant(tenantId, input.courseId);
@@ -2689,7 +2697,7 @@ export class LmsService {
     programId: string,
     input: UpdateAcademyProgramInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.program.findFirst({
       where: { id: programId, tenantId },
@@ -2708,13 +2716,15 @@ export class LmsService {
     }
     if (input.description !== undefined) {
       data.description =
-        input.description === null ? null : input.description.trim() ? input.description.trim() : null;
+        input.description === null
+          ? null
+          : input.description.trim()
+            ? input.description.trim()
+            : null;
     }
     if (input.thumbnail !== undefined) {
       data.thumbnail =
-        input.thumbnail === null || input.thumbnail === ''
-          ? null
-          : input.thumbnail.trim();
+        input.thumbnail === null || input.thumbnail === '' ? null : input.thumbnail.trim();
     }
     if (input.price !== undefined) {
       data.price = input.price;
@@ -2820,8 +2830,8 @@ export class LmsService {
         where: { courseId: c.id, tenantId, isPublished: true },
         select: { id: true },
       });
-      const lessonIds = publishedLessons.map((l) => l.id);
-      const studentIds = enrollments.map((e) => e.studentId);
+      const lessonIds = publishedLessons.map(l => l.id);
+      const studentIds = enrollments.map(e => e.studentId);
 
       const progressGroups = await prisma.studentLessonProgress.groupBy({
         by: ['studentId'],
@@ -2833,9 +2843,7 @@ export class LmsService {
         },
         _count: { _all: true },
       });
-      const completedByStudent = new Map(
-        progressGroups.map((p) => [p.studentId, p._count._all]),
-      );
+      const completedByStudent = new Map(progressGroups.map(p => [p.studentId, p._count._all]));
 
       let sumPct = 0;
       let atRisk = 0;
@@ -2866,7 +2874,7 @@ export class LmsService {
       if (attempts.length > 0) {
         const total = attempts.reduce(
           (acc, x) => acc + ((x.autoScore ?? 0) / (x.maxScore ?? 1)) * 100,
-          0,
+          0
         );
         avgQuiz = Math.round(total / attempts.length);
       }
@@ -2886,10 +2894,7 @@ export class LmsService {
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message, error.meta);
     }
   }

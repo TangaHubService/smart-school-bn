@@ -31,14 +31,17 @@ export class SubscriptionsController {
       req.params.tenantId,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
     return sendSuccess(req, res, result);
   }
 
   async listAcademyEnrollments(req: Request, res: Response): Promise<Response> {
     const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? '50'), 10) || 50));
+    const pageSize = Math.min(
+      100,
+      Math.max(1, parseInt(String(req.query.pageSize ?? '50'), 10) || 50)
+    );
     const result = await service.listAcademyEnrollments(req.user!, page, pageSize);
     return sendSuccess(req, res, result);
   }

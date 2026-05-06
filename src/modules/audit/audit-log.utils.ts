@@ -80,7 +80,7 @@ function humanizeToken(value: string): string {
   return value
     .toLowerCase()
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 function isSensitiveFieldName(key: string): boolean {
@@ -107,10 +107,12 @@ function detectOperatingSystem(userAgent: string): string | null {
   return null;
 }
 
-export function buildActorName(input?: {
-  firstName?: string | null;
-  lastName?: string | null;
-} | null): string | null {
+export function buildActorName(
+  input?: {
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null
+): string | null {
   const fullName = `${input?.firstName ?? ''} ${input?.lastName ?? ''}`.trim();
   return fullName || null;
 }
@@ -175,21 +177,14 @@ export function inferAuditStatus(event?: string | null): AuditLogStatus {
     return AuditLogStatus.SUCCESS;
   }
 
-  if (
-    event.endsWith('_FAILED') ||
-    event.endsWith('_DENIED') ||
-    event.includes('ACCESS_DENIED')
-  ) {
+  if (event.endsWith('_FAILED') || event.endsWith('_DENIED') || event.includes('ACCESS_DENIED')) {
     return AuditLogStatus.FAILED;
   }
 
   return AuditLogStatus.SUCCESS;
 }
 
-export function inferAuditModule(
-  event?: string | null,
-  entity?: string | null,
-): string | null {
+export function inferAuditModule(event?: string | null, entity?: string | null): string | null {
   if (event) {
     const match = MODULE_PREFIXES.find(([prefix]) => event.startsWith(prefix));
     if (match) {
@@ -260,10 +255,7 @@ export function buildDeviceLabel(userAgent?: string | null): string | null {
   return truncateString(userAgent);
 }
 
-export function normalizeAuditValue(
-  value: unknown,
-  depth = 0,
-): unknown {
+export function normalizeAuditValue(value: unknown, depth = 0): unknown {
   if (value === undefined) {
     return undefined;
   }
@@ -291,7 +283,7 @@ export function normalizeAuditValue(
   if (Array.isArray(value)) {
     const items = value
       .slice(0, MAX_AUDIT_ARRAY_ITEMS)
-      .map((item) => normalizeAuditValue(item, depth + 1));
+      .map(item => normalizeAuditValue(item, depth + 1));
 
     if (value.length > MAX_AUDIT_ARRAY_ITEMS) {
       items.push(`[${value.length - MAX_AUDIT_ARRAY_ITEMS} more items truncated]`);
@@ -310,10 +302,8 @@ export function normalizeAuditValue(
     const normalized = Object.fromEntries(
       limitedEntries.map(([key, entryValue]) => [
         key,
-        isSensitiveFieldName(key)
-          ? '[REDACTED]'
-          : normalizeAuditValue(entryValue, depth + 1),
-      ]),
+        isSensitiveFieldName(key) ? '[REDACTED]' : normalizeAuditValue(entryValue, depth + 1),
+      ])
     );
 
     if (entries.length > MAX_AUDIT_OBJECT_KEYS) {
@@ -326,10 +316,7 @@ export function normalizeAuditValue(
   return truncateString(String(value));
 }
 
-function pickObjectValue(
-  object: Record<string, unknown>,
-  keys: string[],
-): unknown {
+function pickObjectValue(object: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(object, key)) {
       return object[key];

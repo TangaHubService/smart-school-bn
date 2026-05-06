@@ -99,7 +99,7 @@ export class ParentsService {
     ]);
 
     return {
-      items: parents.map((parent) => ({
+      items: parents.map(parent => ({
         id: parent.id,
         parentCode: parent.parentCode,
         firstName: parent.firstName,
@@ -109,7 +109,7 @@ export class ParentsService {
         hasLogin: Boolean(parent.userId),
         user: parent.user,
         linkedStudentsCount: parent.students.length,
-        linkedStudents: parent.students.map((link) => ({
+        linkedStudents: parent.students.map(link => ({
           id: link.student.id,
           studentCode: link.student.studentCode,
           firstName: link.student.firstName,
@@ -126,13 +126,13 @@ export class ParentsService {
     tenantId: string,
     input: CreateParentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     if (input.createLogin && !input.email) {
       throw new AppError(
         400,
         'PARENT_EMAIL_REQUIRED',
-        'email is required when createLogin is true',
+        'email is required when createLogin is true'
       );
     }
 
@@ -140,12 +140,12 @@ export class ParentsService {
       throw new AppError(
         400,
         'PARENT_PASSWORD_REQUIRED',
-        'password is required when createLogin is true',
+        'password is required when createLogin is true'
       );
     }
 
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async tx => {
         let userId: string | null = null;
 
         if (input.createLogin) {
@@ -281,7 +281,7 @@ export class ParentsService {
     parentId: string,
     input: UpdateParentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existingParent = await prisma.parent.findFirst({
       where: {
@@ -299,7 +299,7 @@ export class ParentsService {
       throw new AppError(
         400,
         'PARENT_EMAIL_REQUIRED',
-        'email is required when createLogin is true',
+        'email is required when createLogin is true'
       );
     }
 
@@ -307,17 +307,14 @@ export class ParentsService {
       throw new AppError(
         400,
         'PARENT_PASSWORD_REQUIRED',
-        'password is required when createLogin is true',
+        'password is required when createLogin is true'
       );
     }
 
     try {
-      const updated = await prisma.$transaction(async (tx) => {
+      const updated = await prisma.$transaction(async tx => {
         let userId = existingParent.userId;
-        const nextEmail =
-          input.email === undefined
-            ? existingParent.email
-            : input.email;
+        const nextEmail = input.email === undefined ? existingParent.email : input.email;
 
         const nextFirstName = input.firstName ?? existingParent.firstName;
         const nextLastName = input.lastName ?? existingParent.lastName;
@@ -350,7 +347,7 @@ export class ParentsService {
             throw new AppError(
               400,
               'PARENT_EMAIL_REQUIRED',
-              'email is required when createLogin is true',
+              'email is required when createLogin is true'
             );
           }
 
@@ -413,7 +410,7 @@ export class ParentsService {
             throw new AppError(
               400,
               'PARENT_EMAIL_REQUIRED',
-              'email cannot be removed for a parent with login',
+              'email cannot be removed for a parent with login'
             );
           }
 
@@ -438,14 +435,8 @@ export class ParentsService {
             parentCode: input.parentCode,
             firstName: input.firstName,
             lastName: input.lastName,
-            email:
-              input.email === undefined
-                ? undefined
-                : input.email,
-            phone:
-              input.phone === undefined
-                ? undefined
-                : input.phone,
+            email: input.email === undefined ? undefined : input.email,
+            phone: input.phone === undefined ? undefined : input.phone,
             isActive: input.isActive,
             userId,
           },
@@ -479,10 +470,7 @@ export class ParentsService {
     }
   }
 
-  async listLinkableStudents(
-    tenantId: string,
-    query: ListLinkableStudentsQueryInput,
-  ) {
+  async listLinkableStudents(tenantId: string, query: ListLinkableStudentsQueryInput) {
     const students = await prisma.student.findMany({
       where: {
         tenantId,
@@ -553,7 +541,7 @@ export class ParentsService {
       take: query.pageSize,
     });
 
-    return students.map((student) => ({
+    return students.map(student => ({
       id: student.id,
       studentCode: student.studentCode,
       firstName: student.firstName,
@@ -574,7 +562,7 @@ export class ParentsService {
     parentId: string,
     input: LinkParentStudentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const [parent, student] = await prisma.$transaction([
       prisma.parent.findFirst({
@@ -603,7 +591,7 @@ export class ParentsService {
       throw new AppError(404, 'STUDENT_NOT_FOUND', 'Student not found');
     }
 
-    const link = await prisma.$transaction(async (tx) => {
+    const link = await prisma.$transaction(async tx => {
       if (input.isPrimary) {
         await tx.parentStudent.updateMany({
           where: {
@@ -748,7 +736,7 @@ export class ParentsService {
       },
     });
 
-    const linkedStudentIds = links.map((link) => link.student.id);
+    const linkedStudentIds = links.map(link => link.student.id);
     const lastThirtyDays = this.parseSchoolDate(this.getTodaySchoolDate());
     lastThirtyDays.setUTCDate(lastThirtyDays.getUTCDate() - 30);
 
@@ -809,7 +797,7 @@ export class ParentsService {
 
     return {
       parent,
-      students: links.map((link) => ({
+      students: links.map(link => ({
         id: link.student.id,
         studentCode: link.student.studentCode,
         firstName: link.student.firstName,
@@ -826,15 +814,14 @@ export class ParentsService {
               classRoom: link.student.enrollments[0].classRoom,
             }
           : null,
-        attendanceLast30Days:
-          attendanceByStudentId.get(link.student.id) ?? {
-            total: 0,
-            present: 0,
-            absent: 0,
-            late: 0,
-            excused: 0,
-            lastMarkedDate: null,
-          },
+        attendanceLast30Days: attendanceByStudentId.get(link.student.id) ?? {
+          total: 0,
+          present: 0,
+          absent: 0,
+          late: 0,
+          excused: 0,
+          lastMarkedDate: null,
+        },
       })),
     };
   }
@@ -843,7 +830,7 @@ export class ParentsService {
     tenantId: string,
     userId: string,
     studentId: string,
-    query: ParentStudentAttendanceHistoryQueryInput,
+    query: ParentStudentAttendanceHistoryQueryInput
   ) {
     const parent = await prisma.parent.findFirst({
       where: {
@@ -908,7 +895,7 @@ export class ParentsService {
       throw new AppError(
         404,
         'CHILD_NOT_LINKED',
-        'Student is not linked to the current parent account',
+        'Student is not linked to the current parent account'
       );
     }
 
@@ -917,13 +904,7 @@ export class ParentsService {
       : this.parseSchoolDate(this.getTodaySchoolDate());
     const fromDate = query.from
       ? this.parseSchoolDate(query.from)
-      : new Date(
-          Date.UTC(
-            toDate.getUTCFullYear(),
-            toDate.getUTCMonth(),
-            toDate.getUTCDate() - 30,
-          ),
-        );
+      : new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), toDate.getUTCDate() - 30));
 
     const records = await prisma.attendanceRecord.findMany({
       where: {
@@ -968,12 +949,12 @@ export class ParentsService {
       },
       summary: {
         total: records.length,
-        present: records.filter((item) => item.status === 'PRESENT').length,
-        absent: records.filter((item) => item.status === 'ABSENT').length,
-        late: records.filter((item) => item.status === 'LATE').length,
-        excused: records.filter((item) => item.status === 'EXCUSED').length,
+        present: records.filter(item => item.status === 'PRESENT').length,
+        absent: records.filter(item => item.status === 'ABSENT').length,
+        late: records.filter(item => item.status === 'LATE').length,
+        excused: records.filter(item => item.status === 'EXCUSED').length,
       },
-      records: records.map((record) => ({
+      records: records.map(record => ({
         id: record.id,
         date: this.toSchoolDateString(record.attendanceDate),
         status: record.status,
@@ -1037,7 +1018,7 @@ export class ParentsService {
       where: {
         tenantId,
         isActive: true,
-        OR: enrollments.map((e) => ({
+        OR: enrollments.map(e => ({
           classRoomId: e.classRoomId,
           academicYearId: e.academicYearId,
         })),
@@ -1051,7 +1032,7 @@ export class ParentsService {
     const lessonLists = await prisma.lesson.findMany({
       where: {
         tenantId,
-        courseId: { in: courses.map((c) => c.id) },
+        courseId: { in: courses.map(c => c.id) },
         isPublished: true,
       },
       select: { id: true, courseId: true },
@@ -1067,16 +1048,16 @@ export class ParentsService {
         tenantId,
         studentId,
         isCompleted: true,
-        lessonId: { in: lessonLists.map((l) => l.id) },
+        lessonId: { in: lessonLists.map(l => l.id) },
       },
       select: { lessonId: true },
     });
-    const doneLessons = new Set(progressRows.map((p) => p.lessonId));
+    const doneLessons = new Set(progressRows.map(p => p.lessonId));
 
-    const courseSummaries = courses.map((c) => {
+    const courseSummaries = courses.map(c => {
       const lids = lessonIdsByCourse.get(c.id) ?? [];
       const total = lids.length;
-      const done = lids.filter((id) => doneLessons.has(id)).length;
+      const done = lids.filter(id => doneLessons.has(id)).length;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
       return {
         courseId: c.id,
@@ -1099,7 +1080,7 @@ export class ParentsService {
     return {
       student: { id: student.id, firstName: student.firstName, lastName: student.lastName },
       courses: courseSummaries,
-      recentAttempts: recentAttempts.map((a) => ({
+      recentAttempts: recentAttempts.map(a => ({
         id: a.id,
         assessmentTitle: a.assessment.title,
         courseTitle: a.assessment.course.title,
@@ -1111,10 +1092,7 @@ export class ParentsService {
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message, error.meta);
     }
   }

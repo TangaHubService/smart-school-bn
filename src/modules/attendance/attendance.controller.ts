@@ -25,7 +25,7 @@ export class AttendanceController {
     const result = await attendanceService.listAttendanceClasses(
       req.tenantId!,
       req.user,
-      query.teacherOnly,
+      query.teacherOnly
     );
     return sendSuccess(req, res, result);
   }
@@ -41,7 +41,7 @@ export class AttendanceController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -52,7 +52,7 @@ export class AttendanceController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -63,7 +63,7 @@ export class AttendanceController {
     const result = await attendanceService.getClassAttendance(
       req.tenantId!,
       req.params.classId,
-      query,
+      query
     );
 
     return sendSuccess(req, res, result);
@@ -74,7 +74,7 @@ export class AttendanceController {
     const result = await attendanceService.getStudentAttendanceHistory(
       req.tenantId!,
       req.params.studentId,
-      query,
+      query
     );
 
     return sendSuccess(req, res, result);

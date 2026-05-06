@@ -26,7 +26,7 @@ const envSchema = z.object({
   SMTP_SECURE: z
     .enum(['true', 'false'])
     .default('false')
-    .transform((value) => value === 'true'),
+    .transform(value => value === 'true'),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
@@ -35,15 +35,15 @@ const envSchema = z.object({
   FEATURE_CONDUCT_ENABLED: z
     .enum(['true', 'false'])
     .default('false')
-    .transform((value) => value === 'true'),
+    .transform(value => value === 'true'),
   FEATURE_GOV_AUDITING_ENABLED: z
     .enum(['true', 'false'])
     .default('true')
-    .transform((value) => value === 'true'),
+    .transform(value => value === 'true'),
   FEATURE_ASSESSMENTS_ENABLED: z
     .enum(['true', 'false'])
     .default('true')
-    .transform((value) => value === 'true'),
+    .transform(value => value === 'true'),
   PAYPACK_CLIENT_ID: z.string().optional(),
   PAYPACK_CLIENT_SECRET: z.string().optional(),
   PAYPACK_BASE_URL: z.string().url().default('https://payments.paypack.rw/api'),

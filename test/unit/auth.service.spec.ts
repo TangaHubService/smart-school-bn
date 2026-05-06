@@ -82,7 +82,7 @@ describe('AuthService', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(result.accessToken).toEqual(expect.any(String));
@@ -91,7 +91,7 @@ describe('AuthService', () => {
 
     const decoded = jwt.verify(
       result.accessToken,
-      process.env.JWT_ACCESS_SECRET!,
+      process.env.JWT_ACCESS_SECRET!
     ) as jwt.JwtPayload;
     expect(decoded.sub).toBe('user-1');
     expect(decoded.tenantId).toBe('tenant-1');
@@ -128,7 +128,7 @@ describe('AuthService', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(result.accessToken).toEqual(expect.any(String));
@@ -137,7 +137,7 @@ describe('AuthService', () => {
 
     const decoded = jwt.verify(
       result.accessToken,
-      process.env.JWT_ACCESS_SECRET!,
+      process.env.JWT_ACCESS_SECRET!
     ) as jwt.JwtPayload;
     expect(decoded.sub).toBe('student-user-1');
     expect(decoded.tenantId).toBe('tenant-1');
@@ -153,8 +153,8 @@ describe('AuthService', () => {
           requestId: 'req-1',
           ipAddress: '127.0.0.1',
           userAgent: 'jest',
-        },
-      ),
+        }
+      )
     ).rejects.toMatchObject({
       code: 'AUTH_INVALID_REFRESH_TOKEN',
       statusCode: 401,

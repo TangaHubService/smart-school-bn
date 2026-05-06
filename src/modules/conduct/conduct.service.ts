@@ -1,8 +1,4 @@
-import {
-  ConductIncidentStatus,
-  ConductSeverity,
-  Prisma,
-} from '@prisma/client';
+import { ConductIncidentStatus, ConductSeverity, Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -10,10 +6,7 @@ import { buildPagination } from '../../common/utils/pagination';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
-import {
-  conductIncidentInclude,
-  mapConductIncident,
-} from './conduct.shared';
+import { conductIncidentInclude, mapConductIncident } from './conduct.shared';
 import {
   AddConductActionInput,
   CreateConductIncidentInput,
@@ -61,11 +54,10 @@ export class ConductService {
     tenantId: string,
     input: CreateConductIncidentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const student = await this.getStudentForTenant(tenantId, input.studentId);
-    const classRoomId =
-      input.classRoomId ?? student.enrollments[0]?.classRoom.id ?? null;
+    const classRoomId = input.classRoomId ?? student.enrollments[0]?.classRoom.id ?? null;
 
     if (input.classRoomId) {
       await this.ensureClassRoomExists(tenantId, input.classRoomId);
@@ -111,7 +103,7 @@ export class ConductService {
   async listIncidents(
     tenantId: string,
     query: ListConductIncidentsQueryInput,
-    actor?: { sub: string; roles?: string[] },
+    actor?: { sub: string; roles?: string[] }
   ) {
     const where = await this.buildIncidentWhere(tenantId, query, actor);
     const skip = (query.page - 1) * query.pageSize;
@@ -128,7 +120,7 @@ export class ConductService {
     ]);
 
     return {
-      items: incidents.map((incident) => mapConductIncident(incident, 'school')),
+      items: incidents.map(incident => mapConductIncident(incident, 'school')),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -147,13 +139,13 @@ export class ConductService {
     incidentId: string,
     input: UpdateConductIncidentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     if (input.status === ConductIncidentStatus.RESOLVED) {
       throw new AppError(
         400,
         'CONDUCT_USE_RESOLVE_ENDPOINT',
-        'Use the resolve endpoint to mark an incident as resolved',
+        'Use the resolve endpoint to mark an incident as resolved'
       );
     }
 
@@ -168,12 +160,8 @@ export class ConductService {
         severity: input.severity,
         status: input.status,
         occurredAt: input.occurredAt ? new Date(input.occurredAt) : undefined,
-        location:
-          input.location === null ? null : input.location ?? undefined,
-        reporterNotes:
-          input.reporterNotes === null
-            ? null
-            : input.reporterNotes ?? undefined,
+        location: input.location === null ? null : (input.location ?? undefined),
+        reporterNotes: input.reporterNotes === null ? null : (input.reporterNotes ?? undefined),
       },
       include: conductIncidentInclude,
     });
@@ -202,7 +190,7 @@ export class ConductService {
     incidentId: string,
     input: AddConductActionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     await this.ensureIncidentExists(tenantId, incidentId);
 
@@ -243,7 +231,7 @@ export class ConductService {
     incidentId: string,
     input: ResolveConductIncidentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     await this.ensureIncidentExists(tenantId, incidentId);
 
@@ -278,7 +266,7 @@ export class ConductService {
   async getMyConductProfile(
     tenantId: string,
     actor: JwtUser,
-    query: StudentConductProfileQueryInput,
+    query: StudentConductProfileQueryInput
   ) {
     const student = await prisma.student.findFirst({
       where: {
@@ -299,7 +287,7 @@ export class ConductService {
   async getStudentConductProfile(
     tenantId: string,
     studentId: string,
-    query: StudentConductProfileQueryInput,
+    query: StudentConductProfileQueryInput
   ) {
     const student = await prisma.student.findFirst({
       where: {
@@ -377,7 +365,7 @@ export class ConductService {
         resolvedIncidents,
         actionItems,
       },
-      incidents: incidents.map((incident) => mapConductIncident(incident, 'school')),
+      incidents: incidents.map(incident => mapConductIncident(incident, 'school')),
       pagination: buildPagination(query.page, query.pageSize, totalIncidents),
     };
   }
@@ -388,13 +376,13 @@ export class ConductService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    return courses.map((c) => c.classRoomId);
+    return courses.map(c => c.classRoomId);
   }
 
   private async buildIncidentWhere(
     tenantId: string,
     query: ListConductIncidentsQueryInput,
-    actor?: { sub: string; roles?: string[] },
+    actor?: { sub: string; roles?: string[] }
   ): Promise<Prisma.ConductIncidentWhereInput> {
     const where: Prisma.ConductIncidentWhereInput = {
       tenantId,
@@ -416,9 +404,7 @@ export class ConductService {
 
     if (isTeacherOnly && actor?.sub && !query.classRoomId) {
       const teacherClassIds = await this.getTeacherClassRoomIds(tenantId, actor.sub);
-      where.classRoomId = teacherClassIds.length
-        ? { in: teacherClassIds }
-        : { in: ['__none__'] };
+      where.classRoomId = teacherClassIds.length ? { in: teacherClassIds } : { in: ['__none__'] };
     }
 
     if (query.status) {

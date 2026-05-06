@@ -48,7 +48,7 @@ describe('requirePermissions middleware', () => {
       expect.objectContaining({
         code: 'AUTH_INSUFFICIENT_PERMISSIONS',
         statusCode: 403,
-      }),
+      })
     );
   });
 });

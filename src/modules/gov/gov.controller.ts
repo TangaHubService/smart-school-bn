@@ -26,11 +26,7 @@ function buildContext(req: Request) {
 
 export class GovController {
   async createAuditor(req: Request, res: Response): Promise<Response> {
-    const result = await govService.createAuditor(
-      req.body,
-      req.user!,
-      buildContext(req),
-    );
+    const result = await govService.createAuditor(req.body, req.user!, buildContext(req));
 
     return sendSuccess(req, res, result, 201);
   }
@@ -48,7 +44,7 @@ export class GovController {
       req.params.auditorUserId,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -65,18 +61,14 @@ export class GovController {
       req.params.auditorUserId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
   }
 
   async createAudit(req: Request, res: Response): Promise<Response> {
-    const result = await govService.createAudit(
-      req.body,
-      req.user!,
-      buildContext(req),
-    );
+    const result = await govService.createAudit(req.body, req.user!, buildContext(req));
 
     return sendSuccess(req, res, result, 201);
   }
@@ -120,7 +112,7 @@ export class GovController {
       req.params.scopeId,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -159,7 +151,11 @@ export class GovController {
 
   async getSchoolConductReportSummary(req: Request, res: Response): Promise<Response> {
     const query = conductSchoolReportQuerySchema.parse(req.query);
-    const result = await govService.getSchoolConductReportSummary(req.user!, req.params.tenantId, query);
+    const result = await govService.getSchoolConductReportSummary(
+      req.user!,
+      req.params.tenantId,
+      query
+    );
 
     return sendSuccess(req, res, result);
   }
@@ -182,7 +178,7 @@ export class GovController {
       req.user!,
       req.params.incidentId,
       req.body,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);

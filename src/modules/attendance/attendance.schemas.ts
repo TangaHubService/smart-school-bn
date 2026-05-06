@@ -25,7 +25,7 @@ export const bulkAttendanceRecordsSchema = z
           studentId: z.string().uuid(),
           status: attendanceStatusSchema,
           remarks: z.string().trim().max(300).optional(),
-        }),
+        })
       )
       .min(1)
       .max(200),
@@ -44,7 +44,7 @@ export const listAttendanceClassesQuerySchema = z.object({
   teacherOnly: z
     .string()
     .optional()
-    .transform((v) => v === 'true' || v === '1'),
+    .transform(v => v === 'true' || v === '1'),
 });
 
 export const classAttendanceQuerySchema = z.object({

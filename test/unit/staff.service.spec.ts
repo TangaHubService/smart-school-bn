@@ -80,7 +80,7 @@ describe('StaffService', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(result.accepted).toBe(true);
@@ -114,8 +114,8 @@ describe('StaffService', () => {
           requestId: 'req-1',
           ipAddress: '127.0.0.1',
           userAgent: 'jest',
-        },
-      ),
+        }
+      )
     ).rejects.toMatchObject({ code: 'INVITE_EXPIRED', statusCode: 400 });
   });
 
@@ -146,7 +146,7 @@ describe('StaffService', () => {
       callback({
         user: { update: txUserUpdate },
         refreshToken: { updateMany: txRefreshUpdateMany },
-      }),
+      })
     );
 
     const result = await staffService.updateMember(
@@ -164,7 +164,7 @@ describe('StaffService', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(result.status).toBe(UserStatus.INACTIVE);
@@ -207,7 +207,7 @@ describe('StaffService', () => {
       callback({
         user: { update: txUserUpdate },
         refreshToken: { updateMany: txRefreshUpdateMany },
-      }),
+      })
     );
 
     const result = await staffService.updateMember(
@@ -225,7 +225,7 @@ describe('StaffService', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(result.status).toBe(UserStatus.ACTIVE);

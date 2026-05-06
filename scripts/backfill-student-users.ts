@@ -44,12 +44,12 @@ async function main() {
       const studentCode = student.studentCode.trim().toUpperCase();
       const firstName = student.firstName;
       const lastName = student.lastName;
-      
+
       // Use student's email or a placeholder
       const email = (student.email || `${studentCode}@smartschool.internal`).toLowerCase().trim();
 
       try {
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async tx => {
           // Check if a user with this email already exists in this tenant
           let user = await tx.user.findUnique({
             where: {
@@ -106,9 +106,9 @@ async function main() {
           // Link student to user
           await tx.student.update({
             where: { id: student.id },
-            data: { 
+            data: {
               userId: user.id,
-              email: student.email || email // Update student record email if it was null
+              email: student.email || email, // Update student record email if it was null
             },
           });
         });
@@ -124,7 +124,7 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
+  .catch(e => {
     console.error(e);
     process.exit(1);
   })

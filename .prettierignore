@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+*.md
+.env
+.env.example
+.gitignore
+LICENSE
+Dockerfile

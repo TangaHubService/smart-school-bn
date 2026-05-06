@@ -14,7 +14,7 @@ export class UsersController {
     } catch (error) {
       req.log?.error(
         { err: error, route: `${req.method} ${req.originalUrl || req.url}` },
-        `${req.method} ${req.originalUrl || req.url} — getMe failed`,
+        `${req.method} ${req.originalUrl || req.url} — getMe failed`
       );
       throw error;
     }

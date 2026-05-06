@@ -44,5 +44,5 @@ rolesRoutes.get(
           requiredPermissions: ['users.read'],
         },
       ],
-    }),
+    })
 );

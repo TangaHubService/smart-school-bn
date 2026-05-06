@@ -50,16 +50,16 @@ export class StudentsService {
     tenantId: string,
     input: CreateStudentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     await this.ensureEnrollmentReferences(
       tenantId,
       input.enrollment.academicYearId,
-      input.enrollment.classRoomId,
+      input.enrollment.classRoomId
     );
 
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async tx => {
         // 1. Handle User account creation if email is provided
         let userId: string | null = null;
         if (input.email) {
@@ -207,7 +207,7 @@ export class StudentsService {
     ]);
 
     return {
-      items: students.map((student) => this.mapStudent(student)),
+      items: students.map(student => this.mapStudent(student)),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -217,7 +217,7 @@ export class StudentsService {
     id: string,
     input: UpdateStudentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.student.findFirst({
       where: {
@@ -235,12 +235,12 @@ export class StudentsService {
       await this.ensureEnrollmentReferences(
         tenantId,
         input.enrollment.academicYearId,
-        input.enrollment.classRoomId,
+        input.enrollment.classRoomId
       );
     }
 
     try {
-      const updated = await prisma.$transaction(async (tx) => {
+      const updated = await prisma.$transaction(async tx => {
         // 1. Handle User record updates if email is provided
         let userId: string | null = existing.userId;
         if (input.email) {
@@ -307,11 +307,7 @@ export class StudentsService {
             firstName: input.firstName,
             lastName: input.lastName,
             gender:
-              input.gender === null
-                ? null
-                : input.gender === undefined
-                  ? undefined
-                  : input.gender,
+              input.gender === null ? null : input.gender === undefined ? undefined : input.gender,
             dateOfBirth:
               input.dateOfBirth === null
                 ? null
@@ -417,13 +413,8 @@ export class StudentsService {
     }
   }
 
-  async deleteStudent(
-    tenantId: string,
-    id: string,
-    actor: JwtUser,
-    context: RequestAuditContext,
-  ) {
-    const result = await prisma.$transaction(async (tx) => {
+  async deleteStudent(tenantId: string, id: string, actor: JwtUser, context: RequestAuditContext) {
+    const result = await prisma.$transaction(async tx => {
       const updated = await tx.student.updateMany({
         where: {
           id,
@@ -488,9 +479,13 @@ export class StudentsService {
     tenantId: string,
     input: StudentImportInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
-    const effectiveTenantId = await this.resolveImportTenantId(tenantId, input.targetTenantId, actor);
+    const effectiveTenantId = await this.resolveImportTenantId(
+      tenantId,
+      input.targetTenantId,
+      actor
+    );
     const parsedRows = this.parseCsvContent(input.csv);
 
     if (!parsedRows.length) {
@@ -498,13 +493,13 @@ export class StudentsService {
     }
 
     const headerRow = parsedRows[0];
-    const rows = parsedRows.slice(1).filter((row) => row.some((value) => value.trim().length));
+    const rows = parsedRows.slice(1).filter(row => row.some(value => value.trim().length));
 
     if (!rows.length) {
       throw new AppError(400, 'CSV_EMPTY', 'CSV file has no data rows');
     }
 
-    const normalizedHeaders = headerRow.map((header) => this.normalizeHeader(header));
+    const normalizedHeaders = headerRow.map(header => this.normalizeHeader(header));
 
     const academicYears = await prisma.academicYear.findMany({
       where: {
@@ -529,11 +524,11 @@ export class StudentsService {
       },
     });
 
-    const yearById = new Map(academicYears.map((item) => [item.id, item]));
-    const yearByName = new Map(academicYears.map((item) => [item.name.toLowerCase(), item]));
+    const yearById = new Map(academicYears.map(item => [item.id, item]));
+    const yearByName = new Map(academicYears.map(item => [item.name.toLowerCase(), item]));
 
-    const classById = new Map(classRooms.map((item) => [item.id, item]));
-    const classByCode = new Map(classRooms.map((item) => [item.code.toLowerCase(), item]));
+    const classById = new Map(classRooms.map(item => [item.id, item]));
+    const classByCode = new Map(classRooms.map(item => [item.code.toLowerCase(), item]));
 
     const seenCodes = new Set<string>();
     const previewRows: CsvValidationRow[] = rows.map((row, index) => {
@@ -647,8 +642,8 @@ export class StudentsService {
     });
 
     const candidateCodes = previewRows
-      .map((row) => row.studentCode)
-      .filter((studentCode) => studentCode.length > 0);
+      .map(row => row.studentCode)
+      .filter(studentCode => studentCode.length > 0);
 
     if (candidateCodes.length) {
       const existing = await prisma.student.findMany({
@@ -664,7 +659,7 @@ export class StudentsService {
         },
       });
 
-      const existingCodes = new Set(existing.map((item) => item.studentCode.toLowerCase()));
+      const existingCodes = new Set(existing.map(item => item.studentCode.toLowerCase()));
       for (const row of previewRows) {
         if (row.studentCode && existingCodes.has(row.studentCode.toLowerCase())) {
           row.errors.push('studentCode already exists');
@@ -672,7 +667,7 @@ export class StudentsService {
       }
     }
 
-    const validRows = previewRows.filter((row) => row.errors.length === 0);
+    const validRows = previewRows.filter(row => row.errors.length === 0);
     const invalidRows = previewRows.length - validRows.length;
 
     const summary = {
@@ -697,8 +692,8 @@ export class StudentsService {
         'CSV has validation errors. Fix rows and retry commit, or use allowPartial=true.',
         {
           summary,
-          rows: previewRows.filter((row) => row.errors.length).slice(0, 100),
-        },
+          rows: previewRows.filter(row => row.errors.length).slice(0, 100),
+        }
       );
     }
 
@@ -716,11 +711,11 @@ export class StudentsService {
     }
 
     try {
-      const importedStudentCodes = validRows.map((row) => row.studentCode);
+      const importedStudentCodes = validRows.map(row => row.studentCode);
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async tx => {
         await tx.student.createMany({
-          data: validRows.map((row) => ({
+          data: validRows.map(row => ({
             tenantId: effectiveTenantId,
             studentCode: row.studentCode,
             firstName: row.firstName,
@@ -745,17 +740,17 @@ export class StudentsService {
         });
 
         const studentIdByCode = new Map(
-          insertedStudents.map((student) => [student.studentCode, student.id]),
+          insertedStudents.map(student => [student.studentCode, student.id])
         );
 
         await tx.studentEnrollment.createMany({
-          data: validRows.map((row) => {
+          data: validRows.map(row => {
             const studentId = studentIdByCode.get(row.studentCode);
             if (!studentId || !row.academicYearId || !row.classRoomId) {
               throw new AppError(
                 500,
                 'IMPORT_STUDENT_MAPPING_FAILED',
-                `Failed to map imported student code ${row.studentCode}`,
+                `Failed to map imported student code ${row.studentCode}`
               );
             }
 
@@ -805,7 +800,7 @@ export class StudentsService {
   private async resolveImportTenantId(
     tenantId: string,
     targetTenantId: string | undefined,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     if (!targetTenantId || targetTenantId === tenantId) {
       return tenantId;
@@ -815,7 +810,7 @@ export class StudentsService {
       throw new AppError(
         403,
         'STUDENT_IMPORT_TENANT_FORBIDDEN',
-        'You cannot import students into another school',
+        'You cannot import students into another school'
       );
     }
 
@@ -858,10 +853,10 @@ export class StudentsService {
       'parents',
     ];
 
-    const lines = students.map((student) => {
+    const lines = students.map(student => {
       const activeEnrollment = student.enrollments[0] ?? null;
       const parentNames = student.parentLinks
-        .map((item) => `${item.parent.firstName} ${item.parent.lastName}`)
+        .map(item => `${item.parent.firstName} ${item.parent.lastName}`)
         .join('; ');
 
       return [
@@ -875,7 +870,7 @@ export class StudentsService {
         activeEnrollment?.classRoom.name ?? '',
         parentNames,
       ]
-        .map((value) => this.escapeCsvValue(value))
+        .map(value => this.escapeCsvValue(value))
         .join(',');
     });
 
@@ -1003,7 +998,7 @@ export class StudentsService {
             enrolledAt: activeEnrollment.enrolledAt,
           }
         : null,
-      parents: student.parentLinks.map((link) => ({
+      parents: student.parentLinks.map(link => ({
         id: link.parent.id,
         firstName: link.parent.firstName,
         lastName: link.parent.lastName,
@@ -1017,7 +1012,7 @@ export class StudentsService {
 
   private buildStudentWhere(
     tenantId: string,
-    query: Pick<ListStudentsQueryInput, 'classId' | 'academicYearId' | 'q'>,
+    query: Pick<ListStudentsQueryInput, 'classId' | 'academicYearId' | 'q'>
   ): Prisma.StudentWhereInput {
     const where: Prisma.StudentWhereInput = {
       tenantId,
@@ -1063,7 +1058,7 @@ export class StudentsService {
   private async ensureEnrollmentReferences(
     tenantId: string,
     academicYearId: string,
-    classRoomId: string,
+    classRoomId: string
   ) {
     const [year, classRoom] = await prisma.$transaction([
       prisma.academicYear.findFirst({
@@ -1160,7 +1155,7 @@ export class StudentsService {
         }
 
         row.push(cell.trim());
-        if (row.some((value) => value.length > 0)) {
+        if (row.some(value => value.length > 0)) {
           rows.push(row);
         }
         row = [];
@@ -1173,7 +1168,7 @@ export class StudentsService {
 
     if (cell.length > 0 || row.length > 0) {
       row.push(cell.trim());
-      if (row.some((value) => value.length > 0)) {
+      if (row.some(value => value.length > 0)) {
         rows.push(row);
       }
     }
@@ -1182,7 +1177,10 @@ export class StudentsService {
   }
 
   private normalizeHeader(header: string): string {
-    return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+    return header
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
   }
 
   private toSourceRow(headers: string[], row: string[]): Record<string, string> {
@@ -1218,10 +1216,7 @@ export class StudentsService {
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message, error.meta);
     }
   }

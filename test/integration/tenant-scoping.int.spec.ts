@@ -21,12 +21,7 @@ import { authenticate } from '../../src/common/middleware/authenticate.middlewar
 import { enforceTenant } from '../../src/common/middleware/tenant.middleware';
 import { UsersController } from '../../src/modules/users/users.controller';
 import { prisma } from '../../src/db/prisma';
-import {
-  applyError,
-  createMockRequest,
-  createMockResponse,
-  runMiddleware,
-} from './test-harness';
+import { applyError, createMockRequest, createMockResponse, runMiddleware } from './test-harness';
 
 const mockedPrisma = prisma as any;
 const usersController = new UsersController();
@@ -46,7 +41,7 @@ describe('tenant scoping integration', () => {
         permissions: ['users.read'],
       },
       process.env.JWT_ACCESS_SECRET!,
-      { expiresIn: '15m' },
+      { expiresIn: '15m' }
     );
 
     const req = createMockRequest({
@@ -92,7 +87,7 @@ describe('tenant scoping integration', () => {
         permissions: ['users.read'],
       },
       process.env.JWT_ACCESS_SECRET!,
-      { expiresIn: '15m' },
+      { expiresIn: '15m' }
     );
 
     const req = createMockRequest({

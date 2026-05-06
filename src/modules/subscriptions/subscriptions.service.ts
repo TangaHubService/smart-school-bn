@@ -30,7 +30,7 @@ export class SubscriptionsService {
     return new AppError(
       503,
       'SCHEMA_NOT_READY',
-      'Subscription billing tables are missing. Run database migrations (e.g. 20260327174818_super_admin_billing_system_announcements).',
+      'Subscription billing tables are missing. Run database migrations (e.g. 20260327174818_super_admin_billing_system_announcements).'
     );
   }
 
@@ -42,7 +42,7 @@ export class SubscriptionsService {
       });
 
       return {
-        items: plans.map((p) => ({
+        items: plans.map(p => ({
           id: p.id,
           code: p.code,
           name: p.name,
@@ -82,7 +82,7 @@ export class SubscriptionsService {
       });
 
       return {
-        items: rows.map((s) => ({
+        items: rows.map(s => ({
           tenantId: s.tenantId,
           schoolName: s.tenant.school?.displayName ?? s.tenant.name,
           tenantCode: s.tenant.code,
@@ -113,7 +113,7 @@ export class SubscriptionsService {
     tenantId: string,
     input: UpdateSchoolSubscriptionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.assertSuperAdmin(actor);
 
@@ -153,12 +153,16 @@ export class SubscriptionsService {
             trialEndsAt: input.trialEndsAt ? new Date(input.trialEndsAt) : null,
           }),
           ...(input.currentPeriodStart !== undefined && {
-            currentPeriodStart: input.currentPeriodStart ? new Date(input.currentPeriodStart) : null,
+            currentPeriodStart: input.currentPeriodStart
+              ? new Date(input.currentPeriodStart)
+              : null,
           }),
           ...(input.currentPeriodEnd !== undefined && {
             currentPeriodEnd: input.currentPeriodEnd ? new Date(input.currentPeriodEnd) : null,
           }),
-          ...(input.cancelAtPeriodEnd !== undefined && { cancelAtPeriodEnd: input.cancelAtPeriodEnd }),
+          ...(input.cancelAtPeriodEnd !== undefined && {
+            cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+          }),
         },
         include: {
           plan: true,
@@ -239,7 +243,7 @@ export class SubscriptionsService {
     return {
       catalogConfigured: true as const,
       catalogTenantId,
-      items: programs.map((p) => ({
+      items: programs.map(p => ({
         id: p.id,
         title: p.title,
         price: p.price,
@@ -275,13 +279,13 @@ export class SubscriptionsService {
       }),
     ]);
 
-    const keys = new Set(rows.map((r) => `${r.userId}:${r.programId}`));
+    const keys = new Set(rows.map(r => `${r.userId}:${r.programId}`));
     const payments =
       keys.size === 0
         ? []
         : await prisma.payment.findMany({
             where: {
-              OR: rows.map((r) => ({
+              OR: rows.map(r => ({
                 userId: r.userId,
                 programId: r.programId,
               })),
@@ -307,7 +311,7 @@ export class SubscriptionsService {
 
     return {
       pagination: { page: safePage, pageSize: safeSize, total },
-      items: rows.map((r) => ({
+      items: rows.map(r => ({
         id: r.id,
         userId: r.userId,
         userEmail: r.user.email,
@@ -328,7 +332,7 @@ export class SubscriptionsService {
   async grantAcademyAccess(
     input: GrantAcademyAccessInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.assertSuperAdmin(actor);
 
@@ -337,7 +341,7 @@ export class SubscriptionsService {
       throw new AppError(
         503,
         'ACADEMY_CATALOG_NOT_CONFIGURED',
-        'Set ACADEMY_CATALOG_TENANT_ID or mark a tenant as academy catalog',
+        'Set ACADEMY_CATALOG_TENANT_ID or mark a tenant as academy catalog'
       );
     }
 
@@ -350,7 +354,11 @@ export class SubscriptionsService {
     });
 
     if (!program) {
-      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found in the public academy catalog');
+      throw new AppError(
+        404,
+        'PROGRAM_NOT_FOUND',
+        'Program not found in the public academy catalog'
+      );
     }
 
     const user = input.userId

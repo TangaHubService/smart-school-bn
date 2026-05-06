@@ -14,11 +14,7 @@ const timetableService = new TimetableService();
 export class TimetableController {
   async listSlots(req: Request, res: Response): Promise<Response> {
     const query = listTimetableSlotsQuerySchema.parse(req.query);
-    const result = await timetableService.listSlots(
-      req.tenantId!,
-      query,
-      req.user ?? undefined,
-    );
+    const result = await timetableService.listSlots(req.tenantId!, query, req.user ?? undefined);
     return sendSuccess(req, res, result);
   }
 
@@ -27,7 +23,7 @@ export class TimetableController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result, 201);
   }
@@ -39,7 +35,7 @@ export class TimetableController {
       req.params.id,
       body,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
   }
@@ -49,7 +45,7 @@ export class TimetableController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
   }
@@ -60,7 +56,7 @@ export class TimetableController {
       req.tenantId!,
       body,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
   }

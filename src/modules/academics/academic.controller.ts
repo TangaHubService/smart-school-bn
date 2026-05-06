@@ -20,7 +20,7 @@ export class AcademicsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -35,17 +35,14 @@ export class AcademicsController {
     const result = await academicsService.updateAcademicYear(
       req.tenantId!,
       req.params.id,
-      req.body,
+      req.body
     );
 
     return sendSuccess(req, res, result);
   }
 
   async deleteAcademicYear(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.deleteAcademicYear(
-      req.tenantId!,
-      req.params.id,
-    );
+    const result = await academicsService.deleteAcademicYear(req.tenantId!, req.params.id);
 
     return sendSuccess(req, res, result);
   }
@@ -55,7 +52,7 @@ export class AcademicsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -68,11 +65,7 @@ export class AcademicsController {
   }
 
   async updateTerm(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.updateTerm(
-      req.tenantId!,
-      req.params.id,
-      req.body,
-    );
+    const result = await academicsService.updateTerm(req.tenantId!, req.params.id, req.body);
 
     return sendSuccess(req, res, result);
   }
@@ -87,7 +80,7 @@ export class AcademicsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -99,20 +92,13 @@ export class AcademicsController {
   }
 
   async updateGradeLevel(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.updateGradeLevel(
-      req.tenantId!,
-      req.params.id,
-      req.body,
-    );
+    const result = await academicsService.updateGradeLevel(req.tenantId!, req.params.id, req.body);
 
     return sendSuccess(req, res, result);
   }
 
   async deleteGradeLevel(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.deleteGradeLevel(
-      req.tenantId!,
-      req.params.id,
-    );
+    const result = await academicsService.deleteGradeLevel(req.tenantId!, req.params.id);
 
     return sendSuccess(req, res, result);
   }
@@ -122,7 +108,7 @@ export class AcademicsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -134,11 +120,7 @@ export class AcademicsController {
   }
 
   async updateClassRoom(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.updateClassRoom(
-      req.tenantId!,
-      req.params.id,
-      req.body,
-    );
+    const result = await academicsService.updateClassRoom(req.tenantId!, req.params.id, req.body);
 
     return sendSuccess(req, res, result);
   }
@@ -153,7 +135,7 @@ export class AcademicsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -165,11 +147,7 @@ export class AcademicsController {
   }
 
   async updateSubject(req: Request, res: Response): Promise<Response> {
-    const result = await academicsService.updateSubject(
-      req.tenantId!,
-      req.params.id,
-      req.body,
-    );
+    const result = await academicsService.updateSubject(req.tenantId!, req.params.id, req.body);
 
     return sendSuccess(req, res, result);
   }

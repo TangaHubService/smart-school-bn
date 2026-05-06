@@ -104,7 +104,7 @@ describe('AcademySubscriptionService', () => {
           courseLimit: 3,
           isTrial: true,
         }),
-      }),
+      })
     );
     expect(result.courseLimit).toBe(3);
   });
@@ -190,7 +190,9 @@ describe('AcademySubscriptionService', () => {
       },
     ]);
 
-    await expect(service.selectSubject('user-1', 'academy-tenant', 'subject-4')).rejects.toMatchObject({
+    await expect(
+      service.selectSubject('user-1', 'academy-tenant', 'subject-4')
+    ).rejects.toMatchObject({
       code: 'ACADEMY_SELECTION_LIMIT_REACHED',
       statusCode: 409,
     });
@@ -210,7 +212,10 @@ describe('AcademySubscriptionService', () => {
       updatedAt: new Date('2026-04-08T00:00:00.000Z'),
     });
     mockedPrisma.academySubscriptionPayment.create.mockResolvedValue({ id: 'pay-1' });
-    mockedPrisma.academySubscriptionPayment.update.mockResolvedValue({ id: 'pay-1', paypackRef: 'trx-1' });
+    mockedPrisma.academySubscriptionPayment.update.mockResolvedValue({
+      id: 'pay-1',
+      paypackRef: 'trx-1',
+    });
     mockCashin.mockResolvedValue({
       ref: 'trx-1',
       status: 'pending',
@@ -232,7 +237,7 @@ describe('AcademySubscriptionService', () => {
           durationDays: 1,
           status: PaymentStatus.PENDING,
         }),
-      }),
+      })
     );
     expect(result.paypackRef).toBe('trx-1');
   });

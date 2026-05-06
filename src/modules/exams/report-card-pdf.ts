@@ -103,7 +103,7 @@ function drawBox(
   width: number,
   height: number,
   fillColor?: string,
-  lineWidth = 0.5,
+  lineWidth = 0.5
 ) {
   doc.save();
   doc.lineWidth(lineWidth);
@@ -127,7 +127,7 @@ function drawText(
     align?: 'left' | 'center' | 'right';
     color?: string;
     lineGap?: number;
-  } = {},
+  } = {}
 ) {
   doc
     .font(options.bold ? 'Helvetica-Bold' : 'Helvetica')
@@ -158,25 +158,18 @@ function drawCell(
     lineWidth?: number;
     /** Tighter horizontal padding in narrow columns (full text wraps; no truncation). */
     compact?: boolean;
-  } = {},
+  } = {}
 ) {
   const px = options.paddingX ?? (options.compact ? 2 : 4);
   const py = options.paddingY ?? (options.compact ? 3 : 4);
   const innerW = width - px * 2;
   drawBox(doc, x, y, width, height, options.fillColor, options.lineWidth ?? 0.5);
-  drawText(
-    doc,
-    text,
-    x + px,
-    y + py,
-    innerW,
-    {
-      size: options.size ?? 8.5,
-      bold: options.bold,
-      align: options.align,
-      color: options.color,
-    },
-  );
+  drawText(doc, text, x + px, y + py, innerW, {
+    size: options.size ?? 8.5,
+    bold: options.bold,
+    align: options.align,
+    color: options.color,
+  });
 }
 
 /**
@@ -189,7 +182,7 @@ function drawTermTableHeader(
   y: number,
   colW: number[],
   headerFill: string,
-  headerH: number,
+  headerH: number
 ): number {
   drawCell(doc, tableX, y, colW[0], headerH, 'SUBJECT', {
     fillColor: headerFill,
@@ -225,7 +218,7 @@ function yearlyTermBreakdownSixCells(
         examMax: number;
         examObtained: number;
       }
-    | undefined,
+    | undefined
 ): [string, string, string, string, string, string] {
   if (!t) {
     return ['—', '—', '—', '—', '—', '—'];
@@ -252,7 +245,7 @@ function drawYearlyTableHeader(
   headerFill: string,
   h0: number,
   h1: number,
-  termBandLabels: [string, string, string],
+  termBandLabels: [string, string, string]
 ): number {
   const headerH = h0 + h1;
   const y1 = y + h0;
@@ -268,7 +261,8 @@ function drawYearlyTableHeader(
   let gx = tableX + colWY[0];
   for (let t = 0; t < 3; t += 1) {
     const o = 1 + t * 6;
-    const bandW = colWY[o] + colWY[o + 1] + colWY[o + 2] + colWY[o + 3] + colWY[o + 4] + colWY[o + 5];
+    const bandW =
+      colWY[o] + colWY[o + 1] + colWY[o + 2] + colWY[o + 3] + colWY[o + 4] + colWY[o + 5];
     drawCell(doc, gx, y, bandW, h0, termBandLabels[t], {
       fillColor: headerFill,
       bold: true,
@@ -326,8 +320,7 @@ function drawYearlyTableHeader(
       });
       gx += colWY[o + i];
     }
-    const sepX =
-      tableX + colWY[0] + colWY[o] + colWY[o + 1] + colWY[o + 2];
+    const sepX = tableX + colWY[0] + colWY[o] + colWY[o + 1] + colWY[o + 2];
     drawThickColumnSeparator(doc, sepX, y, headerH);
   }
 
@@ -374,7 +367,7 @@ function drawYearlyRowThickSeparators(
   tableX: number,
   y: number,
   rowH: number,
-  colWY: number[],
+  colWY: number[]
 ) {
   for (let t = 0; t < 3; t += 1) {
     const o = 1 + t * 6;
@@ -397,7 +390,7 @@ function termMaxObtSixColumns(
   useRawMarks: boolean,
   caPct: number | null,
   exPct: number | null,
-  totPct: number,
+  totPct: number
 ): {
   cells: [string, string, string, string, string, string];
   nums: {
@@ -409,19 +402,11 @@ function termMaxObtSixColumns(
     oTot: number;
   } | null;
 } {
-  if (
-    useRawMarks &&
-    catEx &&
-    exPaper &&
-    catEx.totalMarks > 0 &&
-    exPaper.totalMarks > 0
-  ) {
+  if (useRawMarks && catEx && exPaper && catEx.totalMarks > 0 && exPaper.totalMarks > 0) {
     const mCat = catEx.totalMarks;
     const mEx = exPaper.totalMarks;
     const mTot = mCat + mEx;
-    const hasO =
-      catEx.marksObtained != null &&
-      exPaper.marksObtained != null;
+    const hasO = catEx.marksObtained != null && exPaper.marksObtained != null;
     const oCat = hasO ? catEx.marksObtained! : null;
     const oEx = hasO ? exPaper.marksObtained! : null;
     const oTot = hasO ? oCat! + oEx! : null;
@@ -453,24 +438,23 @@ function termMaxObtSixColumns(
       totPct.toFixed(1),
     ],
     nums:
-      caPct != null && exPct != null
-        ? { mCat, mEx, mTot, oCat: caPct, oEx: exPct, oTot }
-        : null,
+      caPct != null && exPct != null ? { mCat, mEx, mTot, oCat: caPct, oEx: exPct, oTot } : null,
   };
 }
 
 /** Double vertical rule between max-mark and obtained-mark blocks (MoE-style). */
-function drawThickColumnSeparator(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  height: number,
-) {
+function drawThickColumnSeparator(doc: PDFKit.PDFDocument, x: number, y: number, height: number) {
   doc.save();
   doc.strokeColor('#000000');
   doc.lineWidth(1.1);
-  doc.moveTo(x, y).lineTo(x, y + height).stroke();
-  doc.moveTo(x + 2.2, y).lineTo(x + 2.2, y + height).stroke();
+  doc
+    .moveTo(x, y)
+    .lineTo(x, y + height)
+    .stroke();
+  doc
+    .moveTo(x + 2.2, y)
+    .lineTo(x + 2.2, y + height)
+    .stroke();
   doc.restore();
 }
 
@@ -490,8 +474,14 @@ function drawDoubleRule(doc: PDFKit.PDFDocument, x: number, y: number, width: nu
   doc.save();
   doc.lineWidth(0.75);
   doc.strokeColor('#000000');
-  doc.moveTo(x, y).lineTo(x + width, y).stroke();
-  doc.moveTo(x, y + 2.5).lineTo(x + width, y + 2.5).stroke();
+  doc
+    .moveTo(x, y)
+    .lineTo(x + width, y)
+    .stroke();
+  doc
+    .moveTo(x, y + 2.5)
+    .lineTo(x + width, y + 2.5)
+    .stroke();
   doc.restore();
 }
 
@@ -500,7 +490,7 @@ function drawOuterFrame(
   outerX: number,
   margin: number,
   contentW: number,
-  pageHeight: number,
+  pageHeight: number
 ) {
   doc.save();
   doc.lineWidth(1.25);
@@ -540,14 +530,16 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
     const school = payload.school ?? {};
     const studentName = `${payload.student.firstName} ${payload.student.lastName}`.trim();
     const schoolTitle = (school.displayName ?? payload.schoolName).toUpperCase();
-    const schoolCodeOrPhone = displayValue(school.phone ?? school.registrationNumber ?? school.code);
+    const schoolCodeOrPhone = displayValue(
+      school.phone ?? school.registrationNumber ?? school.code
+    );
     const district = displayValue(school.district);
     const teacherComment = payload.metadata?.teacherComment ?? payload.totals.remark;
     const conductText = payload.conduct
       ? `${payload.conduct.grade}${payload.conduct.remark ? ` (${payload.conduct.remark})` : ''}`
       : '';
 
-    doc.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    doc.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
@@ -602,11 +594,19 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       bold: false,
       paddingY: 5,
     });
-    drawCell(doc, innerX + split, y, innerW - split, row1H, `Class: ${(payload.classRoom.name || payload.classRoom.code).toUpperCase()}`, {
-      size: 9.5,
-      bold: false,
-      paddingY: 5,
-    });
+    drawCell(
+      doc,
+      innerX + split,
+      y,
+      innerW - split,
+      row1H,
+      `Class: ${(payload.classRoom.name || payload.classRoom.code).toUpperCase()}`,
+      {
+        size: 9.5,
+        bold: false,
+        paddingY: 5,
+      }
+    );
     y += row1H;
 
     const row2H = 22;
@@ -638,7 +638,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
         1.9,
       ];
       const wSumY = weightsY.reduce((a, b) => a + b, 0);
-      const colWY = weightsY.map((w) => (w / wSumY) * innerW);
+      const colWY = weightsY.map(w => (w / wSumY) * innerW);
       const h0y = 11;
       const h1y = 13;
       const br0 = payload.subjects[0].yearlyTermBreakdown ?? [];
@@ -655,7 +655,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
         headerFill,
         h0y,
         h1y,
-        termBandLabels,
+        termBandLabels
       );
       y += headerH;
 
@@ -682,7 +682,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
               examMax: number;
               examObtained: number;
             }
-          | undefined,
+          | undefined
       ) => {
         if (!t) {
           return;
@@ -762,15 +762,15 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       }
 
       const avgY = nYr ? sumYrAvg / nYr : 0;
-      const nYrMax = payload.subjects.filter((s) => s.yearlyTotalRawMax != null).length;
-      const nYrObt = payload.subjects.filter((s) => s.yearlyTotalRawObtained != null).length;
-      const nYrPct = payload.subjects.filter((s) => s.yearlyTotalRawPercent != null).length;
+      const nYrMax = payload.subjects.filter(s => s.yearlyTotalRawMax != null).length;
+      const nYrObt = payload.subjects.filter(s => s.yearlyTotalRawObtained != null).length;
+      const nYrPct = payload.subjects.filter(s => s.yearlyTotalRawPercent != null).length;
       const totCells = [
         'Avg',
         ...accT.flatMap((row, ti) =>
           nPerTerm[ti]
-            ? row.map((v) => (v / nPerTerm[ti]).toFixed(1))
-            : ['—', '—', '—', '—', '—', '—'],
+            ? row.map(v => (v / nPerTerm[ti]).toFixed(1))
+            : ['—', '—', '—', '—', '—', '—']
         ),
         avgY.toFixed(1),
         nYrMax ? (sumYrMax / nYrMax).toFixed(1) : '—',
@@ -875,11 +875,19 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
 
       const bodyH = 56;
       drawCell(doc, tableX, y, leftObsW, bodyH, teacherComment, { size: 8.5, paddingY: 6 });
-      drawCell(doc, tableX + leftObsW, y, rightSigW, bodyH, displayValue(payload.metadata?.classTeacherName), {
-        size: 8,
-        align: 'center',
-        paddingY: 22,
-      });
+      drawCell(
+        doc,
+        tableX + leftObsW,
+        y,
+        rightSigW,
+        bodyH,
+        displayValue(payload.metadata?.classTeacherName),
+        {
+          size: 8,
+          align: 'center',
+          paddingY: 22,
+        }
+      );
       y += bodyH;
 
       const parentRowH = 30;
@@ -898,7 +906,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
     // —— Grades table: [max CAT|EXAM|TOTAL] | [obt CAT|EXAM|TOTAL] | Rank | Comments ——
     const weights = [2.0, 0.54, 0.54, 0.54, 0.54, 0.54, 0.54, 0.58, 1.88];
     const wSum = weights.reduce((a, b) => a + b, 0);
-    const colW = weights.map((w) => (w / wSum) * innerW);
+    const colW = weights.map(w => (w / wSum) * innerW);
     const termHeaderH = 26;
     const sepXTerm = tableX + colW[0] + colW[1] + colW[2] + colW[3];
     y += drawTermTableHeader(doc, tableX, y, colW, headerFill, termHeaderH);
@@ -909,15 +917,15 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
     let nAcc = 0;
 
     for (const subject of payload.subjects) {
-      const catEx = subject.exams?.find((e) => e.examType === 'CAT');
-      const exPaper = subject.exams?.find((e) => e.examType === 'EXAM');
+      const catEx = subject.exams?.find(e => e.examType === 'CAT');
+      const exPaper = subject.exams?.find(e => e.examType === 'EXAM');
       const useRawMarks = Boolean(
         catEx &&
-          exPaper &&
-          catEx.marksObtained != null &&
-          exPaper.marksObtained != null &&
-          catEx.totalMarks > 0 &&
-          exPaper.totalMarks > 0,
+        exPaper &&
+        catEx.marksObtained != null &&
+        exPaper.marksObtained != null &&
+        catEx.totalMarks > 0 &&
+        exPaper.totalMarks > 0
       );
 
       const caPct = subject.continuousAssessmentPercent ?? null;
@@ -930,7 +938,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
         useRawMarks,
         caPct,
         exPct,
-        totPct,
+        totPct
       );
       if (nums) {
         acc.mCat += nums.mCat;
@@ -942,12 +950,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
         nAcc += 1;
       }
 
-      const cells = [
-        subject.subjectName,
-        ...six,
-        '—',
-        subject.remark || subject.grade,
-      ];
+      const cells = [subject.subjectName, ...six, '—', subject.remark || subject.grade];
       cx = tableX;
       for (let i = 0; i < cells.length; i += 1) {
         drawCell(doc, cx, y, colW[i], rowH, cells[i], {
@@ -1037,11 +1040,19 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
 
     const bodyH = 56;
     drawCell(doc, tableX, y, leftObsW, bodyH, teacherComment, { size: 8.5, paddingY: 6 });
-    drawCell(doc, tableX + leftObsW, y, rightSigW, bodyH, displayValue(payload.metadata?.classTeacherName), {
-      size: 8,
-      align: 'center',
-      paddingY: 22,
-    });
+    drawCell(
+      doc,
+      tableX + leftObsW,
+      y,
+      rightSigW,
+      bodyH,
+      displayValue(payload.metadata?.classTeacherName),
+      {
+        size: 8,
+        align: 'center',
+        paddingY: 22,
+      }
+    );
     y += bodyH;
 
     const parentRowH = 30;

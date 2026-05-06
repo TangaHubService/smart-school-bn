@@ -5,6 +5,6 @@ export function normalizePermissions(value: unknown): string[] {
 
   return value
     .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
+    .map(item => item.trim())
     .filter(Boolean);
 }

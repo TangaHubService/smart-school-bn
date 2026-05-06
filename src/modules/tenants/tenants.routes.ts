@@ -22,7 +22,7 @@ tenantsRoutes.get(
   '/',
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => tenantsController.listTenants(req, res)),
+  asyncHandler((req, res) => tenantsController.listTenants(req, res))
 );
 
 tenantsRoutes.post(
@@ -30,14 +30,14 @@ tenantsRoutes.post(
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_CREATE]),
   validateBody(createTenantSchema),
-  asyncHandler((req, res) => tenantsController.createTenant(req, res)),
+  asyncHandler((req, res) => tenantsController.createTenant(req, res))
 );
 
 tenantsRoutes.get(
   '/:id',
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => tenantsController.getTenant(req, res)),
+  asyncHandler((req, res) => tenantsController.getTenant(req, res))
 );
 
 tenantsRoutes.post(
@@ -45,7 +45,7 @@ tenantsRoutes.post(
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_CREATE]),
   validateBody(inviteTenantAdminSchema),
-  asyncHandler((req, res) => tenantsController.inviteSchoolAdmin(req, res)),
+  asyncHandler((req, res) => tenantsController.inviteSchoolAdmin(req, res))
 );
 
 tenantsRoutes.post(
@@ -53,7 +53,7 @@ tenantsRoutes.post(
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(assignSchoolAdminSchema),
-  asyncHandler((req, res) => tenantsController.assignSchoolAdmin(req, res)),
+  asyncHandler((req, res) => tenantsController.assignSchoolAdmin(req, res))
 );
 
 tenantsRoutes.patch(
@@ -61,7 +61,7 @@ tenantsRoutes.patch(
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateTenantSchema),
-  asyncHandler((req, res) => tenantsController.updateTenant(req, res)),
+  asyncHandler((req, res) => tenantsController.updateTenant(req, res))
 );
 
 tenantsRoutes.patch(
@@ -69,12 +69,12 @@ tenantsRoutes.patch(
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateTenantStatusSchema),
-  asyncHandler((req, res) => tenantsController.updateTenantStatus(req, res)),
+  asyncHandler((req, res) => tenantsController.updateTenantStatus(req, res))
 );
 
 tenantsRoutes.delete(
   '/:id',
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
-  asyncHandler((req, res) => tenantsController.deactivateTenant(req, res)),
+  asyncHandler((req, res) => tenantsController.deactivateTenant(req, res))
 );

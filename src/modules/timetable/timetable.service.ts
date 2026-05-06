@@ -68,11 +68,7 @@ type CandidateSlot = {
 export class TimetableService {
   private readonly auditService = new AuditService();
 
-  async listSlots(
-    tenantId: string,
-    query: ListTimetableSlotsQueryInput,
-    actor?: JwtUser,
-  ) {
+  async listSlots(tenantId: string, query: ListTimetableSlotsQueryInput, actor?: JwtUser) {
     this.ensureReadScope(actor, query.teacherUserId);
     const teacherOnly =
       actor?.roles?.includes('TEACHER') &&
@@ -111,7 +107,7 @@ export class TimetableService {
     tenantId: string,
     input: CreateTimetableSlotInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureActorCanManageTimetable(actor);
     await this.ensureSlotTargets(tenantId, input);
@@ -175,7 +171,7 @@ export class TimetableService {
     slotId: string,
     input: UpdateTimetableSlotInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.timetableSlot.findFirst({
       where: { id: slotId, tenantId },
@@ -213,7 +209,7 @@ export class TimetableService {
     }
     const existingSlots = await this.getExistingSlots(tenantId, nextAcademicYearId, nextTermId);
     this.validateScheduleChanges(
-      existingSlots.filter((slot) => slot.id !== slotId),
+      existingSlots.filter(slot => slot.id !== slotId),
       [
         {
           id: slotId,
@@ -227,7 +223,7 @@ export class TimetableService {
           startTime: nextStart,
           endTime: nextEnd,
         },
-      ],
+      ]
     );
 
     const updated = await prisma.timetableSlot.update({
@@ -265,12 +261,7 @@ export class TimetableService {
     return updated;
   }
 
-  async deleteSlot(
-    tenantId: string,
-    slotId: string,
-    actor: JwtUser,
-    context: RequestAuditContext,
-  ) {
+  async deleteSlot(tenantId: string, slotId: string, actor: JwtUser, context: RequestAuditContext) {
     const existing = await prisma.timetableSlot.findFirst({
       where: { id: slotId, tenantId },
       include: { course: true },
@@ -309,10 +300,10 @@ export class TimetableService {
     tenantId: string,
     input: BulkUpsertTimetableSlotsInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureActorCanManageTimetable(actor);
-    const uniqueCourseIds = [...new Set(input.slots.map((s) => s.courseId))];
+    const uniqueCourseIds = [...new Set(input.slots.map(s => s.courseId))];
     for (const courseId of uniqueCourseIds) {
       await this.ensureSlotTargets(tenantId, {
         academicYearId: input.academicYearId,
@@ -326,7 +317,7 @@ export class TimetableService {
     }
 
     const courseMap = await this.getCourseTeacherMap(tenantId, uniqueCourseIds);
-    const candidates: CandidateSlot[] = input.slots.map((s) => {
+    const candidates: CandidateSlot[] = input.slots.map(s => {
       const teacherUserId = courseMap.get(s.courseId);
       if (!teacherUserId) {
         throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
@@ -345,11 +336,11 @@ export class TimetableService {
     });
 
     const existing = await this.getExistingSlots(tenantId, input.academicYearId, input.termId);
-    const replacedExisting = existing.filter((slot) => slot.classRoomId === input.classRoomId);
-    const unaffected = existing.filter((slot) => slot.classRoomId !== input.classRoomId);
+    const replacedExisting = existing.filter(slot => slot.classRoomId === input.classRoomId);
+    const unaffected = existing.filter(slot => slot.classRoomId !== input.classRoomId);
     this.validateScheduleChanges(unaffected, candidates);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async tx => {
       await tx.timetableSlot.deleteMany({
         where: {
           tenantId,
@@ -360,7 +351,7 @@ export class TimetableService {
       });
 
       return tx.timetableSlot.createMany({
-        data: candidates.map((s) => ({
+        data: candidates.map(s => ({
           tenantId,
           academicYearId: s.academicYearId,
           termId: s.termId,
@@ -381,7 +372,7 @@ export class TimetableService {
         termId: input.termId,
         classRoomId: input.classRoomId,
       },
-      actor,
+      actor
     );
 
     await this.auditService.logActivity({
@@ -398,11 +389,11 @@ export class TimetableService {
       sessionId: context.sessionId,
       oldValue: {
         count: replacedExisting.length,
-        slots: replacedExisting.slice(0, 50).map((slot) => this.summarizeSlot(slot)),
+        slots: replacedExisting.slice(0, 50).map(slot => this.summarizeSlot(slot)),
       },
       newValue: {
         count: slots.slots.length,
-        slots: slots.slots.slice(0, 50).map((slot) => this.summarizeSlot(slot)),
+        slots: slots.slots.slice(0, 50).map(slot => this.summarizeSlot(slot)),
       },
     });
 
@@ -441,7 +432,7 @@ export class TimetableService {
       termId: string;
       classRoomId: string;
       courseId: string;
-    },
+    }
   ) {
     const [academicYear, term, classRoom, course] = await Promise.all([
       prisma.academicYear.findFirst({
@@ -479,13 +470,12 @@ export class TimetableService {
   }
 
   private ensureActorCanManageTimetable(actor: JwtUser) {
-    const isAdmin =
-      actor.roles?.includes('SCHOOL_ADMIN') || actor.roles?.includes('SUPER_ADMIN');
+    const isAdmin = actor.roles?.includes('SCHOOL_ADMIN') || actor.roles?.includes('SUPER_ADMIN');
     if (!isAdmin) {
       throw new AppError(
         403,
         'TIMETABLE_FORBIDDEN',
-        'Only school administrators can manage timetable entries',
+        'Only school administrators can manage timetable entries'
       );
     }
   }
@@ -499,11 +489,7 @@ export class TimetableService {
       !actor.roles?.includes('SCHOOL_ADMIN') &&
       !actor.roles?.includes('SUPER_ADMIN');
     if (isTeacherOnly && teacherUserId && teacherUserId !== actor.sub) {
-      throw new AppError(
-        403,
-        'TIMETABLE_FORBIDDEN',
-        'Teachers can only view their own timetable',
-      );
+      throw new AppError(403, 'TIMETABLE_FORBIDDEN', 'Teachers can only view their own timetable');
     }
   }
 
@@ -511,24 +497,20 @@ export class TimetableService {
     const start = this.timeToMinutes(startTime);
     const end = this.timeToMinutes(endTime);
     if (end <= start) {
-      throw new AppError(
-        400,
-        'TIMETABLE_TIME_RANGE_INVALID',
-        'End time must be after start time',
-      );
+      throw new AppError(400, 'TIMETABLE_TIME_RANGE_INVALID', 'End time must be after start time');
     }
   }
 
   private rangesOverlap(
     left: { start: number; end: number },
-    right: { start: number; end: number },
+    right: { start: number; end: number }
   ) {
     return left.start < right.end && right.start < left.end;
   }
 
   private validateScheduleChanges(existing: ExistingSlot[], candidates: CandidateSlot[]) {
     const all = [
-      ...existing.map((slot) => ({
+      ...existing.map(slot => ({
         id: slot.id,
         classRoomId: slot.classRoomId,
         teacherUserId: slot.course.teacherUserId,
@@ -555,7 +537,7 @@ export class TimetableService {
         throw new AppError(
           400,
           'CLASS_TIMETABLE_CONFLICT',
-          'A class cannot have two subjects in the same period',
+          'A class cannot have two subjects in the same period'
         );
       }
       classPeriodKeys.add(key);
@@ -568,21 +550,21 @@ export class TimetableService {
         if (left.dayOfWeek !== right.dayOfWeek) continue;
         const overlap = this.rangesOverlap(
           { start: left.startMin, end: left.endMin },
-          { start: right.startMin, end: right.endMin },
+          { start: right.startMin, end: right.endMin }
         );
         if (!overlap) continue;
         if (left.classRoomId === right.classRoomId) {
           throw new AppError(
             400,
             'CLASS_TIMETABLE_TIME_CONFLICT',
-            'This class already has another subject in the selected time range',
+            'This class already has another subject in the selected time range'
           );
         }
         if (left.teacherUserId === right.teacherUserId) {
           throw new AppError(
             400,
             'TEACHER_TIMETABLE_CONFLICT',
-            'This teacher is already assigned to another class in an overlapping time',
+            'This teacher is already assigned to another class in an overlapping time'
           );
         }
       }
@@ -596,7 +578,7 @@ export class TimetableService {
       dailyTeacherMinutes.set(dayKey, (dailyTeacherMinutes.get(dayKey) ?? 0) + minutes);
       weeklyTeacherMinutes.set(
         slot.teacherUserId,
-        (weeklyTeacherMinutes.get(slot.teacherUserId) ?? 0) + minutes,
+        (weeklyTeacherMinutes.get(slot.teacherUserId) ?? 0) + minutes
       );
     }
     for (const minutes of dailyTeacherMinutes.values()) {
@@ -604,7 +586,7 @@ export class TimetableService {
         throw new AppError(
           400,
           'TEACHER_DAILY_LIMIT_EXCEEDED',
-          'Teacher working hours exceed 8 hours for at least one day',
+          'Teacher working hours exceed 8 hours for at least one day'
         );
       }
     }
@@ -613,7 +595,7 @@ export class TimetableService {
         throw new AppError(
           400,
           'TEACHER_WEEKLY_LIMIT_EXCEEDED',
-          'Teacher working hours exceed 40 hours in the selected timetable',
+          'Teacher working hours exceed 40 hours in the selected timetable'
         );
       }
     }
@@ -622,7 +604,7 @@ export class TimetableService {
   private async getExistingSlots(
     tenantId: string,
     academicYearId: string,
-    termId: string,
+    termId: string
   ): Promise<ExistingSlot[]> {
     return prisma.timetableSlot.findMany({
       where: { tenantId, academicYearId, termId },
@@ -645,7 +627,7 @@ export class TimetableService {
       where: { tenantId, id: { in: courseIds }, isActive: true },
       select: { id: true, teacherUserId: true },
     });
-    return new Map(courses.map((course) => [course.id, course.teacherUserId]));
+    return new Map(courses.map(course => [course.id, course.teacherUserId]));
   }
 
   private timeToMinutes(time: string): number {

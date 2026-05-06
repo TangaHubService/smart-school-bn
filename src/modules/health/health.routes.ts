@@ -7,6 +7,12 @@ const healthController = new HealthController();
 
 export const healthRoutes = Router();
 
-healthRoutes.get('/', asyncHandler((req, res) => healthController.getHealth(req, res)));
+healthRoutes.get(
+  '/',
+  asyncHandler((req, res) => healthController.getHealth(req, res))
+);
 
-healthRoutes.get('/info', asyncHandler((req, res) => healthController.getInfo(req, res)));
+healthRoutes.get(
+  '/info',
+  asyncHandler((req, res) => healthController.getInfo(req, res))
+);

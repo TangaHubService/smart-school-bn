@@ -34,7 +34,7 @@ export class ConductMarksController {
       req.params.termId,
       body.totalMarks,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
     return sendSuccess(req, res, result);
   }
@@ -51,7 +51,7 @@ export class ConductMarksController {
       req.tenantId!,
       req.params.studentId,
       query,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }
@@ -62,7 +62,7 @@ export class ConductMarksController {
       req.tenantId!,
       req.params.studentId,
       query,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }

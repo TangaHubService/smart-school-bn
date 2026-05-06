@@ -6,11 +6,7 @@ import { mergeAuditRequestContext } from '../utils/request-audit-context';
 import { AppError } from '../errors/app-error';
 import { JwtUser } from '../types/auth.types';
 
-export function authenticate(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.header('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     next(new AppError(401, 'AUTH_UNAUTHORIZED', 'Missing bearer token'));

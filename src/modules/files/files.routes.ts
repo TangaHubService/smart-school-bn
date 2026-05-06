@@ -19,6 +19,5 @@ filesRoutes.post(
   '/files/sign-upload',
   requirePermissions([PERMISSIONS.FILES_UPLOAD]),
   validateBody(signUploadSchema),
-  asyncHandler((req, res) => filesController.signUpload(req, res)),
+  asyncHandler((req, res) => filesController.signUpload(req, res))
 );
-

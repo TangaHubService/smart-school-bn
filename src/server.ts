@@ -14,7 +14,7 @@ initSocket(httpServer);
 const server = httpServer.listen(env.PORT, () => {
   rootLogger.info(
     { port: env.PORT, env: env.NODE_ENV, version: env.APP_VERSION },
-    `HTTP server listening on port ${env.PORT}`,
+    `HTTP server listening on port ${env.PORT}`
   );
 });
 

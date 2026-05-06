@@ -34,7 +34,7 @@ describe('enforceTenant middleware', () => {
     enforceTenant(req, {} as any, next);
 
     expect(next).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 'TENANT_MISMATCH', statusCode: 403 }),
+      expect.objectContaining({ code: 'TENANT_MISMATCH', statusCode: 403 })
     );
   });
 });

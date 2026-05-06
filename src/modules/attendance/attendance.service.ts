@@ -1,8 +1,4 @@
-import {
-  AttendanceSession,
-  AttendanceStatus,
-  Prisma,
-} from '@prisma/client';
+import { AttendanceSession, AttendanceStatus, Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -29,7 +25,7 @@ export class AttendanceService {
   async listAttendanceClasses(
     tenantId: string,
     actor?: { sub: string; roles?: string[] },
-    teacherOnly?: boolean,
+    teacherOnly?: boolean
   ) {
     const isTeacher =
       teacherOnly &&
@@ -51,7 +47,7 @@ export class AttendanceService {
         select: { classRoomId: true },
         distinct: ['classRoomId'],
       });
-      const ids = teacherClassIds.map((c) => c.classRoomId);
+      const ids = teacherClassIds.map(c => c.classRoomId);
       where.id = ids.length ? { in: ids } : { in: ['__none__'] };
     }
 
@@ -75,10 +71,7 @@ export class AttendanceService {
     });
   }
 
-  async getDashboardSummary(
-    tenantId: string,
-    query: AttendanceSummaryQueryInput,
-  ) {
+  async getDashboardSummary(tenantId: string, query: AttendanceSummaryQueryInput) {
     const schoolDate = query.date ?? this.getTodaySchoolDate();
     const attendanceDate = this.parseSchoolDate(schoolDate);
 
@@ -147,9 +140,7 @@ export class AttendanceService {
       activeClasses,
       sessionsOpened,
       pendingClasses: Math.max(activeClasses - sessionsOpened, 0),
-      coveragePercent: activeClasses
-        ? Math.round((sessionsOpened / activeClasses) * 100)
-        : 0,
+      coveragePercent: activeClasses ? Math.round((sessionsOpened / activeClasses) * 100) : 0,
       markedStudents: recordsSaved,
       summary: {
         present: presentCount,
@@ -164,7 +155,7 @@ export class AttendanceService {
     tenantId: string,
     input: CreateAttendanceSessionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const result = await this.resolveOrCreateSession(tenantId, input, actor, context);
 
@@ -178,7 +169,7 @@ export class AttendanceService {
     tenantId: string,
     input: BulkAttendanceRecordsInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const session = input.sessionId
       ? await this.findSessionById(tenantId, input.sessionId)
@@ -191,12 +182,12 @@ export class AttendanceService {
               academicYearId: input.academicYearId,
             },
             actor,
-            context,
+            context
           )
         ).session;
 
     const dedupedRecords = this.dedupeRecordsByStudent(input.records);
-    const studentIds = dedupedRecords.map((record) => record.studentId);
+    const studentIds = dedupedRecords.map(record => record.studentId);
 
     const students = await prisma.student.findMany({
       where: {
@@ -210,14 +201,14 @@ export class AttendanceService {
       },
     });
 
-    const validStudentIds = new Set(students.map((student) => student.id));
-    const missingStudents = studentIds.filter((studentId) => !validStudentIds.has(studentId));
+    const validStudentIds = new Set(students.map(student => student.id));
+    const missingStudents = studentIds.filter(studentId => !validStudentIds.has(studentId));
     if (missingStudents.length) {
       throw new AppError(
         400,
         'ATTENDANCE_STUDENT_NOT_FOUND',
         'Some students do not exist or are inactive',
-        { missingStudents },
+        { missingStudents }
       );
     }
 
@@ -234,14 +225,14 @@ export class AttendanceService {
       },
     });
 
-    const enrolledStudentIds = new Set(enrollments.map((item) => item.studentId));
-    const notEnrolled = studentIds.filter((studentId) => !enrolledStudentIds.has(studentId));
+    const enrolledStudentIds = new Set(enrollments.map(item => item.studentId));
+    const notEnrolled = studentIds.filter(studentId => !enrolledStudentIds.has(studentId));
     if (notEnrolled.length) {
       throw new AppError(
         400,
         'ATTENDANCE_STUDENT_NOT_ENROLLED',
         'Some students are not actively enrolled in this class for the session date',
-        { notEnrolled },
+        { notEnrolled }
       );
     }
 
@@ -260,7 +251,7 @@ export class AttendanceService {
       },
     });
 
-    const existingMap = new Map(existingRecords.map((record) => [record.studentId, record]));
+    const existingMap = new Map(existingRecords.map(record => [record.studentId, record]));
 
     const editedRecords: Array<{
       studentId: string;
@@ -270,7 +261,7 @@ export class AttendanceService {
       toRemarks: string | null;
     }> = [];
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       await tx.attendanceSession.update({
         where: { id: session.id },
         data: {
@@ -368,7 +359,7 @@ export class AttendanceService {
   async getClassAttendance(
     tenantId: string,
     classRoomId: string,
-    query: ClassAttendanceQueryInput,
+    query: ClassAttendanceQueryInput
   ) {
     const schoolDate = query.date ?? this.getTodaySchoolDate();
     const attendanceDate = this.parseSchoolDate(schoolDate);
@@ -456,7 +447,7 @@ export class AttendanceService {
       orderBy: [{ student: { firstName: 'asc' } }, { student: { lastName: 'asc' } }],
     });
 
-    const studentIds = enrollments.map((item) => item.student.id);
+    const studentIds = enrollments.map(item => item.student.id);
 
     const records = studentIds.length
       ? await prisma.attendanceRecord.findMany({
@@ -477,9 +468,9 @@ export class AttendanceService {
         })
       : [];
 
-    const recordByStudentId = new Map(records.map((record) => [record.studentId, record]));
+    const recordByStudentId = new Map(records.map(record => [record.studentId, record]));
 
-    const students = enrollments.map((item) => {
+    const students = enrollments.map(item => {
       const record = recordByStudentId.get(item.student.id);
       return {
         studentId: item.student.id,
@@ -496,10 +487,10 @@ export class AttendanceService {
 
     const summary = {
       total: students.length,
-      present: students.filter((item) => item.status === AttendanceStatus.PRESENT).length,
-      absent: students.filter((item) => item.status === AttendanceStatus.ABSENT).length,
-      late: students.filter((item) => item.status === AttendanceStatus.LATE).length,
-      excused: students.filter((item) => item.status === AttendanceStatus.EXCUSED).length,
+      present: students.filter(item => item.status === AttendanceStatus.PRESENT).length,
+      absent: students.filter(item => item.status === AttendanceStatus.ABSENT).length,
+      late: students.filter(item => item.status === AttendanceStatus.LATE).length,
+      excused: students.filter(item => item.status === AttendanceStatus.EXCUSED).length,
     };
 
     return {
@@ -514,7 +505,7 @@ export class AttendanceService {
   async getStudentAttendanceHistory(
     tenantId: string,
     studentId: string,
-    query: StudentAttendanceHistoryQueryInput,
+    query: StudentAttendanceHistoryQueryInput
   ) {
     const student = await prisma.student.findFirst({
       where: {
@@ -534,7 +525,9 @@ export class AttendanceService {
       throw new AppError(404, 'STUDENT_NOT_FOUND', 'Student not found');
     }
 
-    const toDate = query.to ? this.parseSchoolDate(query.to) : this.parseSchoolDate(this.getTodaySchoolDate());
+    const toDate = query.to
+      ? this.parseSchoolDate(query.to)
+      : this.parseSchoolDate(this.getTodaySchoolDate());
     const fromDate = query.from
       ? this.parseSchoolDate(query.from)
       : new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), toDate.getUTCDate() - 30));
@@ -563,10 +556,10 @@ export class AttendanceService {
 
     const summary = {
       total: records.length,
-      present: records.filter((item) => item.status === AttendanceStatus.PRESENT).length,
-      absent: records.filter((item) => item.status === AttendanceStatus.ABSENT).length,
-      late: records.filter((item) => item.status === AttendanceStatus.LATE).length,
-      excused: records.filter((item) => item.status === AttendanceStatus.EXCUSED).length,
+      present: records.filter(item => item.status === AttendanceStatus.PRESENT).length,
+      absent: records.filter(item => item.status === AttendanceStatus.ABSENT).length,
+      late: records.filter(item => item.status === AttendanceStatus.LATE).length,
+      excused: records.filter(item => item.status === AttendanceStatus.EXCUSED).length,
     };
 
     return {
@@ -576,7 +569,7 @@ export class AttendanceService {
         to: this.toSchoolDateString(toDate),
       },
       summary,
-      records: records.map((record) => ({
+      records: records.map(record => ({
         id: record.id,
         date: this.toSchoolDateString(record.attendanceDate),
         status: record.status,
@@ -607,7 +600,7 @@ export class AttendanceService {
     tenantId: string,
     input: SessionResolutionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const sessionDate = this.parseSchoolDate(input.date);
 
@@ -629,7 +622,7 @@ export class AttendanceService {
     const academicYear = await this.resolveAcademicYear(
       tenantId,
       sessionDate,
-      input.academicYearId,
+      input.academicYearId
     );
 
     const existing = await prisma.attendanceSession.findUnique({
@@ -698,10 +691,7 @@ export class AttendanceService {
         created: true,
       };
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const session = await prisma.attendanceSession.findUnique({
           where: {
             tenantId_classRoomId_sessionDate: {
@@ -724,7 +714,7 @@ export class AttendanceService {
           throw new AppError(
             500,
             'ATTENDANCE_SESSION_CREATE_FAILED',
-            'Unable to resolve attendance session after duplicate key conflict',
+            'Unable to resolve attendance session after duplicate key conflict'
           );
         }
 
@@ -738,11 +728,7 @@ export class AttendanceService {
     }
   }
 
-  private async resolveAcademicYear(
-    tenantId: string,
-    sessionDate: Date,
-    academicYearId?: string,
-  ) {
+  private async resolveAcademicYear(tenantId: string, sessionDate: Date, academicYearId?: string) {
     if (academicYearId) {
       const year = await prisma.academicYear.findFirst({
         where: {
@@ -766,7 +752,7 @@ export class AttendanceService {
         throw new AppError(
           400,
           'ATTENDANCE_DATE_OUTSIDE_ACADEMIC_YEAR',
-          'Attendance date is outside selected academic year range',
+          'Attendance date is outside selected academic year range'
         );
       }
 
@@ -819,7 +805,7 @@ export class AttendanceService {
   }
 
   private dedupeRecordsByStudent(
-    records: BulkAttendanceRecordsInput['records'],
+    records: BulkAttendanceRecordsInput['records']
   ): BulkAttendanceRecordsInput['records'] {
     const map = new Map<string, BulkAttendanceRecordsInput['records'][number]>();
 
@@ -833,7 +819,7 @@ export class AttendanceService {
   private mapSession(
     session:
       | (AttendanceSession & { academicYear?: { id: string; name: string } | null })
-      | (AttendanceSession & { academicYear: { id: string; name: string } | null }),
+      | (AttendanceSession & { academicYear: { id: string; name: string } | null })
   ) {
     return {
       id: session.id,

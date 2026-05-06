@@ -1,8 +1,4 @@
-import {
-  AssessmentAttemptStatus,
-  AssessmentQuestionType,
-  Prisma,
-} from '@prisma/client';
+import { AssessmentAttemptStatus, AssessmentQuestionType, Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -44,7 +40,7 @@ export class AssessmentsService {
     tenantId: string,
     input: CreateAssessmentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const course = await this.getCourseForManagement(tenantId, input.courseId);
     this.ensureCanManageCourse(course.teacherUserId, actor);
@@ -95,11 +91,7 @@ export class AssessmentsService {
     return this.mapAssessmentSummary(created);
   }
 
-  async listAssessments(
-    tenantId: string,
-    query: ListAssessmentsQueryInput,
-    actor: JwtUser,
-  ) {
+  async listAssessments(tenantId: string, query: ListAssessmentsQueryInput, actor: JwtUser) {
     const courseWhere: Record<string, string> = {};
     if (query.classId) {
       courseWhere.classRoomId = query.classId;
@@ -155,7 +147,7 @@ export class AssessmentsService {
     ]);
 
     return {
-      items: items.map((item) => this.mapAssessmentSummary(item)),
+      items: items.map(item => this.mapAssessmentSummary(item)),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
@@ -172,7 +164,7 @@ export class AssessmentsService {
     assessmentId: string,
     input: UpdateAssessmentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
@@ -181,7 +173,7 @@ export class AssessmentsService {
       throw new AppError(
         409,
         'ASSESSMENT_ALREADY_HAS_ATTEMPTS',
-        'Assessment settings are locked after students start attempting this assessment',
+        'Assessment settings are locked after students start attempting this assessment'
       );
     }
 
@@ -205,7 +197,9 @@ export class AssessmentsService {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(instructions !== undefined ? { instructions } : {}),
         ...(input.dueAt !== undefined ? { dueAt: input.dueAt ? new Date(input.dueAt) : null } : {}),
-        ...(input.timeLimitMinutes !== undefined ? { timeLimitMinutes: input.timeLimitMinutes } : {}),
+        ...(input.timeLimitMinutes !== undefined
+          ? { timeLimitMinutes: input.timeLimitMinutes }
+          : {}),
         ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
         updatedByUserId: actor.sub,
       },
@@ -236,7 +230,7 @@ export class AssessmentsService {
     tenantId: string,
     assessmentId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
@@ -245,7 +239,7 @@ export class AssessmentsService {
       throw new AppError(
         409,
         'ASSESSMENT_ALREADY_HAS_ATTEMPTS',
-        'Assessments cannot be deleted after students start attempting them',
+        'Assessments cannot be deleted after students start attempting them'
       );
     }
 
@@ -280,24 +274,26 @@ export class AssessmentsService {
     assessmentId: string,
     input: AddQuestionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
     this.ensureAssessmentQuestionsEditable(assessment);
 
-    const created: any = await prisma.$transaction(async (tx) => {
+    const created: any = await prisma.$transaction(async tx => {
       const sequence =
         input.sequence ??
-        ((await tx.assessmentQuestion.aggregate({
-          where: {
-            tenantId,
-            assessmentId,
-          },
-          _max: {
-            sequence: true,
-          },
-        }))._max.sequence ?? 0) + 1;
+        ((
+          await tx.assessmentQuestion.aggregate({
+            where: {
+              tenantId,
+              assessmentId,
+            },
+            _max: {
+              sequence: true,
+            },
+          })
+        )._max.sequence ?? 0) + 1;
 
       return tx.assessmentQuestion.create({
         data: {
@@ -363,23 +359,25 @@ export class AssessmentsService {
     assessmentId: string,
     input: BulkAddQuestionsInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
     this.ensureAssessmentQuestionsEditable(assessment);
 
-    const createdQuestions: any[] = await prisma.$transaction(async (tx) => {
+    const createdQuestions: any[] = await prisma.$transaction(async tx => {
       const startSequence =
-        ((await tx.assessmentQuestion.aggregate({
-          where: {
-            tenantId,
-            assessmentId,
-          },
-          _max: {
-            sequence: true,
-          },
-        }))._max.sequence ?? 0) + 1;
+        ((
+          await tx.assessmentQuestion.aggregate({
+            where: {
+              tenantId,
+              assessmentId,
+            },
+            _max: {
+              sequence: true,
+            },
+          })
+        )._max.sequence ?? 0) + 1;
 
       const created: any[] = [];
 
@@ -443,7 +441,7 @@ export class AssessmentsService {
 
     return {
       createdCount: createdQuestions.length,
-      questions: createdQuestions.map((question) => this.mapQuestionForTeacher(question)),
+      questions: createdQuestions.map(question => this.mapQuestionForTeacher(question)),
     };
   }
 
@@ -452,7 +450,7 @@ export class AssessmentsService {
     questionId: string,
     input: UpdateQuestionInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const question = await this.getQuestionForManagement(tenantId, questionId);
     this.ensureCanManageCourse(question.assessment.course.teacherUserId, actor);
@@ -463,16 +461,17 @@ export class AssessmentsService {
       isCorrect: option.isCorrect,
       sequence: option.sequence ?? index + 1,
     }));
-    const desiredSequences = normalizedOptions.map((option) => option.sequence);
+    const desiredSequences = normalizedOptions.map(option => option.sequence);
 
-    const updated: any = await prisma.$transaction(async (tx) => {
+    const updated: any = await prisma.$transaction(async tx => {
       await tx.assessmentQuestion.update({
         where: { id: question.id },
         data: {
           prompt: input.prompt,
           imageUrl: input.imageUrl?.trim() ? input.imageUrl.trim() : null,
           explanation: input.explanation,
-          hint: input.hint === undefined ? undefined : input.hint?.trim() ? input.hint.trim() : null,
+          hint:
+            input.hint === undefined ? undefined : input.hint?.trim() ? input.hint.trim() : null,
           remedialLessonId:
             input.remedialLessonId === undefined
               ? undefined
@@ -486,7 +485,7 @@ export class AssessmentsService {
       });
 
       const existingOptionBySequence = new Map<number, any>(
-        question.options.map((option: any) => [option.sequence, option]),
+        question.options.map((option: any) => [option.sequence, option])
       );
 
       if (isOpenEndedQuestionType(input.type)) {
@@ -576,13 +575,13 @@ export class AssessmentsService {
     tenantId: string,
     questionId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const question = await this.getQuestionForManagement(tenantId, questionId);
     this.ensureCanManageCourse(question.assessment.course.teacherUserId, actor);
     this.ensureAssessmentQuestionsEditable(question.assessment);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       await tx.assessmentQuestion.delete({
         where: { id: question.id },
       });
@@ -631,13 +630,17 @@ export class AssessmentsService {
     assessmentId: string,
     input: PublishAssessmentInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
 
     if (input.isPublished && assessment.questions.length === 0) {
-      throw new AppError(400, 'ASSESSMENT_HAS_NO_QUESTIONS', 'Add at least one question before publishing');
+      throw new AppError(
+        400,
+        'ASSESSMENT_HAS_NO_QUESTIONS',
+        'Add at least one question before publishing'
+      );
     }
 
     const updated: any = await prisma.assessment.update({
@@ -674,7 +677,7 @@ export class AssessmentsService {
     assessmentId: string,
     input: UpdateAssessmentPortalInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
@@ -690,7 +693,9 @@ export class AssessmentsService {
       where: { id: assessment.id },
       data: {
         ...(accessCode !== undefined ? { accessCode } : {}),
-        ...(input.portalAssignOnly !== undefined ? { portalAssignOnly: input.portalAssignOnly } : {}),
+        ...(input.portalAssignOnly !== undefined
+          ? { portalAssignOnly: input.portalAssignOnly }
+          : {}),
         updatedByUserId: actor.sub,
       },
       include: this.assessmentSummaryInclude,
@@ -720,7 +725,7 @@ export class AssessmentsService {
     assessmentId: string,
     input: ReplaceAssessmentAssigneesInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
@@ -745,25 +750,25 @@ export class AssessmentsService {
         },
         select: { studentId: true },
       });
-      const validSet = new Set(valid.map((v) => v.studentId));
-      const missing = studentIds.filter((id) => !validSet.has(id));
+      const validSet = new Set(valid.map(v => v.studentId));
+      const missing = studentIds.filter(id => !validSet.has(id));
       if (missing.length) {
         throw new AppError(
           400,
           'ASSESSMENT_ASSIGNEE_INVALID',
           'Some students are not enrolled in this assessment course class for the current academic year',
-          { missingStudentIds: missing.slice(0, 20) },
+          { missingStudentIds: missing.slice(0, 20) }
         );
       }
     }
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       await tx.assessmentStudentAssignment.deleteMany({
         where: { tenantId, assessmentId },
       });
       if (studentIds.length) {
         await tx.assessmentStudentAssignment.createMany({
-          data: studentIds.map((studentId) => ({
+          data: studentIds.map(studentId => ({
             tenantId,
             assessmentId,
             studentId,
@@ -798,7 +803,7 @@ export class AssessmentsService {
     tenantId: string,
     assessmentId: string,
     query: ListAssessmentResultsQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const assessment = await this.getAssessmentForManagement(tenantId, assessmentId);
     this.ensureCanManageCourse(assessment.course.teacherUserId, actor);
@@ -832,16 +837,12 @@ export class AssessmentsService {
 
     return {
       assessment: this.mapAssessmentSummary(assessment),
-      items: items.map((attempt) => this.mapAttemptSummary(attempt)),
+      items: items.map(attempt => this.mapAttemptSummary(attempt)),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
 
-  async listMyAssessments(
-    tenantId: string,
-    actor: JwtUser,
-    query: ListMyAssessmentsQueryInput,
-  ) {
+  async listMyAssessments(tenantId: string, actor: JwtUser, query: ListMyAssessmentsQueryInput) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
@@ -924,19 +925,17 @@ export class AssessmentsService {
 
     return {
       student: this.mapStudentProfile(student),
-      items: items.map((assessment) => ({
+      items: items.map(assessment => ({
         ...this.mapAssessmentSummary(assessment, { forStudent: true }),
-        latestAttempt: assessment.attempts[0] ? this.mapAttemptSummary(assessment.attempts[0]) : null,
+        latestAttempt: assessment.attempts[0]
+          ? this.mapAttemptSummary(assessment.attempts[0])
+          : null,
       })),
       pagination: buildPagination(query.page, query.pageSize, totalItems),
     };
   }
 
-  async getMyAssessment(
-    tenantId: string,
-    assessmentId: string,
-    actor: JwtUser,
-  ) {
+  async getMyAssessment(tenantId: string, assessmentId: string, actor: JwtUser) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
@@ -945,7 +944,11 @@ export class AssessmentsService {
       !accessScope.academyCourseIds.length &&
       !accessScope.academySubjectIds.length
     ) {
-      throw new AppError(403, 'ASSESSMENT_ACCESS_DENIED', 'Student is not assigned to an active class');
+      throw new AppError(
+        403,
+        'ASSESSMENT_ACCESS_DENIED',
+        'Student is not assigned to an active class'
+      );
     }
 
     const assessment: any = await prisma.assessment.findFirst({
@@ -999,13 +1002,18 @@ export class AssessmentsService {
     assessmentId: string,
     input: StartAssessmentAttemptInput | undefined,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
     const assessment = await this.getAssessmentForStudent(tenantId, assessmentId);
     this.ensureStudentCanAccessAssessmentCourse(accessScope, assessment.course);
-    await this.ensureStudentPortalAccess(tenantId, assessment.id, assessment.portalAssignOnly, student.id);
+    await this.ensureStudentPortalAccess(
+      tenantId,
+      assessment.id,
+      assessment.portalAssignOnly,
+      student.id
+    );
     this.ensureAccessCode(assessment.accessCode, input?.accessCode);
     this.ensureAssessmentOpen(assessment.dueAt);
 
@@ -1021,14 +1029,22 @@ export class AssessmentsService {
       orderBy: [{ attemptNumber: 'desc' }],
     });
 
-    const inProgress = attempts.find((attempt) => attempt.status === AssessmentAttemptStatus.IN_PROGRESS);
+    const inProgress = attempts.find(
+      attempt => attempt.status === AssessmentAttemptStatus.IN_PROGRESS
+    );
     if (inProgress) {
       return this.mapAttemptForStudent(assessment, inProgress, false);
     }
 
-    const submittedCount = attempts.filter((attempt) => attempt.status === AssessmentAttemptStatus.SUBMITTED).length;
+    const submittedCount = attempts.filter(
+      attempt => attempt.status === AssessmentAttemptStatus.SUBMITTED
+    ).length;
     if (submittedCount >= assessment.maxAttempts) {
-      throw new AppError(409, 'ASSESSMENT_ATTEMPT_LIMIT_REACHED', 'No attempts remaining for this assessment');
+      throw new AppError(
+        409,
+        'ASSESSMENT_ATTEMPT_LIMIT_REACHED',
+        'No attempts remaining for this assessment'
+      );
     }
 
     const created: any = await prisma.assessmentAttempt.create({
@@ -1066,7 +1082,7 @@ export class AssessmentsService {
     tenantId: string,
     attemptId: string,
     input: SaveAttemptAnswersInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const attempt: any = await prisma.assessmentAttempt.findFirst({
       where: {
@@ -1083,14 +1099,18 @@ export class AssessmentsService {
     this.ensureCanAccessAttempt(attempt, actor);
 
     if (attempt.status === AssessmentAttemptStatus.SUBMITTED) {
-      throw new AppError(409, 'ASSESSMENT_ATTEMPT_SUBMITTED', 'Assessment attempt has already been submitted');
+      throw new AppError(
+        409,
+        'ASSESSMENT_ATTEMPT_SUBMITTED',
+        'Assessment attempt has already been submitted'
+      );
     }
 
     this.ensureAssessmentOpen(attempt.assessment.dueAt);
     this.ensureAttemptWithinTimeLimit(attempt.startedAt, attempt.assessment.timeLimitMinutes);
     this.validateAnswerSelection(attempt.assessment.questions, input.answers);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       for (const answer of input.answers) {
         await tx.assessmentAnswer.upsert({
           where: {
@@ -1137,7 +1157,7 @@ export class AssessmentsService {
     tenantId: string,
     attemptId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const attempt: any = await prisma.assessmentAttempt.findFirst({
       where: {
@@ -1154,14 +1174,18 @@ export class AssessmentsService {
     this.ensureCanAccessAttempt(attempt, actor);
 
     if (attempt.status === AssessmentAttemptStatus.SUBMITTED) {
-      throw new AppError(409, 'ASSESSMENT_ATTEMPT_SUBMITTED', 'Assessment attempt has already been submitted');
+      throw new AppError(
+        409,
+        'ASSESSMENT_ATTEMPT_SUBMITTED',
+        'Assessment attempt has already been submitted'
+      );
     }
 
     this.ensureAssessmentOpen(attempt.assessment.dueAt);
     this.ensureAttemptWithinTimeLimit(attempt.startedAt, attempt.assessment.timeLimitMinutes);
 
     const answerByQuestionId = new Map<string, any>(
-      attempt.answers.map((answer: any) => [answer.questionId, answer]),
+      attempt.answers.map((answer: any) => [answer.questionId, answer])
     );
     const grading = attempt.assessment.questions.map((question: any) => {
       if (isOpenEndedQuestionType(question.type)) {
@@ -1178,7 +1202,9 @@ export class AssessmentsService {
 
       const correctOption = question.options.find((option: any) => option.isCorrect);
       const answer = answerByQuestionId.get(question.id);
-      const isCorrect = Boolean(answer?.selectedOptionId && correctOption?.id === answer.selectedOptionId);
+      const isCorrect = Boolean(
+        answer?.selectedOptionId && correctOption?.id === answer.selectedOptionId
+      );
 
       return {
         questionId: question.id,
@@ -1191,11 +1217,14 @@ export class AssessmentsService {
 
     const maxScore = attempt.assessment.questions.reduce(
       (sum: number, question: any) => sum + question.points,
-      0,
+      0
     );
-    const autoScore = grading.reduce((sum: number, answer: any) => sum + (answer.pointsAwarded ?? 0), 0);
+    const autoScore = grading.reduce(
+      (sum: number, answer: any) => sum + (answer.pointsAwarded ?? 0),
+      0
+    );
 
-    const submitted: any = await prisma.$transaction(async (tx) => {
+    const submitted: any = await prisma.$transaction(async tx => {
       for (const answer of grading) {
         await tx.assessmentAnswer.upsert({
           where: {
@@ -1323,7 +1352,7 @@ export class AssessmentsService {
     return this.mapAttemptForStudent(
       attempt.assessment,
       attempt,
-      attempt.status === AssessmentAttemptStatus.SUBMITTED,
+      attempt.status === AssessmentAttemptStatus.SUBMITTED
     );
   }
 
@@ -1332,7 +1361,7 @@ export class AssessmentsService {
     attemptId: string,
     input: RegradeAttemptInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const attempt: any = await prisma.assessmentAttempt.findFirst({
       where: {
@@ -1349,25 +1378,33 @@ export class AssessmentsService {
     this.ensureCanManageCourse(attempt.assessment.course.teacherUserId, actor);
 
     if (attempt.status !== AssessmentAttemptStatus.SUBMITTED) {
-      throw new AppError(409, 'ASSESSMENT_ATTEMPT_NOT_SUBMITTED', 'Only submitted attempts can be regraded');
+      throw new AppError(
+        409,
+        'ASSESSMENT_ATTEMPT_NOT_SUBMITTED',
+        'Only submitted attempts can be regraded'
+      );
     }
 
     const questionById = new Map<string, any>(
-      attempt.assessment.questions.map((question: any) => [question.id, question]),
+      attempt.assessment.questions.map((question: any) => [question.id, question])
     );
     const overrideByQuestionId = new Map<string, number>();
 
     for (const answer of input.answers) {
       const question = questionById.get(answer.questionId);
       if (!question) {
-        throw new AppError(400, 'ASSESSMENT_QUESTION_INVALID', 'Question does not belong to this assessment');
+        throw new AppError(
+          400,
+          'ASSESSMENT_QUESTION_INVALID',
+          'Question does not belong to this assessment'
+        );
       }
 
       if (answer.pointsAwarded > question.points) {
         throw new AppError(
           400,
           'ASSESSMENT_MANUAL_POINTS_INVALID',
-          `Points for question ${question.sequence} cannot exceed ${question.points}`,
+          `Points for question ${question.sequence} cannot exceed ${question.points}`
         );
       }
 
@@ -1385,7 +1422,7 @@ export class AssessmentsService {
       return sum + awarded;
     }, 0);
 
-    const regraded: any = await prisma.$transaction(async (tx) => {
+    const regraded: any = await prisma.$transaction(async tx => {
       for (const [questionId, pointsAwarded] of overrideByQuestionId.entries()) {
         await tx.assessmentAnswer.upsert({
           where: {
@@ -1495,9 +1532,12 @@ export class AssessmentsService {
     }
 
     const percentage = Math.max(0, Math.min(100, Math.round((score / maxScore) * 100)));
-    const examName = `Quiz: ${String(attempt.assessment?.title ?? 'Assessment').trim()}`.slice(0, 120);
+    const examName = `Quiz: ${String(attempt.assessment?.title ?? 'Assessment').trim()}`.slice(
+      0,
+      120
+    );
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       const exam = await tx.exam.upsert({
         where: {
           tenantId_termId_classRoomId_subjectId_name: {
@@ -1945,7 +1985,11 @@ export class AssessmentsService {
     });
 
     if (!student) {
-      throw new AppError(403, 'STUDENT_PROFILE_NOT_FOUND', 'Student profile not found for current user');
+      throw new AppError(
+        403,
+        'STUDENT_PROFILE_NOT_FOUND',
+        'Student profile not found for current user'
+      );
     }
 
     return student;
@@ -1954,9 +1998,9 @@ export class AssessmentsService {
   private async getStudentAssessmentAccessScope(
     tenantId: string,
     userId: string,
-    student: Awaited<ReturnType<AssessmentsService['getStudentProfile']>>,
+    student: Awaited<ReturnType<AssessmentsService['getStudentProfile']>>
   ) {
-    const enrollmentPairs = student.enrollments.map((enrollment) => ({
+    const enrollmentPairs = student.enrollments.map(enrollment => ({
       classRoomId: enrollment.classRoomId,
       academicYearId: enrollment.academicYearId,
     }));
@@ -1982,13 +2026,13 @@ export class AssessmentsService {
     });
 
     const academyCourseIds = programEnrollments
-      .map((item) => item.program.courseId)
+      .map(item => item.program.courseId)
       .filter((id): id is string => Boolean(id));
     const academySubjectIds = [
       ...new Set(
         programEnrollments
-          .map((item) => item.program.course?.subjectId)
-          .filter((id): id is string => Boolean(id)),
+          .map(item => item.program.course?.subjectId)
+          .filter((id): id is string => Boolean(id))
       ),
     ];
 
@@ -2005,18 +2049,18 @@ export class AssessmentsService {
       enrollmentPairs: Array<{ classRoomId: string; academicYearId: string }>;
       academyCourseIds: string[];
       academySubjectIds: string[];
-    },
+    }
   ): Prisma.AssessmentWhereInput[] {
     const filters: Prisma.AssessmentWhereInput[] = [];
 
     if (accessScope.enrollmentPairs.length) {
       filters.push(
-        ...accessScope.enrollmentPairs.map((pair) => ({
+        ...accessScope.enrollmentPairs.map(pair => ({
           course: {
             classRoomId: pair.classRoomId,
             academicYearId: pair.academicYearId,
           },
-        })),
+        }))
       );
     }
 
@@ -2055,12 +2099,12 @@ export class AssessmentsService {
       subject?: {
         id: string;
       } | null;
-    },
+    }
   ) {
     const assigned = accessScope.enrollmentPairs.some(
-      (enrollment) =>
+      enrollment =>
         enrollment.classRoomId === course.classRoomId &&
-        enrollment.academicYearId === course.academicYearId,
+        enrollment.academicYearId === course.academicYearId
     );
 
     const academyCourseAccess = accessScope.academyCourseIds.includes(course.id);
@@ -2076,7 +2120,7 @@ export class AssessmentsService {
     tenantId: string,
     assessmentId: string,
     portalAssignOnly: boolean,
-    studentId: string,
+    studentId: string
   ) {
     if (!portalAssignOnly) {
       return;
@@ -2119,7 +2163,11 @@ export class AssessmentsService {
 
     const expiresAt = startedAt.getTime() + timeLimitMinutes * 60_000;
     if (Date.now() > expiresAt) {
-      throw new AppError(400, 'ASSESSMENT_TIME_LIMIT_EXCEEDED', 'Assessment time limit has been exceeded');
+      throw new AppError(
+        400,
+        'ASSESSMENT_TIME_LIMIT_EXCEEDED',
+        'Assessment time limit has been exceeded'
+      );
     }
   }
 
@@ -2130,14 +2178,18 @@ export class AssessmentsService {
     };
   }) {
     if (assessment.isPublished) {
-      throw new AppError(409, 'ASSESSMENT_ALREADY_PUBLISHED', 'Unpublish the assessment before editing questions');
+      throw new AppError(
+        409,
+        'ASSESSMENT_ALREADY_PUBLISHED',
+        'Unpublish the assessment before editing questions'
+      );
     }
 
     if (assessment._count.attempts > 0) {
       throw new AppError(
         409,
         'ASSESSMENT_ALREADY_HAS_ATTEMPTS',
-        'Questions are locked after students start attempting this assessment',
+        'Questions are locked after students start attempting this assessment'
       );
     }
   }
@@ -2151,38 +2203,51 @@ export class AssessmentsService {
         questionId: string;
       }>;
     }>,
-    answers: SaveAttemptAnswersInput['answers'],
+    answers: SaveAttemptAnswersInput['answers']
   ) {
-    const questionById = new Map(questions.map((question) => [question.id, question]));
+    const questionById = new Map(questions.map(question => [question.id, question]));
 
     for (const answer of answers) {
       const question = questionById.get(answer.questionId);
       if (!question) {
-        throw new AppError(400, 'ASSESSMENT_QUESTION_INVALID', 'Question does not belong to this assessment');
+        throw new AppError(
+          400,
+          'ASSESSMENT_QUESTION_INVALID',
+          'Question does not belong to this assessment'
+        );
       }
 
       if (question.type === AssessmentQuestionType.MCQ_SINGLE && answer.textResponse?.trim()) {
-        throw new AppError(400, 'ASSESSMENT_TEXT_RESPONSE_INVALID', 'MCQ questions do not accept text answers');
+        throw new AppError(
+          400,
+          'ASSESSMENT_TEXT_RESPONSE_INVALID',
+          'MCQ questions do not accept text answers'
+        );
       }
 
       if (isOpenEndedQuestionType(question.type) && answer.selectedOptionId) {
-        throw new AppError(400, 'ASSESSMENT_OPTION_INVALID', 'Written-response questions do not accept selected options');
+        throw new AppError(
+          400,
+          'ASSESSMENT_OPTION_INVALID',
+          'Written-response questions do not accept selected options'
+        );
       }
 
       if (
         question.type === AssessmentQuestionType.MCQ_SINGLE &&
         answer.selectedOptionId &&
-        !question.options.some((option) => option.id === answer.selectedOptionId)
+        !question.options.some(option => option.id === answer.selectedOptionId)
       ) {
-        throw new AppError(400, 'ASSESSMENT_OPTION_INVALID', 'Selected option does not belong to this question');
+        throw new AppError(
+          400,
+          'ASSESSMENT_OPTION_INVALID',
+          'Selected option does not belong to this question'
+        );
       }
     }
   }
 
-  private ensureCanAccessAttempt(
-    attempt: any,
-    actor: JwtUser,
-  ) {
+  private ensureCanAccessAttempt(attempt: any, actor: JwtUser) {
     if (this.isAdmin(actor)) {
       return;
     }
@@ -2198,7 +2263,11 @@ export class AssessmentsService {
       return;
     }
 
-    throw new AppError(403, 'ASSESSMENT_ATTEMPT_FORBIDDEN', 'You cannot access this assessment attempt');
+    throw new AppError(
+      403,
+      'ASSESSMENT_ATTEMPT_FORBIDDEN',
+      'You cannot access this assessment attempt'
+    );
   }
 
   private isTeacherOnly(actor: JwtUser) {
@@ -2235,10 +2304,7 @@ export class AssessmentsService {
     };
   }
 
-  private mapAssessmentSummary(
-    assessment: any,
-    options?: { forStudent?: boolean },
-  ) {
+  private mapAssessmentSummary(assessment: any, options?: { forStudent?: boolean }) {
     const assignedStudentCount = assessment._count?.studentAssignments ?? 0;
     const common = {
       id: assessment.id,
@@ -2281,9 +2347,7 @@ export class AssessmentsService {
     };
   }
 
-  private mapQuestionForTeacher(
-    question: any,
-  ) {
+  private mapQuestionForTeacher(question: any) {
     return {
       id: question.id,
       prompt: question.prompt,
@@ -2322,31 +2386,29 @@ export class AssessmentsService {
     };
   }
 
-  private mapAttemptSummary(
-    attempt: {
+  private mapAttemptSummary(attempt: {
+    id: string;
+    attemptNumber: number;
+    status: AssessmentAttemptStatus;
+    startedAt: Date;
+    submittedAt: Date | null;
+    autoScore: number | null;
+    manualScore?: number | null;
+    maxScore: number | null;
+    manualFeedback?: string | null;
+    manuallyGradedAt?: Date | null;
+    manuallyGradedByUser?: {
       id: string;
-      attemptNumber: number;
-      status: AssessmentAttemptStatus;
-      startedAt: Date;
-      submittedAt: Date | null;
-      autoScore: number | null;
-      manualScore?: number | null;
-      maxScore: number | null;
-      manualFeedback?: string | null;
-      manuallyGradedAt?: Date | null;
-      manuallyGradedByUser?: {
-        id: string;
-        firstName: string;
-        lastName: string;
-      } | null;
-      student?: {
-        id: string;
-        studentCode: string;
-        firstName: string;
-        lastName: string;
-      };
-    },
-  ) {
+      firstName: string;
+      lastName: string;
+    } | null;
+    student?: {
+      id: string;
+      studentCode: string;
+      firstName: string;
+      lastName: string;
+    };
+  }) {
     return {
       id: attempt.id,
       attemptNumber: attempt.attemptNumber,
@@ -2364,13 +2426,9 @@ export class AssessmentsService {
     };
   }
 
-  private mapAttemptForStudent(
-    assessment: any,
-    attempt: any,
-    includeCorrectness: boolean,
-  ) {
+  private mapAttemptForStudent(assessment: any, attempt: any, includeCorrectness: boolean) {
     const answerByQuestionId = new Map<string, any>(
-      attempt.answers.map((answer: any) => [answer.questionId, answer]),
+      attempt.answers.map((answer: any) => [answer.questionId, answer])
     );
 
     return {
@@ -2449,10 +2507,7 @@ export class AssessmentsService {
     };
   }
 
-  private getAttemptScore(attempt: {
-    autoScore: number | null;
-    manualScore?: number | null;
-  }) {
+  private getAttemptScore(attempt: { autoScore: number | null; manualScore?: number | null }) {
     return attempt.manualScore ?? attempt.autoScore ?? 0;
   }
 }

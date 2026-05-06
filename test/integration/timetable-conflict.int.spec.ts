@@ -119,7 +119,7 @@ describe('Timetable Teacher Conflict Validation', () => {
         startTime: '08:00',
         endTime: '08:45',
       },
-      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
+      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
     );
     expect(slot).toBeDefined();
   });
@@ -138,14 +138,14 @@ describe('Timetable Teacher Conflict Validation', () => {
           startTime: '08:00',
           endTime: '08:45',
         },
-        { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
-      ),
+        { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
+      )
     ).rejects.toThrow(
       new AppError(
         400,
         'TEACHER_TIMETABLE_CONFLICT',
-        'Teacher John Doe is already assigned to Math Class A in class Class A (A) during this period on day 1.',
-      ),
+        'Teacher John Doe is already assigned to Math Class A in class Class A (A) during this period on day 1.'
+      )
     );
   });
 
@@ -162,7 +162,7 @@ describe('Timetable Teacher Conflict Validation', () => {
         startTime: '08:45',
         endTime: '09:30',
       },
-      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
+      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
     );
     expect(slot).toBeDefined();
   });

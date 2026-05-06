@@ -1,8 +1,4 @@
-import {
-  ConductIncidentStatus,
-  ConductSeverity,
-  Prisma,
-} from '@prisma/client';
+import { ConductIncidentStatus, ConductSeverity, Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser } from '../../common/types/auth.types';
@@ -50,7 +46,7 @@ export class ReportsOpsService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    return rows.map((r) => r.classRoomId);
+    return rows.map(r => r.classRoomId);
   }
 
   /** Teacher workload + allocation from courses and timetable slots. */
@@ -96,9 +92,7 @@ export class ReportsOpsService {
       tenantId,
       academicYearId: query.academicYearId,
       ...(query.termId ? { termId: query.termId } : {}),
-      ...(this.isTeacherOnly(actor)
-        ? { course: { teacherUserId: actor.sub } }
-        : {}),
+      ...(this.isTeacherOnly(actor) ? { course: { teacherUserId: actor.sub } } : {}),
     };
 
     const slots = await prisma.timetableSlot.findMany({
@@ -150,10 +144,10 @@ export class ReportsOpsService {
       byTeacher.get(tid)!.courseRows.push(c);
     }
 
-    const teachers = Array.from(byTeacher.values()).map((entry) => {
-      const classIds = new Set(entry.courseRows.map((r) => r.classRoomId));
+    const teachers = Array.from(byTeacher.values()).map(entry => {
+      const classIds = new Set(entry.courseRows.map(r => r.classRoomId));
       const subjectIds = new Set(
-        entry.courseRows.map((r) => r.subjectId).filter((id): id is string => Boolean(id)),
+        entry.courseRows.map(r => r.subjectId).filter((id): id is string => Boolean(id))
       );
       const tid = entry.teacher.id;
       return {
@@ -169,8 +163,7 @@ export class ReportsOpsService {
         timetableSlotsCount: slotCountByTeacher.get(tid) ?? 0,
         weeklyTeachingMinutes: minutesByTeacher.get(tid) ?? 0,
         weeklyTeachingHours: Number(((minutesByTeacher.get(tid) ?? 0) / 60).toFixed(2)),
-        note:
-          'Weekly minutes sum durations of all timetable slots for this teacher in the selected year/term. One row per class period.',
+        note: 'Weekly minutes sum durations of all timetable slots for this teacher in the selected year/term. One row per class period.',
       };
     });
 
@@ -208,12 +201,16 @@ export class ReportsOpsService {
         classRoom: { select: { id: true, code: true, name: true } },
         subject: { select: { id: true, code: true, name: true } },
       },
-      orderBy: [{ teacherUser: { lastName: 'asc' } }, { classRoom: { code: 'asc' } }, { title: 'asc' }],
+      orderBy: [
+        { teacherUser: { lastName: 'asc' } },
+        { classRoom: { code: 'asc' } },
+        { title: 'asc' },
+      ],
     });
 
     return {
       academicYear: year,
-      rows: courses.map((c) => ({
+      rows: courses.map(c => ({
         courseId: c.id,
         courseTitle: c.title,
         teacher: {
@@ -244,7 +241,7 @@ export class ReportsOpsService {
       select: { teacherUserId: true },
       distinct: ['teacherUserId'],
     });
-    const allowedIds = new Set(teacherIds.map((t) => t.teacherUserId));
+    const allowedIds = new Set(teacherIds.map(t => t.teacherUserId));
 
     if (this.isTeacherOnly(actor)) {
       allowedIds.clear();
@@ -252,8 +249,7 @@ export class ReportsOpsService {
     }
 
     const isSuper = actor.roles.includes('SUPER_ADMIN');
-    const canAttendance =
-      isSuper || actor.permissions.includes(PERMISSIONS.ATTENDANCE_READ);
+    const canAttendance = isSuper || actor.permissions.includes(PERMISSIONS.ATTENDANCE_READ);
     const canExams = isSuper || actor.permissions.includes(PERMISSIONS.EXAMS_READ);
 
     const attGroups = canAttendance
@@ -284,12 +280,12 @@ export class ReportsOpsService {
       where: { tenantId, id: { in: Array.from(allowedIds) } },
       select: { id: true, firstName: true, lastName: true },
     });
-    const userMap = new Map(users.map((u) => [u.id, u]));
+    const userMap = new Map(users.map(u => [u.id, u]));
 
-    const attMap = new Map(attGroups.map((g) => [g.markedByUserId, g._count._all]));
-    const markMap = new Map(markGroups.map((g) => [g.updatedByUserId, g._count._all]));
+    const attMap = new Map(attGroups.map(g => [g.markedByUserId, g._count._all]));
+    const markMap = new Map(markGroups.map(g => [g.updatedByUserId, g._count._all]));
 
-    const rows = Array.from(allowedIds).map((id) => {
+    const rows = Array.from(allowedIds).map(id => {
       const u = userMap.get(id);
       return {
         userId: id,
@@ -319,9 +315,7 @@ export class ReportsOpsService {
       teacherUserId: query.teacherUserId,
     });
     const { slots } = await this.timetableService.listSlots(tenantId, inner, actor);
-    const filtered = query.dayOfWeek
-      ? slots.filter((s) => s.dayOfWeek === query.dayOfWeek)
-      : slots;
+    const filtered = query.dayOfWeek ? slots.filter(s => s.dayOfWeek === query.dayOfWeek) : slots;
 
     return {
       source: 'timetable_slots',
@@ -331,7 +325,11 @@ export class ReportsOpsService {
     };
   }
 
-  async conductSchoolSummary(tenantId: string, query: ConductSchoolReportQueryInput, actor: JwtUser) {
+  async conductSchoolSummary(
+    tenantId: string,
+    query: ConductSchoolReportQueryInput,
+    actor: JwtUser
+  ) {
     const { fromDate, toDate } = rangeToUtcBounds(query.from, query.to);
     if (fromDate > toDate) {
       throw new AppError(400, 'REPORTS_RANGE_INVALID', 'from must be on or before to');
@@ -384,9 +382,9 @@ export class ReportsOpsService {
     return {
       range: { from: query.from, to: query.to },
       totalIncidents: total,
-      byStatus: byStatus.map((r) => ({ status: r.status, count: r._count._all })),
-      bySeverity: bySeverity.map((r) => ({ severity: r.severity, count: r._count._all })),
-      topCategories: topCategories.map((r) => ({ category: r.category, count: r._count._all })),
+      byStatus: byStatus.map(r => ({ status: r.status, count: r._count._all })),
+      bySeverity: bySeverity.map(r => ({ severity: r.severity, count: r._count._all })),
+      topCategories: topCategories.map(r => ({ category: r.category, count: r._count._all })),
     };
   }
 
@@ -426,15 +424,15 @@ export class ReportsOpsService {
       _count: { _all: true },
     });
 
-    const classIds = groups.map((g) => g.classRoomId).filter((id): id is string => id != null);
+    const classIds = groups.map(g => g.classRoomId).filter((id): id is string => id != null);
     const rooms = await prisma.classRoom.findMany({
       where: { tenantId, id: { in: classIds } },
       select: { id: true, code: true, name: true },
     });
-    const roomMap = new Map(rooms.map((r) => [r.id, r]));
+    const roomMap = new Map(rooms.map(r => [r.id, r]));
 
     const rows = groups
-      .map((g) => {
+      .map(g => {
         const cr = g.classRoomId ? roomMap.get(g.classRoomId) : null;
         return {
           classRoom: cr ?? { id: g.classRoomId, code: '', name: '' },
@@ -453,7 +451,7 @@ export class ReportsOpsService {
     tenantId: string,
     studentId: string,
     query: ConductStudentReportQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const student = await prisma.student.findFirst({
       where: { id: studentId, tenantId, deletedAt: null },

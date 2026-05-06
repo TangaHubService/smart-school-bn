@@ -24,50 +24,50 @@ conductRoutes.post(
   '/conduct/incidents',
   requirePermissions([PERMISSIONS.CONDUCT_MANAGE]),
   validateBody(createConductIncidentSchema),
-  asyncHandler((req, res) => conductController.createIncident(req, res)),
+  asyncHandler((req, res) => conductController.createIncident(req, res))
 );
 
 conductRoutes.get(
   '/conduct/incidents',
   requirePermissions([PERMISSIONS.CONDUCT_READ]),
-  asyncHandler((req, res) => conductController.listIncidents(req, res)),
+  asyncHandler((req, res) => conductController.listIncidents(req, res))
 );
 
 conductRoutes.get(
   '/conduct/incidents/:id',
   requirePermissions([PERMISSIONS.CONDUCT_READ]),
-  asyncHandler((req, res) => conductController.getIncidentDetail(req, res)),
+  asyncHandler((req, res) => conductController.getIncidentDetail(req, res))
 );
 
 conductRoutes.patch(
   '/conduct/incidents/:id',
   requirePermissions([PERMISSIONS.CONDUCT_MANAGE]),
   validateBody(updateConductIncidentSchema),
-  asyncHandler((req, res) => conductController.updateIncident(req, res)),
+  asyncHandler((req, res) => conductController.updateIncident(req, res))
 );
 
 conductRoutes.post(
   '/conduct/incidents/:id/actions',
   requirePermissions([PERMISSIONS.CONDUCT_MANAGE]),
   validateBody(addConductActionSchema),
-  asyncHandler((req, res) => conductController.addAction(req, res)),
+  asyncHandler((req, res) => conductController.addAction(req, res))
 );
 
 conductRoutes.post(
   '/conduct/incidents/:id/resolve',
   requirePermissions([PERMISSIONS.CONDUCT_RESOLVE]),
   validateBody(resolveConductIncidentSchema),
-  asyncHandler((req, res) => conductController.resolveIncident(req, res)),
+  asyncHandler((req, res) => conductController.resolveIncident(req, res))
 );
 
 conductRoutes.get(
   '/conduct/me',
   requirePermissions([PERMISSIONS.CONDUCT_MY_READ]),
-  asyncHandler((req, res) => conductController.getMyConductProfile(req, res)),
+  asyncHandler((req, res) => conductController.getMyConductProfile(req, res))
 );
 
 conductRoutes.get(
   '/conduct/students/:studentId/profile',
   requirePermissions([PERMISSIONS.CONDUCT_READ]),
-  asyncHandler((req, res) => conductController.getStudentConductProfile(req, res)),
+  asyncHandler((req, res) => conductController.getStudentConductProfile(req, res))
 );

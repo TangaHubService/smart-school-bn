@@ -7,16 +7,8 @@ import { SignUploadInput } from './files.schemas';
 
 export class FilesService {
   async createSignedUpload(tenantId: string, input: SignUploadInput) {
-    if (
-      !env.CLOUDINARY_CLOUD_NAME ||
-      !env.CLOUDINARY_API_KEY ||
-      !env.CLOUDINARY_API_SECRET
-    ) {
-      throw new AppError(
-        500,
-        'CLOUDINARY_NOT_CONFIGURED',
-        'Cloudinary upload is not configured',
-      );
+    if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
+      throw new AppError(500, 'CLOUDINARY_NOT_CONFIGURED', 'Cloudinary upload is not configured');
     }
 
     const tenant = await prisma.tenant.findUnique({
@@ -39,7 +31,7 @@ export class FilesService {
         folder,
         timestamp,
       },
-      env.CLOUDINARY_API_SECRET,
+      env.CLOUDINARY_API_SECRET
     );
 
     return {
@@ -52,4 +44,3 @@ export class FilesService {
     };
   }
 }
-

@@ -1,8 +1,4 @@
-import {
-  FileAssetResourceType,
-  LessonContentType,
-  SubmissionStatus,
-} from '@prisma/client';
+import { FileAssetResourceType, LessonContentType, SubmissionStatus } from '@prisma/client';
 import { z } from 'zod';
 
 function htmlToPlainText(value: string | undefined) {
@@ -107,11 +103,7 @@ export const createLessonSchema = z
       });
     }
 
-    if (
-      value.contentType === LessonContentType.VIDEO &&
-      !value.externalUrl &&
-      !value.asset
-    ) {
+    if (value.contentType === LessonContentType.VIDEO && !value.externalUrl && !value.asset) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['externalUrl'],
@@ -154,7 +146,7 @@ export const createAssignmentSchema = z
     instructions: z
       .string()
       .max(40_000)
-      .refine((value) => htmlToPlainText(value).length >= 2, 'Instructions are required'),
+      .refine(value => htmlToPlainText(value).length >= 2, 'Instructions are required'),
     dueAt: z.string().datetime().optional(),
     maxPoints: z.number().int().min(1).max(1000).default(100),
     isPublished: z.boolean().default(true),
@@ -230,7 +222,10 @@ export const updateAcademyProgramSchema = z
   .object({
     title: z.string().trim().min(2).max(120).optional(),
     description: z.string().trim().max(2000).nullable().optional(),
-    thumbnail: z.union([z.string().trim().url().max(2000), z.literal('')]).nullable().optional(),
+    thumbnail: z
+      .union([z.string().trim().url().max(2000), z.literal('')])
+      .nullable()
+      .optional(),
     price: z.coerce.number().positive().max(1_000_000_000).optional(),
     durationDays: z.coerce.number().int().min(1).max(3650).optional(),
     isActive: z.boolean().optional(),

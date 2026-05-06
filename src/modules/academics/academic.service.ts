@@ -26,12 +26,12 @@ export class AcademicsService {
     tenantId: string,
     input: CreateAcademicYearInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureStartBeforeEnd(input.startDate, input.endDate, 'Academic year');
 
     try {
-      const created = await prisma.$transaction(async (tx) => {
+      const created = await prisma.$transaction(async tx => {
         if (input.isCurrent) {
           await tx.academicYear.updateMany({
             where: { tenantId, isCurrent: true },
@@ -76,11 +76,7 @@ export class AcademicsService {
     });
   }
 
-  async updateAcademicYear(
-    tenantId: string,
-    id: string,
-    input: UpdateAcademicYearInput,
-  ) {
+  async updateAcademicYear(tenantId: string, id: string, input: UpdateAcademicYearInput) {
     const existing = await prisma.academicYear.findFirst({
       where: { id, tenantId, isActive: true },
     });
@@ -92,7 +88,7 @@ export class AcademicsService {
     const endDate = input.endDate ?? existing.endDate.toISOString();
     this.ensureStartBeforeEnd(startDate, endDate, 'Academic year');
 
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async tx => {
       if (input.isCurrent) {
         await tx.academicYear.updateMany({
           where: { tenantId, isCurrent: true, NOT: { id } },
@@ -114,7 +110,7 @@ export class AcademicsService {
   }
 
   async deleteAcademicYear(tenantId: string, id: string) {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async tx => {
       const yearResult = await tx.academicYear.updateMany({
         where: { id, tenantId, isActive: true },
         data: {
@@ -146,7 +142,7 @@ export class AcademicsService {
     tenantId: string,
     input: CreateTermInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     this.ensureStartBeforeEnd(input.startDate, input.endDate, 'Term');
 
@@ -169,7 +165,7 @@ export class AcademicsService {
       throw new AppError(
         400,
         'TERM_OUTSIDE_ACADEMIC_YEAR',
-        'Term dates must be within the academic year date range',
+        'Term dates must be within the academic year date range'
       );
     }
 
@@ -236,7 +232,7 @@ export class AcademicsService {
       throw new AppError(
         400,
         'TERM_OUTSIDE_ACADEMIC_YEAR',
-        'Term dates must be within the academic year date range',
+        'Term dates must be within the academic year date range'
       );
     }
 
@@ -268,7 +264,7 @@ export class AcademicsService {
     tenantId: string,
     input: CreateGradeLevelInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     try {
       const created = await prisma.gradeLevel.create({
@@ -320,7 +316,7 @@ export class AcademicsService {
   }
 
   async deleteGradeLevel(tenantId: string, id: string) {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async tx => {
       const gradeResult = await tx.gradeLevel.updateMany({
         where: { id, tenantId, isActive: true },
         data: { isActive: false },
@@ -349,7 +345,7 @@ export class AcademicsService {
     tenantId: string,
     input: CreateClassRoomInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const gradeLevel = await prisma.gradeLevel.findFirst({
       where: { id: input.gradeLevelId, tenantId, isActive: true },
@@ -446,7 +442,7 @@ export class AcademicsService {
     tenantId: string,
     input: CreateSubjectInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     try {
       const created = await prisma.subject.create({
@@ -521,16 +517,13 @@ export class AcademicsService {
       throw new AppError(
         400,
         `${label.toUpperCase().replace(/\s+/g, '_')}_INVALID_DATES`,
-        `${label} startDate must be earlier than endDate`,
+        `${label} startDate must be earlier than endDate`
       );
     }
   }
 
   private handleUniqueError(error: unknown, message: string): never | void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message, error.meta);
     }
   }

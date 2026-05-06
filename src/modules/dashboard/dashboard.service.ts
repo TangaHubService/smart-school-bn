@@ -100,7 +100,7 @@ export class DashboardService {
    */
   private buildSuperAdminUserWhere(
     tenantsWhere: Prisma.TenantWhereInput,
-    filters?: { school?: string },
+    filters?: { school?: string }
   ): Prisma.UserWhereInput {
     const specificSchool = filters?.school && filters.school !== 'all-schools';
 
@@ -116,7 +116,7 @@ export class DashboardService {
 
   private buildSuperAdminTenantsWhere(
     filters?: { status?: string; region?: string; school?: string },
-    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district',
+    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district'
   ): Prisma.TenantWhereInput {
     const statusFilter = filters?.status;
     const regionFilter = filters?.region;
@@ -148,7 +148,13 @@ export class DashboardService {
 
   async getSuperAdminDashboard(
     _actor: JwtUser,
-    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
+    filters?: {
+      status?: string;
+      region?: string;
+      academicYear?: string;
+      term?: string;
+      school?: string;
+    }
   ): Promise<SuperAdminDashboardData> {
     for (const regionStrategy of ['province-or-district', 'district-only'] as const) {
       try {
@@ -166,8 +172,14 @@ export class DashboardService {
   }
 
   private async computeSuperAdminDashboard(
-    filters?: { status?: string; region?: string; academicYear?: string; term?: string; school?: string },
-    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district',
+    filters?: {
+      status?: string;
+      region?: string;
+      academicYear?: string;
+      term?: string;
+      school?: string;
+    },
+    regionStrategy: 'province-or-district' | 'district-only' = 'province-or-district'
   ): Promise<SuperAdminDashboardData> {
     const tenantsWhere = this.buildSuperAdminTenantsWhere(filters, regionStrategy);
 
@@ -319,7 +331,7 @@ export class DashboardService {
         subjects: subjectsCount,
         activeAccounts: activeAccountsCount,
       },
-      upcomingExams: exams.slice(0, 3).map((exam) => {
+      upcomingExams: exams.slice(0, 3).map(exam => {
         const examDate = exam.examDate ?? exam.createdAt;
         return {
           id: exam.id,
@@ -358,7 +370,7 @@ export class DashboardService {
 
   private buildSuperAdminAnalyticsSeries(
     kind: 'weekly' | 'monthly',
-    totals: { logins: number; courses: number; exams: number },
+    totals: { logins: number; courses: number; exams: number }
   ): Array<{ label: string; logins: number; courses: number; exams: number }> {
     const points = kind === 'weekly' ? 7 : 12;
     const labels =
@@ -419,27 +431,27 @@ export class DashboardService {
 
     const regions = Array.from(
       new Set(
-        tenants.flatMap((t) => {
+        tenants.flatMap(t => {
           const s = t.school;
           if (!s) return [];
           return [s.province, s.district].filter((v): v is string => Boolean(v));
-        }),
-      ),
+        })
+      )
     ).sort();
 
     return {
-      schools: tenants.map((t) => ({
+      schools: tenants.map(t => ({
         id: t.id,
         name: t.school?.displayName ?? t.name,
         province: t.school?.province ?? t.school?.district ?? null,
         isActive: t.isActive,
       })),
       regions,
-      academicYears: academicYears.map((ay) => ({
+      academicYears: academicYears.map(ay => ({
         id: ay.id,
         name: ay.name,
       })),
-      terms: terms.map((term) => ({
+      terms: terms.map(term => ({
         id: term.id,
         name: term.name,
         sequence: term.sequence,
@@ -476,26 +488,22 @@ export class DashboardService {
     ]);
 
     const regions = Array.from(
-      new Set(
-        tenants
-          .map((t) => t.school?.district)
-          .filter((v): v is string => Boolean(v)),
-      ),
+      new Set(tenants.map(t => t.school?.district).filter((v): v is string => Boolean(v)))
     ).sort();
 
     return {
-      schools: tenants.map((t) => ({
+      schools: tenants.map(t => ({
         id: t.id,
         name: t.school?.displayName ?? t.name,
         province: null,
         isActive: t.isActive,
       })),
       regions,
-      academicYears: academicYears.map((ay) => ({
+      academicYears: academicYears.map(ay => ({
         id: ay.id,
         name: ay.name,
       })),
-      terms: terms.map((term) => ({
+      terms: terms.map(term => ({
         id: term.id,
         name: term.name,
         sequence: term.sequence,
@@ -511,7 +519,11 @@ export class DashboardService {
       select: { code: true },
     });
     if (!tenant || tenant.code === 'platform') {
-      throw new AppError(403, 'TENANT_NOT_SCHOOL', 'School admin dashboard is not available for platform accounts');
+      throw new AppError(
+        403,
+        'TENANT_NOT_SCHOOL',
+        'School admin dashboard is not available for platform accounts'
+      );
     }
 
     const weekAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
@@ -626,7 +638,7 @@ export class DashboardService {
         parentsChange: 0,
         activeAccounts,
       },
-      upcomingExams: exams.slice(0, 3).map((exam) => {
+      upcomingExams: exams.slice(0, 3).map(exam => {
         const examDate = exam.examDate ?? exam.createdAt;
         return {
           id: exam.id,
@@ -661,7 +673,11 @@ export class DashboardService {
         },
       ],
       systemAnalytics: {
-        weekly: this.getSchoolAnalyticsWeekly(attendanceSessionsThisWeek, submissionsCount, attendanceDelta),
+        weekly: this.getSchoolAnalyticsWeekly(
+          attendanceSessionsThisWeek,
+          submissionsCount,
+          attendanceDelta
+        ),
         monthly: this.getSchoolAnalyticsMonthly(attendanceSessionsThisWeek, submissionsCount),
       },
     };
@@ -670,21 +686,21 @@ export class DashboardService {
   private getSchoolAnalyticsWeekly(
     attendanceSessions: number,
     submissions: number,
-    attendanceDelta: number,
+    attendanceDelta: number
   ) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return days.map((label, i) => ({
       label,
       logins: 55 + ((attendanceSessions + i * 3) % 40),
-      attendance: Math.max(0, Math.floor(attendanceSessions / 7) + (i % 4) + (attendanceDelta >= 0 ? 0 : -1)),
+      attendance: Math.max(
+        0,
+        Math.floor(attendanceSessions / 7) + (i % 4) + (attendanceDelta >= 0 ? 0 : -1)
+      ),
       assignments: Math.max(0, Math.floor(submissions / 14) + (i % 5)),
     }));
   }
 
-  private getSchoolAnalyticsMonthly(
-    attendanceSessions: number,
-    submissions: number,
-  ) {
+  private getSchoolAnalyticsMonthly(attendanceSessions: number, submissions: number) {
     const labels = ['W1', 'W2', 'W3', 'W4'];
     return labels.map((label, i) => ({
       label,
@@ -748,9 +764,7 @@ export class DashboardService {
       select: { id: true },
     });
 
-    const enrollmentScope = currentYear
-      ? { academicYearId: currentYear.id }
-      : {};
+    const enrollmentScope = currentYear ? { academicYearId: currentYear.id } : {};
 
     const classRows = await prisma.studentEnrollment.findMany({
       where: {
@@ -762,7 +776,7 @@ export class DashboardService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    const classIds = classRows.map((r) => r.classRoomId).filter(Boolean) as string[];
+    const classIds = classRows.map(r => r.classRoomId).filter(Boolean) as string[];
 
     const startOfToday = new Date();
     startOfToday.setUTCHours(0, 0, 0, 0);
@@ -893,13 +907,15 @@ export class DashboardService {
       else if (r.status === AttendanceStatus.EXCUSED) excused += 1;
     }
 
-    const upcomingExams = (upcomingExamsRows as Array<{
-      id: string;
-      name: string;
-      examDate: Date | null;
-      subject: { name: string } | null;
-      classRoom: { code: string; name: string };
-    }>).map((exam) => {
+    const upcomingExams = (
+      upcomingExamsRows as Array<{
+        id: string;
+        name: string;
+        examDate: Date | null;
+        subject: { name: string } | null;
+        classRoom: { code: string; name: string };
+      }>
+    ).map(exam => {
       const examDate = exam.examDate ?? new Date();
       return {
         id: exam.id,
@@ -938,7 +954,7 @@ export class DashboardService {
         { id: 'assignments', name: 'Assignments submitted', value: pendingAssignments },
         { id: 'assessments', name: 'Test attempts', value: assessments },
       ],
-      recentAnnouncements: announcementsList.items.slice(0, 3).map((a) => ({
+      recentAnnouncements: announcementsList.items.slice(0, 3).map(a => ({
         id: a.id,
         title: a.title,
         publishedAt: a.publishedAt,
@@ -971,7 +987,13 @@ export class DashboardService {
       pendingClasses: number;
       totalClasses: number;
     };
-    upcomingExams: Array<{ id: string; title: string; date: string; time: string; relativeDate: string }>;
+    upcomingExams: Array<{
+      id: string;
+      title: string;
+      date: string;
+      time: string;
+      relativeDate: string;
+    }>;
   }> {
     const tenantId = actor.tenantId!;
     const userId = actor.sub;
@@ -986,7 +1008,7 @@ export class DashboardService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    const classIds = teacherClassRoomIds.map((c) => c.classRoomId);
+    const classIds = teacherClassRoomIds.map(c => c.classRoomId);
 
     const todayStr = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Africa/Kigali',
@@ -1065,7 +1087,7 @@ export class DashboardService {
         pendingClasses: Math.max(totalTeacherClasses - sessionsToday, 0),
         totalClasses: totalTeacherClasses,
       },
-      upcomingExams: upcomingExams.slice(0, 3).map((exam) => {
+      upcomingExams: upcomingExams.slice(0, 3).map(exam => {
         const examDate = exam.examDate ?? exam.createdAt;
         return {
           id: exam.id,

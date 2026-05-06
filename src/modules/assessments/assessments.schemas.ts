@@ -40,7 +40,7 @@ const assessmentQuestionSchema = z
       }
 
       const correctOptions = (value.options as Array<{ isCorrect: boolean }>).filter(
-        (option) => option.isCorrect,
+        option => option.isCorrect
       );
       if (correctOptions.length !== 1) {
         context.addIssue({
@@ -75,7 +75,10 @@ export const createAssessmentSchema = z
       .string()
       .max(20_000)
       .optional()
-      .refine((value) => !value || htmlToPlainText(value).length >= 2, 'Instructions must contain readable text'),
+      .refine(
+        value => !value || htmlToPlainText(value).length >= 2,
+        'Instructions must contain readable text'
+      ),
     dueAt: z.string().datetime().optional(),
     timeLimitMinutes: z.number().int().min(1).max(240).optional(),
     maxAttempts: z.number().int().min(1).max(5).default(1),
@@ -95,8 +98,8 @@ export const updateAssessmentSchema = z
       .nullable()
       .optional()
       .refine(
-        (value) => value === null || !value || htmlToPlainText(value).length >= 2,
-        'Instructions must contain readable text',
+        value => value === null || !value || htmlToPlainText(value).length >= 2,
+        'Instructions must contain readable text'
       ),
     dueAt: z.string().datetime().nullable().optional(),
     timeLimitMinutes: z.number().int().min(1).max(240).nullable().optional(),
@@ -104,7 +107,7 @@ export const updateAssessmentSchema = z
   })
   .strict()
   .refine(
-    (data) =>
+    data =>
       data.lessonId !== undefined ||
       data.title !== undefined ||
       data.instructions !== undefined ||
@@ -113,7 +116,7 @@ export const updateAssessmentSchema = z
       data.maxAttempts !== undefined,
     {
       message: 'Provide at least one field to update',
-    },
+    }
   );
 
 export const updateAssessmentPortalSchema = z
@@ -122,7 +125,7 @@ export const updateAssessmentPortalSchema = z
     portalAssignOnly: z.boolean().optional(),
   })
   .strict()
-  .refine((data) => data.accessCode !== undefined || data.portalAssignOnly !== undefined, {
+  .refine(data => data.accessCode !== undefined || data.portalAssignOnly !== undefined, {
     message: 'Provide at least one of accessCode or portalAssignOnly',
   });
 
@@ -182,7 +185,7 @@ export const saveAttemptAnswersSchema = z
             selectedOptionId: z.string().uuid().nullable(),
             textResponse: z.string().trim().max(10_000).nullable().optional(),
           })
-          .strict(),
+          .strict()
       )
       .min(1),
   })
@@ -198,7 +201,7 @@ export const regradeAttemptSchema = z
             questionId: z.string().uuid(),
             pointsAwarded: z.number().int().min(0).max(100),
           })
-          .strict(),
+          .strict()
       )
       .min(1),
   })

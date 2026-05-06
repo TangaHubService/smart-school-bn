@@ -9,7 +9,7 @@ const auditService = new AuditService();
 function denyForMissingPermissions(
   req: Request,
   next: NextFunction,
-  requiredPermissions: string[],
+  requiredPermissions: string[]
 ) {
   if (req.user?.tenantId) {
     void auditService.log({
@@ -28,12 +28,9 @@ function denyForMissingPermissions(
   }
 
   next(
-    new AppError(
-      403,
-      'AUTH_INSUFFICIENT_PERMISSIONS',
-      'Insufficient permissions',
-      { requiredPermissions },
-    ),
+    new AppError(403, 'AUTH_INSUFFICIENT_PERMISSIONS', 'Insufficient permissions', {
+      requiredPermissions,
+    })
   );
 }
 
@@ -46,9 +43,7 @@ export function requirePermissions(requiredPermissions: string[]) {
     }
 
     const userPermissions = new Set(req.user?.permissions ?? []);
-    const hasAll = requiredPermissions.every((permission) =>
-      userPermissions.has(permission),
-    );
+    const hasAll = requiredPermissions.every(permission => userPermissions.has(permission));
 
     if (!hasAll) {
       denyForMissingPermissions(req, next, requiredPermissions);
@@ -68,7 +63,7 @@ export function requireAnyPermissions(requiredPermissions: string[]) {
     }
 
     const userPermissions = new Set(req.user?.permissions ?? []);
-    const hasAny = requiredPermissions.some((permission) => userPermissions.has(permission));
+    const hasAny = requiredPermissions.some(permission => userPermissions.has(permission));
 
     if (!hasAny) {
       denyForMissingPermissions(req, next, requiredPermissions);

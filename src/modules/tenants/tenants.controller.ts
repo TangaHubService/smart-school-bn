@@ -22,11 +22,7 @@ export class TenantsController {
   }
 
   async createTenant(req: Request, res: Response): Promise<Response> {
-    const result = await tenantsService.createTenant(
-      req.body,
-      req.user!,
-      buildContext(req),
-    );
+    const result = await tenantsService.createTenant(req.body, req.user!, buildContext(req));
 
     return sendSuccess(req, res, result, 201);
   }
@@ -41,7 +37,7 @@ export class TenantsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -53,7 +49,7 @@ export class TenantsController {
       req.params.id,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -64,7 +60,7 @@ export class TenantsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -75,7 +71,7 @@ export class TenantsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -85,7 +81,7 @@ export class TenantsController {
     const result = await tenantsService.deactivateTenant(
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);

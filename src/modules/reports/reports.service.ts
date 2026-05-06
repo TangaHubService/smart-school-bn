@@ -38,7 +38,7 @@ export class ReportsService {
   }
 
   private resolveBand(rules: GradingBand[], percentage: number) {
-    const band = rules.find((item) => percentage >= item.min && percentage <= item.max);
+    const band = rules.find(item => percentage >= item.min && percentage <= item.max);
     return {
       grade: band?.grade ?? 'N/A',
       remark: band?.remark ?? 'No remark',
@@ -69,7 +69,7 @@ export class ReportsService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    return rows.map((r) => r.classRoomId);
+    return rows.map(r => r.classRoomId);
   }
 
   private ensureClassAllowed(classRoomId: string, allowed: string[] | null) {
@@ -93,7 +93,7 @@ export class ReportsService {
   private computeStudentTermBreakdown(
     exams: ExamWithMarks[],
     studentId: string,
-    rules: GradingBand[],
+    rules: GradingBand[]
   ) {
     const bySubject = new Map<string, ExamWithMarks[]>();
     for (const exam of exams) {
@@ -121,8 +121,8 @@ export class ReportsService {
     }> = [];
 
     for (const [, subjectExams] of bySubject) {
-      const examParts = subjectExams.map((e) => {
-        const mark = e.marks.find((m) => m.studentId === studentId);
+      const examParts = subjectExams.map(e => {
+        const mark = e.marks.find(m => m.studentId === studentId);
         const marksObtained = mark?.marksObtained ?? 0;
         const percentage = e.totalMarks > 0 ? (marksObtained / e.totalMarks) * 100 : 0;
         return {
@@ -136,8 +136,8 @@ export class ReportsService {
         };
       });
 
-      const catExams = examParts.filter((e) => e.examType === 'CAT');
-      const examExams = examParts.filter((e) => e.examType === 'EXAM');
+      const catExams = examParts.filter(e => e.examType === 'CAT');
+      const examExams = examParts.filter(e => e.examType === 'EXAM');
       let weightedAverage: number;
       if (catExams.length && examExams.length) {
         const catAvg =
@@ -195,10 +195,10 @@ export class ReportsService {
     }
     let total = 0;
     for (const [, subjectExams] of bySubject) {
-      const cat = subjectExams.find((e) => e.examType === 'CAT');
-      const ex = subjectExams.find((e) => e.examType === 'EXAM');
-      const testMarks = cat?.marks.find((m) => m.studentId === studentId)?.marksObtained ?? 0;
-      const examMarks = ex?.marks.find((m) => m.studentId === studentId)?.marksObtained ?? 0;
+      const cat = subjectExams.find(e => e.examType === 'CAT');
+      const ex = subjectExams.find(e => e.examType === 'EXAM');
+      const testMarks = cat?.marks.find(m => m.studentId === studentId)?.marksObtained ?? 0;
+      const examMarks = ex?.marks.find(m => m.studentId === studentId)?.marksObtained ?? 0;
       total += testMarks + examMarks;
     }
     return total;
@@ -250,7 +250,7 @@ export class ReportsService {
       orderBy: [{ code: 'asc' }, { name: 'asc' }],
     });
 
-    const classIds = classes.map((c) => c.id);
+    const classIds = classes.map(c => c.id);
     if (!classIds.length) {
       return {
         term: { id: term.id, name: term.name },
@@ -320,7 +320,7 @@ export class ReportsService {
         orderBy: [{ student: { lastName: 'asc' } }, { student: { firstName: 'asc' } }],
       });
 
-      const studentsPayload = enrollments.map((row) => {
+      const studentsPayload = enrollments.map(row => {
         const breakdown = this.computeStudentTermBreakdown(classExams, row.student.id, rules);
         const gridTotal = this.computeGridTotal(classExams, row.student.id);
         return {
@@ -353,7 +353,7 @@ export class ReportsService {
     tenantId: string,
     studentId: string,
     query: AcademicStudentQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const term = await prisma.term.findFirst({
       where: { id: query.termId, tenantId, isActive: true },
@@ -381,7 +381,11 @@ export class ReportsService {
       select: { classRoomId: true, classRoom: { select: { id: true, code: true, name: true } } },
     });
     if (!enrollment) {
-      throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Student is not enrolled for this academic year');
+      throw new AppError(
+        404,
+        'ENROLLMENT_NOT_FOUND',
+        'Student is not enrolled for this academic year'
+      );
     }
 
     const allowedClassIds = await this.getTeacherClassRoomIds(tenantId, term.academicYearId, actor);
@@ -417,12 +421,12 @@ export class ReportsService {
       select: { student: { select: { id: true } } },
     });
 
-    const peerTotals = peers.map((p) => ({
+    const peerTotals = peers.map(p => ({
       studentId: p.student.id,
       total: this.computeGridTotal(exams, p.student.id),
     }));
     peerTotals.sort((a, b) => b.total - a.total);
-    const position = peerTotals.findIndex((p) => p.studentId === student.id) + 1;
+    const position = peerTotals.findIndex(p => p.studentId === student.id) + 1;
 
     return {
       term: { id: term.id, name: term.name },
@@ -442,7 +446,7 @@ export class ReportsService {
     tenantId: string,
     classRoomId: string,
     query: AcademicClassQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const term = await prisma.term.findFirst({
       where: { id: query.termId, tenantId, isActive: true },
@@ -498,7 +502,7 @@ export class ReportsService {
       },
     });
 
-    const rows = enrollments.map((e) => {
+    const rows = enrollments.map(e => {
       const breakdown = this.computeStudentTermBreakdown(exams, e.student.id, rules);
       const gridTotal = this.computeGridTotal(exams, e.student.id);
       return {
@@ -512,15 +516,19 @@ export class ReportsService {
       .sort((a, b) => b.gridTotal - a.gridTotal)
       .map((r, index) => ({ ...r, rank: index + 1 }));
 
-    const averages = withRank.map((r) => r.overall.averagePercentage).filter((n) => n > 0);
+    const averages = withRank.map(r => r.overall.averagePercentage).filter(n => n > 0);
     const classAverage =
-      averages.length > 0 ? Number((averages.reduce((s, n) => s + n, 0) / averages.length).toFixed(2)) : 0;
+      averages.length > 0
+        ? Number((averages.reduce((s, n) => s + n, 0) / averages.length).toFixed(2))
+        : 0;
 
-    const passCount = withRank.filter((r) => r.overall.averagePercentage >= 50).length;
+    const passCount = withRank.filter(r => r.overall.averagePercentage >= 50).length;
     const passRatePercent =
       withRank.length > 0 ? Number(((passCount / withRank.length) * 100).toFixed(1)) : 0;
 
-    const sortedByAvg = [...withRank].sort((a, b) => a.overall.averagePercentage - b.overall.averagePercentage);
+    const sortedByAvg = [...withRank].sort(
+      (a, b) => a.overall.averagePercentage - b.overall.averagePercentage
+    );
     const bottom = sortedByAvg.slice(0, Math.min(5, sortedByAvg.length));
     const top = [...sortedByAvg].reverse().slice(0, Math.min(5, sortedByAvg.length));
 
@@ -535,13 +543,13 @@ export class ReportsService {
         passThresholdNote: 'Pass rate uses overall average ≥ 50%',
         enrolled: withRank.length,
       },
-      topStudents: top.map((r) => ({
+      topStudents: top.map(r => ({
         student: r.student,
         overall: r.overall,
         gridTotal: r.gridTotal,
         rank: r.rank,
       })),
-      bottomStudents: bottom.map((r) => ({
+      bottomStudents: bottom.map(r => ({
         student: r.student,
         overall: r.overall,
         gridTotal: r.gridTotal,
@@ -551,11 +559,7 @@ export class ReportsService {
     };
   }
 
-  async academicSubject(
-    tenantId: string,
-    query: AcademicSubjectQueryInput,
-    actor: JwtUser,
-  ) {
+  async academicSubject(tenantId: string, query: AcademicSubjectQueryInput, actor: JwtUser) {
     const term = await prisma.term.findFirst({
       where: { id: query.termId, tenantId, isActive: true },
       include: { academicYear: { select: { id: true, name: true } } },
@@ -642,9 +646,9 @@ export class ReportsService {
         },
       });
 
-      const studentRows = enrollments.map((en) => {
+      const studentRows = enrollments.map(en => {
         const breakdown = this.computeStudentTermBreakdown(classExams, en.student.id, rules);
-        const subjectRow = breakdown.subjects.find((s) => s.subjectId === subject.id);
+        const subjectRow = breakdown.subjects.find(s => s.subjectId === subject.id);
         return {
           student: en.student,
           subject: subjectRow ?? null,
@@ -653,7 +657,7 @@ export class ReportsService {
       });
 
       const subjectAvgs = studentRows
-        .map((r) => r.subject?.averagePercentage)
+        .map(r => r.subject?.averagePercentage)
         .filter((n): n is number => n != null && !Number.isNaN(n));
       const classSubjectAverage =
         subjectAvgs.length > 0
@@ -663,8 +667,8 @@ export class ReportsService {
       classesOut.push({
         classRoom,
         subjectAverage: classSubjectAverage,
-        students: studentRows.sort((a, b) =>
-          (b.subject?.averagePercentage ?? 0) - (a.subject?.averagePercentage ?? 0),
+        students: studentRows.sort(
+          (a, b) => (b.subject?.averagePercentage ?? 0) - (a.subject?.averagePercentage ?? 0)
         ),
       });
     }
@@ -683,7 +687,7 @@ export class ReportsService {
     tenantId: string,
     from: Date,
     to: Date,
-    actor: JwtUser,
+    actor: JwtUser
   ): Promise<string[] | null> {
     if (!this.isTeacherOnly(actor)) {
       return null;
@@ -710,7 +714,7 @@ export class ReportsService {
       select: { classRoomId: true },
       distinct: ['classRoomId'],
     });
-    return courses.map((c) => c.classRoomId);
+    return courses.map(c => c.classRoomId);
   }
 
   async attendanceSchool(tenantId: string, query: AttendanceSchoolQueryInput, actor: JwtUser) {
@@ -815,7 +819,7 @@ export class ReportsService {
       else if (r.status === AttendanceStatus.EXCUSED) row.excused += 1;
     }
 
-    const rows = Array.from(byClass.values()).map((row) => {
+    const rows = Array.from(byClass.values()).map(row => {
       const d = row.present + row.absent + row.late + row.excused;
       return {
         ...row,
@@ -834,7 +838,7 @@ export class ReportsService {
   async attendanceAbsenteeism(
     tenantId: string,
     query: AttendanceAbsenteeismQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const from = this.parseSchoolDate(query.from);
     const to = this.parseSchoolDate(query.to);
@@ -883,10 +887,10 @@ export class ReportsService {
       where: { tenantId, id: { in: studentIds }, deletedAt: null },
       select: { id: true, studentCode: true, firstName: true, lastName: true },
     });
-    const studentMap = new Map(students.map((s) => [s.id, s]));
+    const studentMap = new Map(students.map(s => [s.id, s]));
 
     const flagged = studentIds
-      .map((id) => {
+      .map(id => {
         const meta = byStudent.get(id)!;
         const st = studentMap.get(id);
         if (!st) return null;
@@ -927,7 +931,7 @@ export class ReportsService {
       tenantId,
       todayDate,
       todayDate,
-      actor,
+      actor
     );
 
     const baseWhere: Prisma.AttendanceRecordWhereInput = {

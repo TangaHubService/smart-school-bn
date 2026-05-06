@@ -24,7 +24,7 @@ function parseCorsOrigin(origin: string): boolean | string[] {
 
   return origin
     .split(',')
-    .map((item) => item.trim())
+    .map(item => item.trim())
     .filter(Boolean);
 }
 
@@ -36,16 +36,15 @@ export function createApp() {
   app.use(
     pinoHttp({
       logger: rootLogger,
-      genReqId: (req) => req.requestId,
+      genReqId: req => req.requestId,
       quietReqLogger: true,
       autoLogging: {
-        ignore: (req) => req.url?.startsWith('/health') ?? false,
+        ignore: req => req.url?.startsWith('/health') ?? false,
       },
       customSuccessMessage: (req, res, responseTime) =>
         `${httpRoute(req)} ${res.statusCode} ${responseTime}ms`,
-      customErrorMessage: (req, res, err) =>
-        `${httpRoute(req)} ${res.statusCode} ${err.message}`,
-      customProps: (req) => {
+      customErrorMessage: (req, res, err) => `${httpRoute(req)} ${res.statusCode} ${err.message}`,
+      customProps: req => {
         const r = req as Request;
         return {
           requestId: r.requestId,
@@ -53,14 +52,14 @@ export function createApp() {
           userId: r.user?.sub,
         };
       },
-    }),
+    })
   );
   app.use(helmet());
   app.use(
     cors({
       origin: parseCorsOrigin(env.CORS_ORIGIN),
       credentials: true,
-    }),
+    })
   );
   app.use(
     express.json({
@@ -68,7 +67,7 @@ export function createApp() {
       verify: (req: any, _res, buf) => {
         req.rawBody = buf.toString();
       },
-    }),
+    })
   );
 
   app.use(apiRouter);

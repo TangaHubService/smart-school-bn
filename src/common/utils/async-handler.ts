@@ -3,7 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 export type AsyncRouteHandler = (
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) => Promise<unknown>;
 
 export function asyncHandler(handler: AsyncRouteHandler) {

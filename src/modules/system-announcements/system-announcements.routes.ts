@@ -20,19 +20,19 @@ systemAnnouncementsRoutes.use(authenticate);
 systemAnnouncementsRoutes.get(
   '/system-announcements',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.list(req, res)),
+  asyncHandler((req, res) => controller.list(req, res))
 );
 
 systemAnnouncementsRoutes.post(
   '/system-announcements',
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(createSystemAnnouncementSchema),
-  asyncHandler((req, res) => controller.create(req, res)),
+  asyncHandler((req, res) => controller.create(req, res))
 );
 
 systemAnnouncementsRoutes.patch(
   '/system-announcements/:id',
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(updateSystemAnnouncementSchema),
-  asyncHandler((req, res) => controller.update(req, res)),
+  asyncHandler((req, res) => controller.update(req, res))
 );

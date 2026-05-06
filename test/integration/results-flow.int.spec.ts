@@ -76,7 +76,15 @@ const adminActor = {
   tenantId: 'tenant-1',
   email: 'admin@school.rw',
   roles: ['SCHOOL_ADMIN'],
-  permissions: ['grading_schemes.manage', 'exams.read', 'exams.manage', 'exam_marks.manage', 'results.lock', 'results.publish', 'report_cards.read'],
+  permissions: [
+    'grading_schemes.manage',
+    'exams.read',
+    'exams.manage',
+    'exam_marks.manage',
+    'results.lock',
+    'results.publish',
+    'report_cards.read',
+  ],
 };
 
 const teacherActor = {
@@ -330,8 +338,16 @@ describe('results integration flow', () => {
         name: '2026 Academic Year',
       },
     });
-    mockedPrisma.classRoom.findFirst.mockResolvedValue({ id: 'class-1', code: 'G1-A', name: 'Grade 1 A' });
-    mockedPrisma.subject.findFirst.mockResolvedValue({ id: 'subject-1', code: 'MATH', name: 'Mathematics' });
+    mockedPrisma.classRoom.findFirst.mockResolvedValue({
+      id: 'class-1',
+      code: 'G1-A',
+      name: 'Grade 1 A',
+    });
+    mockedPrisma.subject.findFirst.mockResolvedValue({
+      id: 'subject-1',
+      code: 'MATH',
+      name: 'Mathematics',
+    });
     mockedPrisma.gradingScheme.findFirst.mockResolvedValue(buildGradingScheme());
     mockedPrisma.course.findFirst.mockResolvedValue({ id: 'course-1', teacherUserId: 'teacher-1' });
     mockedPrisma.exam.create.mockResolvedValue(buildExamSummary());
@@ -348,7 +364,7 @@ describe('results integration flow', () => {
         weight: 100,
       },
       adminActor,
-      context,
+      context
     );
 
     expect(createdExam.name).toBe('Mid-term Mathematics');
@@ -356,12 +372,10 @@ describe('results integration flow', () => {
     mockedPrisma.exam.findFirst.mockResolvedValue(buildExamDetail());
     mockedPrisma.resultSnapshot.findFirst.mockResolvedValue(null);
     mockedPrisma.studentEnrollment.findMany.mockResolvedValue(buildStudentRows());
-    mockedPrisma.examMark.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        { studentId: 'student-1', marksObtained: 88, status: 'PRESENT' },
-        { studentId: 'student-2', marksObtained: 73, status: 'PRESENT' },
-      ]);
+    mockedPrisma.examMark.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { studentId: 'student-1', marksObtained: 88, status: 'PRESENT' },
+      { studentId: 'student-2', marksObtained: 73, status: 'PRESENT' },
+    ]);
     mockedPrisma.$transaction.mockImplementation(async (arg: any) => {
       if (Array.isArray(arg)) {
         return Promise.all(arg);
@@ -392,7 +406,7 @@ describe('results integration flow', () => {
         ],
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(savedMarks.warnings.missingCount).toBe(0);
@@ -422,20 +436,23 @@ describe('results integration flow', () => {
       'tenant-1',
       { termId: 'term-1', classRoomId: 'class-1' },
       adminActor,
-      context,
+      context
     );
 
     expect(locked.status).toBe('LOCKED');
     expect(locked.snapshotsCreated).toBe(2);
 
-    mockedPrisma.resultSnapshot.findMany.mockResolvedValue([{ id: 'snapshot-1' }, { id: 'snapshot-2' }]);
+    mockedPrisma.resultSnapshot.findMany.mockResolvedValue([
+      { id: 'snapshot-1' },
+      { id: 'snapshot-2' },
+    ]);
     mockedPrisma.resultSnapshot.updateMany.mockResolvedValue({ count: 2 });
 
     const published = await service.publishResults(
       'tenant-1',
       { termId: 'term-1', classRoomId: 'class-1' },
       adminActor,
-      context,
+      context
     );
 
     expect(published.status).toBe('PUBLISHED');
@@ -465,7 +482,7 @@ describe('results integration flow', () => {
     await expect(
       service.getParentReportCards('tenant-1', parentActor, {
         studentId: 'student-2',
-      }),
+      })
     ).rejects.toMatchObject({
       code: 'REPORT_CARD_FORBIDDEN',
       statusCode: 403,

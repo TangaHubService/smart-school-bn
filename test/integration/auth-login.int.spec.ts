@@ -28,12 +28,7 @@ import { validateBody } from '../../src/common/middleware/validate.middleware';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { loginSchema } from '../../src/modules/auth/auth.schemas';
 import { prisma } from '../../src/db/prisma';
-import {
-  applyError,
-  createMockRequest,
-  createMockResponse,
-  runMiddleware,
-} from './test-harness';
+import { applyError, createMockRequest, createMockResponse, runMiddleware } from './test-harness';
 
 const mockedPrisma = prisma as any;
 const mockedBcrypt = bcrypt as unknown as { compare: jest.Mock };

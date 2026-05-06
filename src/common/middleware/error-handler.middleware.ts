@@ -12,9 +12,11 @@ export function errorHandlerMiddleware(
   error: unknown,
   req: Request,
   res: Response,
-  _next: NextFunction,
+  _next: NextFunction
 ): void {
-  const logger = (req as Request & { log?: { error: (payload: unknown, message?: string) => void } }).log;
+  const logger = (
+    req as Request & { log?: { error: (payload: unknown, message?: string) => void } }
+  ).log;
   const route = requestRoute(req);
 
   if (error instanceof AppError) {
@@ -26,7 +28,7 @@ export function errorHandlerMiddleware(
         requestId: req.requestId,
         route,
       },
-      `${route} — ${error.code}: ${error.message}`,
+      `${route} — ${error.code}: ${error.message}`
     );
     sendError(req, res, error.statusCode, error.code, error.message, error.details);
     return;
@@ -39,16 +41,9 @@ export function errorHandlerMiddleware(
         requestId: req.requestId,
         route,
       },
-      `${route} — validation failed`,
+      `${route} — validation failed`
     );
-    sendError(
-      req,
-      res,
-      400,
-      'VALIDATION_ERROR',
-      'Request validation failed',
-      error.flatten(),
-    );
+    sendError(req, res, 400, 'VALIDATION_ERROR', 'Request validation failed', error.flatten());
     return;
   }
 
@@ -58,14 +53,8 @@ export function errorHandlerMiddleware(
       requestId: req.requestId,
       route,
     },
-    `${route} — unhandled error`,
+    `${route} — unhandled error`
   );
 
-  sendError(
-    req,
-    res,
-    500,
-    'INTERNAL_SERVER_ERROR',
-    'An unexpected error occurred',
-  );
+  sendError(req, res, 500, 'INTERNAL_SERVER_ERROR', 'An unexpected error occurred');
 }

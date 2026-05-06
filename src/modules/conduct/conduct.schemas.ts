@@ -1,8 +1,4 @@
-import {
-  ConductActionType,
-  ConductIncidentStatus,
-  ConductSeverity,
-} from '@prisma/client';
+import { ConductActionType, ConductIncidentStatus, ConductSeverity } from '@prisma/client';
 import { z } from 'zod';
 
 const isoDateSchema = z
@@ -64,7 +60,7 @@ export const listConductIncidentsQuerySchema = z.object({
   teacherOnly: z
     .string()
     .optional()
-    .transform((v) => v === 'true' || v === '1'),
+    .transform(v => v === 'true' || v === '1'),
   status: conductIncidentStatusSchema.optional(),
   severity: conductSeveritySchema.optional(),
   q: z.string().trim().min(1).max(120).optional(),

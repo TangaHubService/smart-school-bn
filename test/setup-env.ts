@@ -1,8 +1,7 @@
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/smart_school_test';
-process.env.JWT_ACCESS_SECRET =
-  process.env.JWT_ACCESS_SECRET ?? '12345678901234567890123456789012';
+process.env.JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? '12345678901234567890123456789012';
 process.env.JWT_REFRESH_SECRET =
   process.env.JWT_REFRESH_SECRET ?? 'abcdefghijklmnopqrstuvwxyz123456';
 process.env.ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL ?? '15m';

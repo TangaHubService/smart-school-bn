@@ -120,7 +120,7 @@ function mapCurrentEnrollment(student: ConductIncidentRecord['student']) {
 
 export function mapConductIncident(
   incident: ConductIncidentRecord,
-  audience: ConductIncidentAudience,
+  audience: ConductIncidentAudience
 ) {
   return {
     id: incident.id,
@@ -173,7 +173,7 @@ export function mapConductIncident(
           lastName: incident.resolvedByUser.lastName,
         }
       : null,
-    actions: incident.actions.map((action) => ({
+    actions: incident.actions.map(action => ({
       id: action.id,
       type: action.type,
       title: action.title,
@@ -189,7 +189,7 @@ export function mapConductIncident(
         lastName: action.createdByUser.lastName,
       },
     })),
-    feedback: incident.feedback.map((entry) => ({
+    feedback: incident.feedback.map(entry => ({
       id: entry.id,
       authorType: entry.authorType,
       body: entry.body,

@@ -24,11 +24,16 @@ export class PaypackService {
   private static accessToken: string | null = null;
   private static refreshToken: string | null = null;
   private static accessTokenExpiresAtMs: number | null = null;
-  private static apiBaseUrl = (env.PAYPACK_API_BASE_URL ?? env.PAYPACK_BASE_URL).replace(/\/+$/, '');
-  private static webhookMode =
-    (env.PAYPACK_WEBHOOK_MODE ??
-      (env.NODE_ENV === 'production' ? 'production' : 'development')).toString();
-  private static primaryInitiatePath = (env.PAYPACK_INITIATE_PATH ?? '/checkouts/initiate').toString();
+  private static apiBaseUrl = (env.PAYPACK_API_BASE_URL ?? env.PAYPACK_BASE_URL).replace(
+    /\/+$/,
+    ''
+  );
+  private static webhookMode = (
+    env.PAYPACK_WEBHOOK_MODE ?? (env.NODE_ENV === 'production' ? 'production' : 'development')
+  ).toString();
+  private static primaryInitiatePath = (
+    env.PAYPACK_INITIATE_PATH ?? '/checkouts/initiate'
+  ).toString();
 
   private static generateIdempotencyKey(): string {
     return crypto.randomBytes(16).toString('hex').slice(0, 32);
@@ -60,12 +65,7 @@ export class PaypackService {
 
   private static normalizeRef(payload: Record<string, unknown> | null): string | null {
     const nested = this.asRecord(payload?.data);
-    const value =
-      payload?.ref ??
-      payload?.id ??
-      payload?.checkout_id ??
-      nested?.ref ??
-      nested?.id;
+    const value = payload?.ref ?? payload?.id ?? payload?.checkout_id ?? nested?.ref ?? nested?.id;
 
     return typeof value === 'string' || typeof value === 'number' ? String(value) : null;
   }
@@ -106,12 +106,14 @@ export class PaypackService {
       {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         validateStatus: () => true,
-      },
+      }
     );
 
     const body = response.data;
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(body?.message || body?.error || `Paypack authorize failed (${response.status})`);
+      throw new Error(
+        body?.message || body?.error || `Paypack authorize failed (${response.status})`
+      );
     }
 
     this.accessToken = body?.access ?? null;
@@ -131,7 +133,7 @@ export class PaypackService {
       {
         headers: { Accept: 'application/json' },
         validateStatus: () => true,
-      },
+      }
     );
 
     if (response.status < 200 || response.status >= 300) {
@@ -149,7 +151,7 @@ export class PaypackService {
   static async cashin(
     amount: number,
     phoneNumber: string,
-    idempotencyKeyInput?: string,
+    idempotencyKeyInput?: string
   ): Promise<PaypackCashinResponse> {
     if (!phoneNumber) {
       throw new Error('phoneNumber is required');
@@ -166,9 +168,7 @@ export class PaypackService {
     }
 
     const normalizedPhoneNumber = this.normalizePhoneNumber(phoneNumber);
-    const pathCandidates = Array.from(
-      new Set([this.primaryInitiatePath, '/transactions/cashin']),
-    );
+    const pathCandidates = Array.from(new Set([this.primaryInitiatePath, '/transactions/cashin']));
 
     let lastErrorMessage = 'Paypack cashin failed';
 
@@ -189,7 +189,7 @@ export class PaypackService {
             'Idempotency-Key': idempotencyKey,
           },
           validateStatus: () => true,
-        },
+        }
       );
 
       const body = this.asRecord(response.data);
@@ -204,11 +204,7 @@ export class PaypackService {
         const kindValue = body?.kind ?? body?.type ?? nested?.kind;
         const providerValue = body?.provider ?? body?.network ?? nested?.provider ?? null;
         const messageValue =
-          body?.message ??
-          body?.instruction ??
-          body?.instructions ??
-          body?.ussd ??
-          nested?.message;
+          body?.message ?? body?.instruction ?? body?.instructions ?? body?.ussd ?? nested?.message;
         const createdAtValue = body?.createdAt ?? body?.created_at ?? nested?.createdAt;
 
         return {
@@ -219,7 +215,12 @@ export class PaypackService {
               : 'pending',
           amount: typeof amountValue === 'number' ? amountValue : Number(amountValue) || undefined,
           kind: typeof kindValue === 'string' ? kindValue : undefined,
-          provider: typeof providerValue === 'string' ? providerValue : providerValue === null ? null : null,
+          provider:
+            typeof providerValue === 'string'
+              ? providerValue
+              : providerValue === null
+                ? null
+                : null,
           message: typeof messageValue === 'string' ? messageValue : undefined,
           createdAt: typeof createdAtValue === 'string' ? createdAtValue : undefined,
         };

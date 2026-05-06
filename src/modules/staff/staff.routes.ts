@@ -16,7 +16,7 @@ export const staffRoutes = Router();
 staffRoutes.post(
   '/accept-invite',
   validateBody(acceptInviteSchema),
-  asyncHandler((req, res) => staffController.acceptInvite(req, res)),
+  asyncHandler((req, res) => staffController.acceptInvite(req, res))
 );
 
 staffRoutes.post(
@@ -25,7 +25,7 @@ staffRoutes.post(
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
   validateBody(inviteStaffSchema),
-  asyncHandler((req, res) => staffController.invite(req, res)),
+  asyncHandler((req, res) => staffController.invite(req, res))
 );
 
 staffRoutes.get(
@@ -33,7 +33,7 @@ staffRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
-  asyncHandler((req, res) => staffController.listInvites(req, res)),
+  asyncHandler((req, res) => staffController.listInvites(req, res))
 );
 
 staffRoutes.get(
@@ -41,7 +41,7 @@ staffRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
-  asyncHandler((req, res) => staffController.listMembers(req, res)),
+  asyncHandler((req, res) => staffController.listMembers(req, res))
 );
 
 staffRoutes.get(
@@ -49,7 +49,7 @@ staffRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
-  asyncHandler((req, res) => staffController.getMember(req, res)),
+  asyncHandler((req, res) => staffController.getMember(req, res))
 );
 
 staffRoutes.patch(
@@ -58,7 +58,7 @@ staffRoutes.patch(
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
   validateBody(updateStaffMemberSchema),
-  asyncHandler((req, res) => staffController.updateMember(req, res)),
+  asyncHandler((req, res) => staffController.updateMember(req, res))
 );
 
 staffRoutes.delete(
@@ -66,7 +66,7 @@ staffRoutes.delete(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
-  asyncHandler((req, res) => staffController.deleteMember(req, res)),
+  asyncHandler((req, res) => staffController.deleteMember(req, res))
 );
 
 staffRoutes.delete(
@@ -74,5 +74,5 @@ staffRoutes.delete(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.STAFF_INVITE]),
-  asyncHandler((req, res) => staffController.revokeInvite(req, res)),
+  asyncHandler((req, res) => staffController.revokeInvite(req, res))
 );

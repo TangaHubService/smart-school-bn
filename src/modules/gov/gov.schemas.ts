@@ -27,7 +27,7 @@ function validateLocation(
     district?: string;
     sector?: string;
   },
-  context: z.RefinementCtx,
+  context: z.RefinementCtx
 ) {
   if (value.level === AuditorLevel.PROVINCE && !value.province) {
     context.addIssue({

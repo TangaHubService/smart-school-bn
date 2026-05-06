@@ -41,7 +41,10 @@ export const initSocket = (server: HttpServer) => {
     socket.on('joinTransaction', ({ transactionId }) => {
       const rooms = resolveTransactionRooms(transactionId);
       if (rooms.length === 0) {
-        socketLog.warn({ socketId: socket.id, transactionId }, 'Client attempted to join invalid transaction room');
+        socketLog.warn(
+          { socketId: socket.id, transactionId },
+          'Client attempted to join invalid transaction room'
+        );
         return;
       }
 
@@ -51,7 +54,7 @@ export const initSocket = (server: HttpServer) => {
 
       socketLog.info(
         { socketId: socket.id, transactionId, rooms },
-        'Client joined transaction room',
+        'Client joined transaction room'
       );
     });
 

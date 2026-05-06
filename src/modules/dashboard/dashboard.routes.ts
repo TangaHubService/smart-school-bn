@@ -18,14 +18,14 @@ dashboardRoutes.get(
   '/dashboard/super-admin',
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => dashboardController.getSuperAdminDashboard(req, res)),
+  asyncHandler((req, res) => dashboardController.getSuperAdminDashboard(req, res))
 );
 
 dashboardRoutes.get(
   '/dashboard/super-admin/filters',
   authenticate,
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => dashboardController.getSuperAdminFilters(req, res)),
+  asyncHandler((req, res) => dashboardController.getSuperAdminFilters(req, res))
 );
 
 dashboardRoutes.get(
@@ -37,7 +37,7 @@ dashboardRoutes.get(
     PERMISSIONS.STUDENTS_READ,
     PERMISSIONS.ATTENDANCE_READ,
   ]),
-  asyncHandler((req, res) => dashboardController.getSchoolAdminDashboard(req, res)),
+  asyncHandler((req, res) => dashboardController.getSchoolAdminDashboard(req, res))
 );
 
 dashboardRoutes.get(
@@ -45,7 +45,7 @@ dashboardRoutes.get(
   authenticate,
   enforceTenant,
   requireAnyPermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
-  asyncHandler((req, res) => dashboardController.getStudentDashboard(req, res)),
+  asyncHandler((req, res) => dashboardController.getStudentDashboard(req, res))
 );
 
 dashboardRoutes.get(
@@ -53,5 +53,5 @@ dashboardRoutes.get(
   authenticate,
   enforceTenant,
   requireAnyPermissions([PERMISSIONS.COURSES_READ, PERMISSIONS.ATTENDANCE_READ]),
-  asyncHandler((req, res) => dashboardController.getTeacherDashboard(req, res)),
+  asyncHandler((req, res) => dashboardController.getTeacherDashboard(req, res))
 );

@@ -86,24 +86,22 @@ describe('attendance integration flow', () => {
       endDate: new Date('2026-12-31T00:00:00.000Z'),
     });
 
-    mockedPrisma.attendanceSession.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: 'session-1',
-        tenantId: 'tenant-1',
-        classRoomId: 'class-1',
-        academicYearId: 'year-1',
-        sessionDate: attendanceDateUtc,
-        status: 'OPEN',
-        createdByUserId: 'teacher-1',
-        editedByUserId: 'teacher-1',
-        createdAt: sessionCreatedAt,
-        updatedAt: sessionCreatedAt,
-        academicYear: {
-          id: 'year-1',
-          name: '2026/2027',
-        },
-      });
+    mockedPrisma.attendanceSession.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'session-1',
+      tenantId: 'tenant-1',
+      classRoomId: 'class-1',
+      academicYearId: 'year-1',
+      sessionDate: attendanceDateUtc,
+      status: 'OPEN',
+      createdByUserId: 'teacher-1',
+      editedByUserId: 'teacher-1',
+      createdAt: sessionCreatedAt,
+      updatedAt: sessionCreatedAt,
+      academicYear: {
+        id: 'year-1',
+        name: '2026/2027',
+      },
+    });
 
     mockedPrisma.attendanceSession.create.mockResolvedValue({
       id: 'session-1',
@@ -129,7 +127,7 @@ describe('attendance integration flow', () => {
         date: attendanceDate,
       },
       actor,
-      context,
+      context
     );
 
     expect(created.created).toBe(true);
@@ -148,26 +146,21 @@ describe('attendance integration flow', () => {
       updatedAt: sessionCreatedAt,
     });
 
-    mockedPrisma.student.findMany.mockResolvedValue([
-      { id: 'student-1' },
-      { id: 'student-2' },
-    ]);
+    mockedPrisma.student.findMany.mockResolvedValue([{ id: 'student-1' }, { id: 'student-2' }]);
     mockedPrisma.studentEnrollment.findMany.mockResolvedValue([
       { studentId: 'student-1' },
       { studentId: 'student-2' },
     ]);
-    mockedPrisma.attendanceRecord.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'record-1',
-          studentId: 'student-1',
-          status: AttendanceStatus.ABSENT,
-          remarks: 'Sick',
-          markedAt: sessionCreatedAt,
-          updatedAt: sessionCreatedAt,
-        },
-      ]);
+    mockedPrisma.attendanceRecord.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'record-1',
+        studentId: 'student-1',
+        status: AttendanceStatus.ABSENT,
+        remarks: 'Sick',
+        markedAt: sessionCreatedAt,
+        updatedAt: sessionCreatedAt,
+      },
+    ]);
 
     mockedPrisma.$transaction.mockImplementationOnce(async (callback: any) => {
       const tx = {
@@ -194,7 +187,7 @@ describe('attendance integration flow', () => {
         ],
       },
       actor,
-      context,
+      context
     );
 
     expect(saved.savedCount).toBe(2);
@@ -232,4 +225,3 @@ describe('attendance integration flow', () => {
     expect(mockedPrisma.auditLog.create).toHaveBeenCalled();
   });
 });
-

@@ -8,7 +8,7 @@ export function sendSuccess<T>(
   data: T,
   statusCode = 200,
   pagination: PaginationMeta | null = null,
-  metaExtensions: Partial<Pick<ApiMeta, 'academyCatalog'>> = {},
+  metaExtensions: Partial<Pick<ApiMeta, 'academyCatalog'>> = {}
 ): Response<ApiEnvelope<T>> {
   return res.status(statusCode).json({
     data,
@@ -28,7 +28,7 @@ export function sendError(
   statusCode: number,
   code: string,
   message: string,
-  details: unknown = null,
+  details: unknown = null
 ): Response<ApiEnvelope<null>> {
   return res.status(statusCode).json({
     data: null,

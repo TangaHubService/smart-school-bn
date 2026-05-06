@@ -23,29 +23,29 @@ router.post(
   '/subscription/checkout',
   authenticate,
   validateBody(academyPlanCheckoutSchema),
-  PublicAcademyController.startPlanCheckout,
+  PublicAcademyController.startPlanCheckout
 );
 router.post(
   '/subscription/programs/select',
   authenticate,
   validateBody(academyProgramSelectionSchema),
-  PublicAcademyController.selectProgram,
+  PublicAcademyController.selectProgram
 );
 router.post(
   '/subscription/subjects/select',
   authenticate,
   validateBody(academySubjectSelectionSchema),
-  PublicAcademyController.selectSubject,
+  PublicAcademyController.selectSubject
 );
 router.delete(
   '/subscription/programs/:programId',
   authenticate,
-  PublicAcademyController.removeProgram,
+  PublicAcademyController.removeProgram
 );
 router.delete(
   '/subscription/subjects/:subjectId',
   authenticate,
-  PublicAcademyController.removeSubject,
+  PublicAcademyController.removeSubject
 );
 router.post('/purchase', authenticate, PublicAcademyController.purchaseProgram);
 router.get('/my-enrollments', authenticate, PublicAcademyController.getMyEnrollments);

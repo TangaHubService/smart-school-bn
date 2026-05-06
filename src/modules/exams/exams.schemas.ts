@@ -8,7 +8,7 @@ const gradingBandSchema = z
     remark: z.string().trim().max(120).optional(),
   })
   .strict()
-  .refine((value) => value.min <= value.max, {
+  .refine(value => value.min <= value.max, {
     message: 'Band min must be less than or equal to max',
     path: ['min'],
   });
@@ -53,7 +53,7 @@ export const updateExamSchema = z
     examDate: z.string().datetime().nullable().optional(),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, {
+  .refine(value => Object.keys(value).length > 0, {
     message: 'At least one field is required',
   });
 
@@ -78,7 +78,7 @@ export const bulkExamMarksSchema = z
             marksObtained: z.number().int().min(0).max(500).nullable(),
             status: markStatusSchema.optional(),
           })
-          .strict(),
+          .strict()
       )
       .min(1)
       .max(500),
@@ -105,7 +105,7 @@ export const bulkConductGradesSchema = z
             grade: z.string().trim().min(1).max(20),
             remark: z.string().trim().max(200).optional(),
           })
-          .strict(),
+          .strict()
       )
       .min(1)
       .max(500),
@@ -133,7 +133,7 @@ export const myExamScheduleQuerySchema = z.object({
   upcomingOnly: z
     .enum(['true', 'false'])
     .optional()
-    .transform((v) => v === 'true'),
+    .transform(v => v === 'true'),
 });
 
 export const conductGradesQuerySchema = z.object({
@@ -180,7 +180,7 @@ export const marksGridSaveSchema = z
             testMarks: z.number().int().min(0).max(500).nullable().optional(),
             examMarks: z.number().int().min(0).max(500).nullable().optional(),
           })
-          .strict(),
+          .strict()
       )
       .min(1)
       .max(2000),

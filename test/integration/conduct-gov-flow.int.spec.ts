@@ -56,7 +56,12 @@ const auditorActor = {
   tenantId: 'tenant-platform',
   email: 'enga.bertin@gov.rw',
   roles: ['GOV_AUDITOR'],
-  permissions: ['gov.dashboard.read', 'gov.schools.read', 'gov.incidents.read', 'gov.feedback.manage'],
+  permissions: [
+    'gov.dashboard.read',
+    'gov.schools.read',
+    'gov.incidents.read',
+    'gov.feedback.manage',
+  ],
 };
 
 const outOfScopeAuditor = {
@@ -196,7 +201,7 @@ describe('conduct and government oversight flow', () => {
         reporterNotes: 'School-only note',
       },
       schoolActor as any,
-      context,
+      context
     );
 
     expect(created.id).toBe('incident-1');
@@ -254,7 +259,7 @@ describe('conduct and government oversight flow', () => {
       {
         body: 'Please document follow-up with the guardian.',
       },
-      context,
+      context
     );
 
     expect(mockedPrisma.conductFeedback.create).toHaveBeenCalledWith(
@@ -264,7 +269,7 @@ describe('conduct and government oversight flow', () => {
           incidentId: 'incident-1',
           authorUserId: 'auditor-1',
         }),
-      }),
+      })
     );
     expect(afterFeedback.feedback).toHaveLength(2);
     expect(mockedPrisma.auditLog.create).toHaveBeenCalled();
@@ -277,7 +282,7 @@ describe('conduct and government oversight flow', () => {
     mockedPrisma.govAuditorScope.findMany.mockResolvedValue([]);
 
     await expect(
-      govService.getIncidentDetail(outOfScopeAuditor as any, 'incident-1'),
+      govService.getIncidentDetail(outOfScopeAuditor as any, 'incident-1')
     ).rejects.toMatchObject({
       code: 'GOV_SCOPE_FORBIDDEN',
       statusCode: 403,

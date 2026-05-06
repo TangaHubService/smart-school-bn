@@ -18,7 +18,7 @@ schoolsRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.SCHOOL_SETUP_MANAGE]),
-  asyncHandler((req, res) => schoolsController.getSetupStatus(req, res)),
+  asyncHandler((req, res) => schoolsController.getSetupStatus(req, res))
 );
 
 schoolsRoutes.post(
@@ -27,5 +27,5 @@ schoolsRoutes.post(
   enforceTenant,
   requirePermissions([PERMISSIONS.SCHOOL_SETUP_MANAGE]),
   validateBody(schoolSetupSchema),
-  asyncHandler((req, res) => schoolsController.completeSetup(req, res)),
+  asyncHandler((req, res) => schoolsController.completeSetup(req, res))
 );

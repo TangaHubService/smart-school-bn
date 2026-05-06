@@ -3,7 +3,7 @@ import { PaginationMeta } from '../types/api.types';
 export function buildPagination(
   page: number,
   pageSize: number,
-  totalItems: number,
+  totalItems: number
 ): PaginationMeta {
   return {
     page,

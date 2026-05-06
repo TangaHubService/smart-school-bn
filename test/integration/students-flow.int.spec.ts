@@ -130,7 +130,7 @@ describe('students integration flow', () => {
         },
       },
       actor,
-      context,
+      context
     );
 
     expect(created.studentCode).toBe('STU-001');
@@ -189,9 +189,7 @@ describe('students integration flow', () => {
   });
 
   it('import preview -> commit with partial success', async () => {
-    mockedPrisma.academicYear.findMany.mockResolvedValue([
-      { id: 'year-1', name: '2026/2027' },
-    ]);
+    mockedPrisma.academicYear.findMany.mockResolvedValue([{ id: 'year-1', name: '2026/2027' }]);
     mockedPrisma.classRoom.findMany.mockResolvedValue([
       { id: 'class-1', code: 'G1-A', name: 'Grade 1 A' },
     ]);
@@ -212,7 +210,7 @@ describe('students integration flow', () => {
         allowPartial: false,
       },
       actor,
-      context,
+      context
     );
 
     expect(preview.mode).toBe('preview');
@@ -247,16 +245,12 @@ describe('students integration flow', () => {
         allowPartial: true,
       },
       actor,
-      context,
+      context
     );
 
     expect(committed.mode).toBe('commit');
-    expect(
-      'importedRows' in committed.summary ? committed.summary.importedRows : 0,
-    ).toBe(1);
-    expect(
-      'skippedRows' in committed.summary ? committed.summary.skippedRows : 0,
-    ).toBe(1);
+    expect('importedRows' in committed.summary ? committed.summary.importedRows : 0).toBe(1);
+    expect('skippedRows' in committed.summary ? committed.summary.skippedRows : 0).toBe(1);
     expect(mockedPrisma.auditLog.create).toHaveBeenCalled();
   });
 });

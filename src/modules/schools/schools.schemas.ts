@@ -38,7 +38,7 @@ export const schoolSetupSchema = z.object({
             sequence: z.number().int().min(1),
             startDate: isoDate,
             endDate: isoDate,
-          }),
+          })
         )
         .max(6)
         .optional()
@@ -57,11 +57,11 @@ export const schoolSetupSchema = z.object({
               code: z.string().trim().min(1).max(30),
               name: z.string().trim().min(1).max(80),
               capacity: z.number().int().min(1).max(200).optional(),
-            }),
+            })
           )
           .optional()
           .default([]),
-      }),
+      })
     )
     .optional()
     .default([]),
@@ -72,7 +72,7 @@ export const schoolSetupSchema = z.object({
         name: z.string().trim().min(2).max(100),
         description: z.string().trim().max(300).optional(),
         isCore: z.boolean().default(false),
-      }),
+      })
     )
     .optional()
     .default([]),

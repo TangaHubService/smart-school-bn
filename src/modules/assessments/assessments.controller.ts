@@ -28,7 +28,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -45,7 +45,7 @@ export class AssessmentsController {
     const result = await assessmentsService.getAssessmentDetail(
       req.tenantId!,
       req.params.id,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result);
@@ -58,7 +58,7 @@ export class AssessmentsController {
       req.params.id,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -69,7 +69,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -81,7 +81,7 @@ export class AssessmentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -93,7 +93,7 @@ export class AssessmentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -105,7 +105,7 @@ export class AssessmentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -116,7 +116,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -128,7 +128,7 @@ export class AssessmentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -141,7 +141,7 @@ export class AssessmentsController {
       req.params.id,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -154,7 +154,7 @@ export class AssessmentsController {
       req.params.id,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -166,7 +166,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       query,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result, 200, result.pagination);
@@ -183,7 +183,7 @@ export class AssessmentsController {
     const result = await assessmentsService.getMyAssessment(
       req.tenantId!,
       req.params.id,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result);
@@ -196,7 +196,7 @@ export class AssessmentsController {
       req.params.id,
       body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -207,7 +207,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       req.body,
-      req.user!,
+      req.user!
     );
 
     return sendSuccess(req, res, result);
@@ -218,7 +218,7 @@ export class AssessmentsController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -230,7 +230,7 @@ export class AssessmentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);

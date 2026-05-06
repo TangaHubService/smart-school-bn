@@ -96,14 +96,14 @@ export class AcademySubscriptionService {
   private async assertAcademyLearner(
     userId: string,
     tenantId: string,
-    db: AcademySubscriptionDb = prisma,
+    db: AcademySubscriptionDb = prisma
   ) {
     const catalogTenantId = await resolveAcademyCatalogTenantId();
     if (!catalogTenantId || catalogTenantId !== tenantId) {
       throw new AppError(
         403,
         'ACADEMY_ACCOUNT_REQUIRED',
-        'Use a public academy learner account to manage academy plans.',
+        'Use a public academy learner account to manage academy plans.'
       );
     }
 
@@ -130,12 +130,12 @@ export class AcademySubscriptionService {
       throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
     }
 
-    const hasLearnerRole = user.userRoles.some((item) => item.role.name === 'PUBLIC_LEARNER');
+    const hasLearnerRole = user.userRoles.some(item => item.role.name === 'PUBLIC_LEARNER');
     if (!hasLearnerRole || !user.studentProfile) {
       throw new AppError(
         403,
         'ACADEMY_ACCOUNT_REQUIRED',
-        'Use a public academy learner account to manage academy plans.',
+        'Use a public academy learner account to manage academy plans.'
       );
     }
 
@@ -169,7 +169,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         403,
         'ACADEMY_SUBSCRIPTION_REQUIRED',
-        'Activate a plan or trial before selecting subjects.',
+        'Activate a plan or trial before selecting subjects.'
       );
     }
 
@@ -177,7 +177,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         403,
         'ACADEMY_SUBSCRIPTION_EXPIRED',
-        'Your academy plan has expired. Renew to manage subject access.',
+        'Your academy plan has expired. Renew to manage subject access.'
       );
     }
 
@@ -300,7 +300,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         503,
         'ACADEMY_CATALOG_NOT_CONFIGURED',
-        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
       );
     }
 
@@ -333,7 +333,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         503,
         'ACADEMY_CATALOG_NOT_CONFIGURED',
-        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
       );
     }
 
@@ -369,7 +369,7 @@ export class AcademySubscriptionService {
   async ensureTrialSubscription(
     userId: string,
     tenantId: string,
-    db: AcademySubscriptionDb = prisma,
+    db: AcademySubscriptionDb = prisma
   ) {
     await this.assertAcademyLearner(userId, tenantId, db);
 
@@ -455,7 +455,7 @@ export class AcademySubscriptionService {
     const accessibleSubjects = this.buildSubjectSelections(accessibleRows, current.id);
     const remainingSubjectSlots = Math.max(0, current.courseLimit - selectedSubjects.length);
 
-    const selectedPrograms = selectedRows.map((row) => ({
+    const selectedPrograms = selectedRows.map(row => ({
       enrollmentId: row.id,
       programId: row.programId,
       title: row.program.title,
@@ -483,7 +483,7 @@ export class AcademySubscriptionService {
       selectedSubjects,
       accessibleSubjects,
       selectedPrograms,
-      accessiblePrograms: accessibleRows.map((row) => ({
+      accessiblePrograms: accessibleRows.map(row => ({
         enrollmentId: row.id,
         programId: row.programId,
         title: row.program.title,
@@ -517,7 +517,7 @@ export class AcademySubscriptionService {
   async startPlanCheckout(
     userId: string,
     tenantId: string,
-    input: { planId: AcademyCheckoutPlanId; phoneNumber: string },
+    input: { planId: AcademyCheckoutPlanId; phoneNumber: string }
   ) {
     const subscription = await this.ensureTrialSubscription(userId, tenantId);
     const plan = ACADEMY_CHECKOUT_PLANS[input.planId];
@@ -568,7 +568,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         400,
         'PROGRAM_COURSE_NOT_READY',
-        'This program is not linked to a course yet.',
+        'This program is not linked to a course yet.'
       );
     }
 
@@ -577,7 +577,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         400,
         'PROGRAM_SUBJECT_NOT_READY',
-        'This program is not linked to a subject yet.',
+        'This program is not linked to a subject yet.'
       );
     }
 
@@ -593,12 +593,12 @@ export class AcademySubscriptionService {
       throw new AppError(
         409,
         'ACADEMY_SELECTION_LIMIT_REACHED',
-        `You can only keep ${current.courseLimit} academy subjects active at a time.`,
+        `You can only keep ${current.courseLimit} academy subjects active at a time.`
       );
     }
 
     await prisma.$transaction(
-      programs.map((program) =>
+      programs.map(program =>
         prisma.programEnrollment.upsert({
           where: {
             userId_programId: {
@@ -622,8 +622,8 @@ export class AcademySubscriptionService {
             isActive: true,
             isTrial: current.isTrial,
           },
-        }),
-      ),
+        })
+      )
     );
 
     return this.buildSummary(current, userId);
@@ -636,7 +636,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         400,
         'PROGRAM_SUBJECT_NOT_READY',
-        'This program is not linked to a subject yet.',
+        'This program is not linked to a subject yet.'
       );
     }
 
@@ -670,7 +670,7 @@ export class AcademySubscriptionService {
     await prisma.programEnrollment.updateMany({
       where: {
         id: {
-          in: selectedRows.map((row) => row.id),
+          in: selectedRows.map(row => row.id),
         },
       },
       data: {
@@ -700,7 +700,7 @@ export class AcademySubscriptionService {
 
     if (rawStatus === 'successful') {
       const now = new Date();
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async tx => {
         await tx.academySubscriptionPayment.update({
           where: { id: payment.id },
           data: { status: PaymentStatus.COMPLETED },
@@ -776,8 +776,7 @@ export class AcademySubscriptionService {
     }
 
     if (rawStatus === 'failed' || rawStatus === 'cancelled') {
-      const nextStatus =
-        rawStatus === 'failed' ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+      const nextStatus = rawStatus === 'failed' ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
       await prisma.academySubscriptionPayment.update({
         where: { id: payment.id },
         data: { status: nextStatus },

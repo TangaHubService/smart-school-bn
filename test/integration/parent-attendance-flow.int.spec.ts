@@ -152,7 +152,7 @@ describe('parent attendance flow', () => {
       {
         from: '2026-03-01',
         to: '2026-03-06',
-      },
+      }
     );
 
     expect(history.summary).toEqual({
@@ -166,4 +166,3 @@ describe('parent attendance flow', () => {
     expect(history.student.studentCode).toBe('STU-001');
   });
 });
-

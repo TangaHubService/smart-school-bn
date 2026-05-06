@@ -284,7 +284,7 @@ describe('assessments integration flow', () => {
         isPublished: false,
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(createdAssessment.title).toBe('Unit 1 Check');
@@ -320,7 +320,7 @@ describe('assessments integration flow', () => {
         ],
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(createdQuestion.options.some((option: any) => option.isCorrect)).toBe(true);
@@ -350,7 +350,7 @@ describe('assessments integration flow', () => {
       'assessment-1',
       undefined,
       studentActor,
-      context,
+      context
     );
 
     expect(startedAttempt.status).toBe('IN_PROGRESS');
@@ -373,7 +373,7 @@ describe('assessments integration flow', () => {
               updatedAt: new Date('2026-03-06T08:16:00.000Z'),
             },
           ],
-        }),
+        })
       )
       .mockResolvedValueOnce(
         buildAttemptRow({
@@ -391,7 +391,7 @@ describe('assessments integration flow', () => {
               updatedAt: new Date('2026-03-06T08:16:00.000Z'),
             },
           ],
-        }),
+        })
       );
     mockedPrisma.assessmentAnswer.upsert.mockResolvedValue({ id: 'answer-1' });
 
@@ -401,7 +401,7 @@ describe('assessments integration flow', () => {
       {
         answers: [{ questionId: 'question-1', selectedOptionId: 'option-2' }],
       },
-      studentActor,
+      studentActor
     );
 
     expect(savedAttempt.questions[0].selectedOptionId).toBe('option-2');
@@ -434,7 +434,7 @@ describe('assessments integration flow', () => {
                   updatedAt: new Date('2026-03-06T08:17:00.000Z'),
                 },
               ],
-            }),
+            })
           ),
         },
       };
@@ -446,7 +446,7 @@ describe('assessments integration flow', () => {
       'tenant-1',
       'attempt-1',
       studentActor,
-      context,
+      context
     );
 
     expect(submittedAttempt.status).toBe('SUBMITTED');
@@ -473,7 +473,7 @@ describe('assessments integration flow', () => {
             updatedAt: new Date('2026-03-06T08:17:00.000Z'),
           },
         ],
-      }),
+      })
     );
 
     mockedPrisma.$transaction.mockImplementationOnce(async (callback: any) => {
@@ -510,7 +510,7 @@ describe('assessments integration flow', () => {
                   updatedAt: new Date('2026-03-06T08:20:00.000Z'),
                 },
               ],
-            }),
+            })
           ),
         },
       };
@@ -526,7 +526,7 @@ describe('assessments integration flow', () => {
         answers: [{ questionId: 'question-1', pointsAwarded: 3 }],
       },
       teacherActor,
-      context,
+      context
     );
 
     expect(regradedAttempt.manualScore).toBe(3);

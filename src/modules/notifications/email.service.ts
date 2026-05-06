@@ -46,7 +46,10 @@ export class EmailService {
 
   async sendPasswordResetOtp(input: PasswordResetEmailInput): Promise<void> {
     const subject = `Your Smart School Rwanda Password Reset Code`;
-    const expirationTime = input.expiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const expirationTime = input.expiresAt.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
     const escapedOtp = escapeHtml(input.otp);
     const escapedExpirationTime = escapeHtml(expirationTime);
 

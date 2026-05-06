@@ -30,7 +30,7 @@ export const listAnnouncementsQuerySchema = z.object({
   publishedOnly: z
     .string()
     .optional()
-    .transform((v) => v === 'true' || v === '1'),
+    .transform(v => v === 'true' || v === '1'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });

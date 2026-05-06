@@ -17,7 +17,7 @@ usersRoutes.get(
   '/me',
   authenticate,
   enforceTenant,
-  asyncHandler((req, res) => usersController.getMe(req, res)),
+  asyncHandler((req, res) => usersController.getMe(req, res))
 );
 
 usersRoutes.get(
@@ -25,7 +25,7 @@ usersRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.USERS_READ]),
-  asyncHandler((req, res) => usersController.listUsers(req, res)),
+  asyncHandler((req, res) => usersController.listUsers(req, res))
 );
 
 usersRoutes.get(
@@ -33,7 +33,7 @@ usersRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.USERS_READ]),
-  asyncHandler((req, res) => usersController.getUser(req, res)),
+  asyncHandler((req, res) => usersController.getUser(req, res))
 );
 
 usersRoutes.patch(
@@ -42,7 +42,7 @@ usersRoutes.patch(
   enforceTenant,
   requirePermissions([PERMISSIONS.USERS_READ]),
   validateBody(updateUserStatusSchema),
-  asyncHandler((req, res) => usersController.updateUserStatus(req, res)),
+  asyncHandler((req, res) => usersController.updateUserStatus(req, res))
 );
 
 usersRoutes.get(
@@ -50,5 +50,5 @@ usersRoutes.get(
   authenticate,
   enforceTenant,
   requirePermissions([PERMISSIONS.USERS_READ]),
-  asyncHandler((req, res) => usersController.exportUsers(req, res)),
+  asyncHandler((req, res) => usersController.exportUsers(req, res))
 );

@@ -16,14 +16,18 @@ export class ConductMarksService {
   private readonly auditService = new AuditService();
 
   private isTeacherOnly(actor: JwtUser) {
-    return actor.roles.includes('TEACHER') && !actor.roles.includes('SUPER_ADMIN') && !actor.roles.includes('SCHOOL_ADMIN');
+    return (
+      actor.roles.includes('TEACHER') &&
+      !actor.roles.includes('SUPER_ADMIN') &&
+      !actor.roles.includes('SCHOOL_ADMIN')
+    );
   }
 
   private async assertTeachesClass(
     tenantId: string,
     academicYearId: string,
     classRoomId: string,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
       return;
@@ -42,7 +46,7 @@ export class ConductMarksService {
       throw new AppError(
         403,
         'CONDUCT_CLASS_FORBIDDEN',
-        'You are not assigned to teach this class for this academic year',
+        'You are not assigned to teach this class for this academic year'
       );
     }
   }
@@ -56,7 +60,7 @@ export class ConductMarksService {
       throw new AppError(
         409,
         'RESULTS_LOCKED',
-        'Results are locked for this term and class. Unlock before recording conduct deductions',
+        'Results are locked for this term and class. Unlock before recording conduct deductions'
       );
     }
   }
@@ -77,14 +81,14 @@ export class ConductMarksService {
     });
 
     const settings = await prisma.conductTermSetting.findMany({
-      where: { tenantId, termId: { in: terms.map((t) => t.id) } },
+      where: { tenantId, termId: { in: terms.map(t => t.id) } },
       select: { termId: true, totalMarks: true, updatedAt: true },
     });
-    const byTerm = new Map(settings.map((s) => [s.termId, s]));
+    const byTerm = new Map(settings.map(s => [s.termId, s]));
 
     return {
       academicYear: year,
-      terms: terms.map((t) => ({
+      terms: terms.map(t => ({
         ...t,
         totalMarks: byTerm.get(t.id)?.totalMarks ?? null,
         settingUpdatedAt: byTerm.get(t.id)?.updatedAt ?? null,
@@ -97,7 +101,7 @@ export class ConductMarksService {
     termId: string,
     totalMarks: number,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const term = await prisma.term.findFirst({
       where: { id: termId, tenantId, isActive: true },
@@ -140,7 +144,7 @@ export class ConductMarksService {
     tenantId: string,
     input: CreateDeductionBodyInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     await this.assertResultsUnlocked(tenantId, input.termId, input.classRoomId);
     await this.assertTeachesClass(tenantId, input.academicYearId, input.classRoomId, actor);
@@ -164,10 +168,18 @@ export class ConductMarksService {
     ]);
 
     if (!term || term.academicYearId !== input.academicYearId) {
-      throw new AppError(400, 'CONDUCT_TERM_YEAR_MISMATCH', 'Term does not belong to the given academic year');
+      throw new AppError(
+        400,
+        'CONDUCT_TERM_YEAR_MISMATCH',
+        'Term does not belong to the given academic year'
+      );
     }
     if (!enrollment) {
-      throw new AppError(400, 'CONDUCT_STUDENT_NOT_IN_CLASS', 'Student is not actively enrolled in this class');
+      throw new AppError(
+        400,
+        'CONDUCT_STUDENT_NOT_IN_CLASS',
+        'Student is not actively enrolled in this class'
+      );
     }
 
     const classRoom = await prisma.classRoom.findFirst({
@@ -242,7 +254,7 @@ export class ConductMarksService {
       throw new AppError(
         403,
         'CONDUCT_HISTORY_FORBIDDEN',
-        'You can only view conduct data for students in your classes',
+        'You can only view conduct data for students in your classes'
       );
     }
   }
@@ -251,7 +263,7 @@ export class ConductMarksService {
     tenantId: string,
     studentId: string,
     query: ListStudentDeductionsQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const student = await prisma.student.findFirst({
       where: { id: studentId, tenantId, deletedAt: null },
@@ -286,7 +298,7 @@ export class ConductMarksService {
     ]);
 
     return {
-      items: rows.map((r) => ({
+      items: rows.map(r => ({
         id: r.id,
         pointsDeducted: r.pointsDeducted,
         reason: r.reason,
@@ -306,7 +318,7 @@ export class ConductMarksService {
     tenantId: string,
     studentId: string,
     query: StudentConductSummaryQueryInput,
-    actor: JwtUser,
+    actor: JwtUser
   ) {
     const { academicYearId } = query;
     const student = await prisma.student.findFirst({
@@ -348,7 +360,13 @@ export class ConductMarksService {
       return {
         academicYearId,
         classRoomId: null as string | null,
-        terms: [] as Array<{ termId: string; termName: string; finalScore: number; totalMarks: number; grade: string }>,
+        terms: [] as Array<{
+          termId: string;
+          termName: string;
+          finalScore: number;
+          totalMarks: number;
+          grade: string;
+        }>,
       };
     }
 
@@ -359,7 +377,7 @@ export class ConductMarksService {
     });
 
     const nums = await Promise.all(
-      terms.map(async (t) => {
+      terms.map(async t => {
         const m = await loadTermConductNumbersMap({
           tenantId,
           academicYearId,
@@ -375,7 +393,7 @@ export class ConductMarksService {
           totalMarks: n?.totalMarks ?? 0,
           grade: n ? `${n.finalScore}/${n.totalMarks}` : '0/0',
         };
-      }),
+      })
     );
 
     return { academicYearId, classRoomId, terms: nums };

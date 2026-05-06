@@ -58,7 +58,7 @@ export function createMockResponse(): MockResponse {
 export function runMiddleware(
   middleware: (req: any, res: any, next: NextFunction) => void,
   req: MockRequest,
-  res: MockResponse,
+  res: MockResponse
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     middleware(req as any, res as any, (error?: unknown) => {
@@ -71,10 +71,6 @@ export function runMiddleware(
   });
 }
 
-export function applyError(
-  error: unknown,
-  req: MockRequest,
-  res: MockResponse,
-): void {
+export function applyError(error: unknown, req: MockRequest, res: MockResponse): void {
   errorHandlerMiddleware(error, req as any, res as any, (() => undefined) as NextFunction);
 }

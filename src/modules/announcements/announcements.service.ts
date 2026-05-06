@@ -28,11 +28,7 @@ export class AnnouncementsService {
   private readonly auditService = new AuditService();
   private readonly systemAnnouncements = new SystemAnnouncementsService();
 
-  async list(
-    tenantId: string,
-    query: ListAnnouncementsQueryInput,
-    actor?: JwtUser,
-  ) {
+  async list(tenantId: string, query: ListAnnouncementsQueryInput, actor?: JwtUser) {
     const where: Record<string, unknown> = {
       tenantId,
     };
@@ -43,10 +39,7 @@ export class AnnouncementsService {
 
     if (query.publishedOnly) {
       where.publishedAt = { not: null };
-      where.OR = [
-        { expiresAt: null },
-        { expiresAt: { gt: new Date() } },
-      ];
+      where.OR = [{ expiresAt: null }, { expiresAt: { gt: new Date() } }];
     }
 
     if (query.classRoomId) {
@@ -72,11 +65,11 @@ export class AnnouncementsService {
 
     const systemBroadcasts = await this.systemAnnouncements.listVisibleForViewer(
       tenantId,
-      actor?.roles ?? [],
+      actor?.roles ?? []
     );
 
     return {
-      items: items.map((a) => ({
+      items: items.map(a => ({
         id: a.id,
         title: a.title,
         body: a.body,
@@ -97,7 +90,7 @@ export class AnnouncementsService {
   async listForStudent(
     tenantId: string,
     studentId: string,
-    query: { page?: number; pageSize?: number },
+    query: { page?: number; pageSize?: number }
   ) {
     const enrollment = await prisma.studentEnrollment.findFirst({
       where: {
@@ -120,7 +113,12 @@ export class AnnouncementsService {
         ? [{ audience: AnnouncementAudience.CLASS_ROOM, targetClassRoomIds: { has: classRoomId } }]
         : []),
       ...(gradeLevelId
-        ? [{ audience: AnnouncementAudience.GRADE_LEVEL, targetGradeLevelIds: { has: gradeLevelId } }]
+        ? [
+            {
+              audience: AnnouncementAudience.GRADE_LEVEL,
+              targetGradeLevelIds: { has: gradeLevelId },
+            },
+          ]
         : []),
     ];
 
@@ -146,10 +144,12 @@ export class AnnouncementsService {
       }),
     ]);
 
-    const systemBroadcasts = await this.systemAnnouncements.listVisibleForViewer(tenantId, ['STUDENT']);
+    const systemBroadcasts = await this.systemAnnouncements.listVisibleForViewer(tenantId, [
+      'STUDENT',
+    ]);
 
     return {
-      items: items.map((a) => ({
+      items: items.map(a => ({
         id: a.id,
         title: a.title,
         body: a.body,
@@ -192,7 +192,7 @@ export class AnnouncementsService {
     tenantId: string,
     input: CreateAnnouncementInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const publishedAt = input.publishedAt ? new Date(input.publishedAt) : null;
     const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
@@ -236,7 +236,7 @@ export class AnnouncementsService {
     id: string,
     input: UpdateAnnouncementInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const existing = await prisma.announcement.findFirst({
       where: { id, tenantId },
@@ -253,7 +253,9 @@ export class AnnouncementsService {
         ...(input.body != null && { body: input.body }),
         ...(input.audience != null && { audience: input.audience }),
         ...(input.targetClassRoomIds != null && { targetClassRoomIds: input.targetClassRoomIds }),
-        ...(input.targetGradeLevelIds != null && { targetGradeLevelIds: input.targetGradeLevelIds }),
+        ...(input.targetGradeLevelIds != null && {
+          targetGradeLevelIds: input.targetGradeLevelIds,
+        }),
         ...(input.publishedAt !== undefined && {
           publishedAt: input.publishedAt ? new Date(input.publishedAt) : null,
         }),
@@ -284,12 +286,7 @@ export class AnnouncementsService {
     return this.getById(tenantId, id);
   }
 
-  async delete(
-    tenantId: string,
-    id: string,
-    actor: JwtUser,
-    context: RequestAuditContext,
-  ) {
+  async delete(tenantId: string, id: string, actor: JwtUser, context: RequestAuditContext) {
     const existing = await prisma.announcement.findFirst({
       where: { id, tenantId },
     });

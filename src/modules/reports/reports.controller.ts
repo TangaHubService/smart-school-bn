@@ -34,7 +34,7 @@ export class ReportsController {
       req.tenantId!,
       req.params.studentId,
       query,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }
@@ -45,7 +45,7 @@ export class ReportsController {
       req.tenantId!,
       req.params.classRoomId,
       query,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }
@@ -121,7 +121,7 @@ export class ReportsController {
       req.tenantId!,
       req.params.studentId,
       query,
-      req.user!,
+      req.user!
     );
     return sendSuccess(req, res, result);
   }

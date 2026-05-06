@@ -15,7 +15,12 @@ export const rootLogger = pino({
     err: pino.stdSerializers.err,
   },
   redact: {
-    paths: ['req.headers.authorization', 'req.headers.cookie', 'headers.authorization', 'headers.cookie'],
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'headers.authorization',
+      'headers.cookie',
+    ],
     remove: true,
   },
   ...(usePretty

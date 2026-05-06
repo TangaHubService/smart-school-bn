@@ -35,7 +35,7 @@ export function isYearlyAggregationTerm(term: { sequence: number; name: string }
 }
 
 export function resolveBand(rules: GradingBand[], percentage: number) {
-  const band = rules.find((item) => percentage >= item.min && percentage <= item.max);
+  const band = rules.find(item => percentage >= item.min && percentage <= item.max);
   return {
     grade: band?.grade ?? 'N/A',
     remark: band?.remark ?? 'No remark',
@@ -48,7 +48,7 @@ export function resolveBand(rules: GradingBand[], percentage: number) {
 export function computeSubjectTermPerformance(
   subjectExams: ExamForTermRollup[],
   studentId: string,
-  policy: TermAssessmentPolicy,
+  policy: TermAssessmentPolicy
 ): {
   continuousAssessmentPercent: number;
   examPercent: number;
@@ -58,11 +58,11 @@ export function computeSubjectTermPerformance(
   examObtained: number;
   examMax: number;
 } {
-  const caExams = subjectExams.filter((e) => e.examType === 'CAT');
-  const termExams = subjectExams.filter((e) => e.examType === 'EXAM');
+  const caExams = subjectExams.filter(e => e.examType === 'CAT');
+  const termExams = subjectExams.filter(e => e.examType === 'EXAM');
 
   const pctForStudent = (exam: ExamForTermRollup): number => {
-    const m = exam.marks.find((item) => item.studentId === studentId);
+    const m = exam.marks.find(item => item.studentId === studentId);
     if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
       return 0;
     }
@@ -98,7 +98,7 @@ export function computeSubjectTermPerformance(
   let caObtained = 0;
   let caMax = 0;
   for (const e of caExams) {
-    const m = e.marks.find((mark) => mark.studentId === studentId);
+    const m = e.marks.find(mark => mark.studentId === studentId);
     if (m?.status === MarkStatus.PRESENT && m.marksObtained != null) {
       caObtained += m.marksObtained;
     }
@@ -107,7 +107,7 @@ export function computeSubjectTermPerformance(
   let examObtained = 0;
   let examMax = 0;
   for (const e of termExams) {
-    const m = e.marks.find((mark) => mark.studentId === studentId);
+    const m = e.marks.find(mark => mark.studentId === studentId);
     if (m?.status === MarkStatus.PRESENT && m.marksObtained != null) {
       examObtained += m.marksObtained;
     }
@@ -149,10 +149,9 @@ export function buildYearlyReportCardSubjects(params: {
 
   for (const subjectId of sortedSubjectIds) {
     const subjectName = params.subjectNameById.get(subjectId) ?? subjectId;
-    const yearlyTermBreakdown = params.teachingTerms.map((tt) => {
-      const subjectExams = tt.exams.filter((e) => e.subjectId === subjectId);
-      const pol =
-        params.policyByTermAndSubject.get(`${tt.termId}:${subjectId}`) ?? defaultPolicy;
+    const yearlyTermBreakdown = params.teachingTerms.map(tt => {
+      const subjectExams = tt.exams.filter(e => e.subjectId === subjectId);
+      const pol = params.policyByTermAndSubject.get(`${tt.termId}:${subjectId}`) ?? defaultPolicy;
       const m = computeSubjectTermPerformance(subjectExams, params.studentId, pol);
       return {
         termName: tt.termName,
@@ -164,16 +163,15 @@ export function buildYearlyReportCardSubjects(params: {
       };
     });
 
-    const finals = yearlyTermBreakdown.map((t) => t.termFinalPercent);
+    const finals = yearlyTermBreakdown.map(t => t.termFinalPercent);
     const yearlyAveragePercent =
       finals.length > 0 ? finals.reduce((a, b) => a + b, 0) / finals.length : 0;
     const totalRawObtained = yearlyTermBreakdown.reduce(
       (sum, t) => sum + t.caObtained + t.examObtained,
-      0,
+      0
     );
     const totalRawMax = yearlyTermBreakdown.reduce((sum, t) => sum + t.caMax + t.examMax, 0);
-    const yearlyTotalRawPercent =
-      totalRawMax > 0 ? (totalRawObtained / totalRawMax) * 100 : 0;
+    const yearlyTotalRawPercent = totalRawMax > 0 ? (totalRawObtained / totalRawMax) * 100 : 0;
 
     const passMark =
       params.policyByTermAndSubject.get(`${params.teachingTerms[0].termId}:${subjectId}`)

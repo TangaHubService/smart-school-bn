@@ -75,11 +75,7 @@ export class AuthService {
     });
 
     if (!users.length) {
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid credentials',
-      );
+      throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
     // 2. Validate password for each candidate
@@ -94,7 +90,7 @@ export class AuthService {
 
     if (!matchedUsers.length) {
       await Promise.all(
-        users.map((user) =>
+        users.map(user =>
           this.auditService.log({
             tenantId: user.tenantId,
             actorUserId: user.id,
@@ -103,22 +99,18 @@ export class AuthService {
             ipAddress: context.ipAddress,
             userAgent: context.userAgent,
             payload: { reason: 'WRONG_PASSWORD', identifier: trimmedIdentifier },
-          }),
-        ),
+          })
+        )
       );
 
-      throw new AppError(
-        401,
-        'AUTH_INVALID_CREDENTIALS',
-        'Invalid credentials',
-      );
+      throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
     // 3. Resolve ambiguity (existing multi-tenant resolution logic)
     const resolvedUser = this.resolveMatchedEmailUser(matchedUsers);
     if (!resolvedUser) {
       await Promise.all(
-        matchedUsers.map((user) =>
+        matchedUsers.map(user =>
           this.auditService.log({
             tenantId: user.tenantId,
             actorUserId: user.id,
@@ -127,14 +119,14 @@ export class AuthService {
             ipAddress: context.ipAddress,
             userAgent: context.userAgent,
             payload: { reason: 'AMBIGUOUS_IDENTIFIER', identifier: trimmedIdentifier },
-          }),
-        ),
+          })
+        )
       );
 
       throw new AppError(
         409,
         'AUTH_AMBIGUOUS_ACCOUNT',
-        'Multiple accounts match this identifier. Contact support.',
+        'Multiple accounts match this identifier. Contact support.'
       );
     }
 
@@ -148,11 +140,7 @@ export class AuthService {
 
     const catalogTenantId = await resolveAcademyCatalogTenantId();
     if (!catalogTenantId) {
-      throw new AppError(
-        503,
-        'AUTH_ACADEMY_NOT_CONFIGURED',
-        'No academy catalog school is set.',
-      );
+      throw new AppError(503, 'AUTH_ACADEMY_NOT_CONFIGURED', 'No academy catalog school is set.');
     }
 
     const academyTenant = await prisma.tenant.findFirst({
@@ -209,7 +197,7 @@ export class AuthService {
     // Create User
     const passwordHash = await bcrypt.hash(password, env.BCRYPT_ROUNDS);
 
-    const user = await prisma.$transaction(async (tx) => {
+    const user = await prisma.$transaction(async tx => {
       const newUser = await tx.user.create({
         data: {
           tenantId: academyTenant.id,
@@ -244,7 +232,7 @@ export class AuthService {
       await this.academySubscriptionService.ensureTrialSubscription(
         newUser.id,
         academyTenant.id,
-        tx,
+        tx
       );
 
       return tx.user.findUniqueOrThrow({
@@ -313,9 +301,7 @@ export class AuthService {
       throw new AppError(401, 'AUTH_INVALID_REFRESH_TOKEN', 'Invalid refresh token');
     }
 
-    const { roles, permissions } = this.extractRolesAndPermissions(
-      existingToken.user.userRoles,
-    );
+    const { roles, permissions } = this.extractRolesAndPermissions(existingToken.user.userRoles);
 
     const payload: JwtUser = {
       sub: existingToken.user.id,
@@ -326,13 +312,8 @@ export class AuthService {
       firstName: existingToken.user.firstName,
       lastName: existingToken.user.lastName,
       primaryRole: resolvePrimaryRole(roles) ?? undefined,
-      schoolName:
-        existingToken.tenant.school?.displayName ??
-        existingToken.tenant.name,
-      sessionId:
-        existingToken.sessionId ??
-        context.sessionId ??
-        randomUUID(),
+      schoolName: existingToken.tenant.school?.displayName ?? existingToken.tenant.name,
+      sessionId: existingToken.sessionId ?? context.sessionId ?? randomUUID(),
     };
 
     const accessToken = jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -342,10 +323,10 @@ export class AuthService {
     const nextRefreshToken = this.generateRefreshToken();
     const nextRefreshHash = this.hashRefreshToken(nextRefreshToken);
     const nextRefreshExpiry = new Date(
-      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
     );
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       const created = await tx.refreshToken.create({
         data: {
           tenantId: existingToken.tenantId,
@@ -389,7 +370,7 @@ export class AuthService {
       throw new AppError(
         400,
         'AUTH_LOGOUT_TOKEN_REQUIRED',
-        'refreshToken is required when allDevices is false',
+        'refreshToken is required when allDevices is false'
       );
     }
 
@@ -445,9 +426,7 @@ export class AuthService {
   }
 
   private hashRefreshToken(token: string): string {
-    return createHash('sha256')
-      .update(`${token}:${env.JWT_REFRESH_SECRET}`)
-      .digest('hex');
+    return createHash('sha256').update(`${token}:${env.JWT_REFRESH_SECRET}`).digest('hex');
   }
 
   private generateRefreshToken(): string {
@@ -463,8 +442,8 @@ export class AuthService {
       return users[0];
     }
 
-    const superAdmins = users.filter((user) =>
-      user.userRoles.some((item) => item.role.name === 'SUPER_ADMIN'),
+    const superAdmins = users.filter(user =>
+      user.userRoles.some(item => item.role.name === 'SUPER_ADMIN')
     );
 
     if (superAdmins.length === 1) {
@@ -489,7 +468,7 @@ export class AuthService {
       } | null;
       userRoles: Array<{ role: { name: string; permissions: unknown } }>;
     },
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const { roles, permissions } = this.extractRolesAndPermissions(user.userRoles);
     const sessionId = randomUUID();
@@ -513,11 +492,9 @@ export class AuthService {
 
     const refreshToken = this.generateRefreshToken();
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    const refreshExpiry = new Date(
-      Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
-    );
+    const refreshExpiry = new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       await tx.refreshToken.create({
         data: {
           tenantId,
@@ -565,13 +542,11 @@ export class AuthService {
   }
 
   private extractRolesAndPermissions(
-    userRoles: Array<{ role: { name: string; permissions: unknown } }>,
+    userRoles: Array<{ role: { name: string; permissions: unknown } }>
   ): { roles: string[]; permissions: string[] } {
-    const roles = userRoles.map((item) => item.role.name);
-    const permissions = [...
-      new Set(
-        userRoles.flatMap((item) => normalizePermissions(item.role.permissions)),
-      ),
+    const roles = userRoles.map(item => item.role.name);
+    const permissions = [
+      ...new Set(userRoles.flatMap(item => normalizePermissions(item.role.permissions))),
     ];
 
     return { roles, permissions };
@@ -630,16 +605,18 @@ export class AuthService {
     });
 
     // 5. Send Email
-    await this.emailService.sendPasswordResetOtp({
-      toEmail: user.email,
-      otp,
-      expiresAt,
-    }).catch((err) => {
-      rootLogger.error(
-        { err, email: user.email, flow: 'password_reset_otp' },
-        `Failed to send password reset OTP email to ${user.email}`,
-      );
-    });
+    await this.emailService
+      .sendPasswordResetOtp({
+        toEmail: user.email,
+        otp,
+        expiresAt,
+      })
+      .catch(err => {
+        rootLogger.error(
+          { err, email: user.email, flow: 'password_reset_otp' },
+          `Failed to send password reset OTP email to ${user.email}`
+        );
+      });
 
     return { message: 'OTP sent successfully.' };
   }

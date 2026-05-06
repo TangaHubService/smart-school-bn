@@ -47,7 +47,10 @@ interface AuditLogInput {
   payload?: unknown;
 }
 
-interface LogActivityInput extends Omit<AuditLogInput, 'actorUserId' | 'actorName' | 'actorRole' | 'schoolName'> {
+interface LogActivityInput extends Omit<
+  AuditLogInput,
+  'actorUserId' | 'actorName' | 'actorRole' | 'schoolName'
+> {
   actor?: AuditActorInput | null;
 }
 
@@ -69,7 +72,7 @@ export class AuditService {
           role: input.actorRole ?? null,
           schoolName: input.schoolName ?? null,
         },
-      }),
+      })
     );
   }
 
@@ -80,7 +83,7 @@ export class AuditService {
   private enqueueWrite(task: () => Promise<void>): Promise<void> {
     try {
       const pending = task();
-      void pending.catch((error) => {
+      void pending.catch(error => {
         rootLogger.error({ err: error }, 'Audit log write failed');
       });
     } catch (error) {
@@ -95,21 +98,12 @@ export class AuditService {
     const normalizedPayload = normalizeAuditValue(input.payload);
     const extractedValues = extractOldAndNewValues(normalizedPayload);
 
-    const actorUserId =
-      input.actor?.userId ??
-      requestContext?.actor?.sub ??
-      null;
+    const actorUserId = input.actor?.userId ?? requestContext?.actor?.sub ?? null;
 
     let tenantId =
-      input.tenantId ??
-      requestContext?.tenantId ??
-      requestContext?.actor?.tenantId ??
-      null;
+      input.tenantId ?? requestContext?.tenantId ?? requestContext?.actor?.tenantId ?? null;
 
-    let actorName =
-      input.actor?.fullName ??
-      buildActorName(requestContext?.actor) ??
-      null;
+    let actorName = input.actor?.fullName ?? buildActorName(requestContext?.actor) ?? null;
 
     let actorRole =
       input.actor?.role ??
@@ -117,10 +111,7 @@ export class AuditService {
       resolvePrimaryRole(requestContext?.actor?.roles ?? []) ??
       null;
 
-    let schoolName =
-      input.actor?.schoolName ??
-      requestContext?.actor?.schoolName ??
-      null;
+    let schoolName = input.actor?.schoolName ?? requestContext?.actor?.schoolName ?? null;
 
     if ((!tenantId || !actorName || !actorRole || !schoolName) && (actorUserId || tenantId)) {
       const resolvedMetadata = await this.resolveMetadata({
@@ -141,7 +132,7 @@ export class AuditService {
           entity: input.entity,
           entityId: input.entityId,
         },
-        'Skipping audit log because tenantId could not be resolved',
+        'Skipping audit log because tenantId could not be resolved'
       );
       return;
     }
@@ -163,16 +154,13 @@ export class AuditService {
     const userAgent = input.userAgent ?? requestContext?.userAgent ?? null;
     const device = input.device ?? buildDeviceLabel(userAgent);
     const sessionId =
-      input.sessionId ??
-      requestContext?.sessionId ??
-      requestContext?.actor?.sessionId ??
-      null;
+      input.sessionId ?? requestContext?.sessionId ?? requestContext?.actor?.sessionId ?? null;
 
     const oldValue = normalizeAuditValue(
-      input.oldValue === undefined ? extractedValues.oldValue : input.oldValue,
+      input.oldValue === undefined ? extractedValues.oldValue : input.oldValue
     );
     const newValue = normalizeAuditValue(
-      input.newValue === undefined ? extractedValues.newValue : input.newValue,
+      input.newValue === undefined ? extractedValues.newValue : input.newValue
     );
 
     await prisma.auditLog.create({
@@ -250,7 +238,7 @@ export class AuditService {
         return {
           tenantId: input.tenantId ?? actor.tenantId,
           actorName: buildActorName(actor),
-          actorRole: resolvePrimaryRole(actor.userRoles.map((item) => item.role.name)),
+          actorRole: resolvePrimaryRole(actor.userRoles.map(item => item.role.name)),
           schoolName: actor.tenant.school?.displayName ?? actor.tenant.name,
         };
       }
@@ -294,9 +282,7 @@ export class AuditService {
     };
   }
 
-  private toJsonField(
-    value: unknown,
-  ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
+  private toJsonField(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
     if (value === undefined) {
       return undefined;
     }

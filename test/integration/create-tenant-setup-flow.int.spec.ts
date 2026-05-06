@@ -118,7 +118,7 @@ describe('create tenant -> setup complete flow', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     const setupResult = await schoolsService.completeSetup(
@@ -165,7 +165,7 @@ describe('create tenant -> setup complete flow', () => {
         requestId: 'req-2',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(tenantResult.tenant.code).toBe('new-school');

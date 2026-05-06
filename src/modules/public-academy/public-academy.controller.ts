@@ -44,7 +44,9 @@ type CatalogProgramResult =
   | { ok: false; reason: 'no_catalog' | 'not_found' };
 
 function buildCatalogSubjectStats(programs: CatalogProgramRow[]) {
-  const subjectIds = [...new Set(programs.map((program) => program.course?.subjectId).filter(Boolean))];
+  const subjectIds = [
+    ...new Set(programs.map(program => program.course?.subjectId).filter(Boolean)),
+  ];
   return prisma.course.findMany({
     where: {
       tenantId: programs[0]?.tenantId ?? '',
@@ -62,7 +64,7 @@ function buildCatalogSubjectStats(programs: CatalogProgramRow[]) {
 
 function mapCatalogProgram(
   program: CatalogProgramRow,
-  subjectStats: Map<string, { count: number; titles: string[] }>,
+  subjectStats: Map<string, { count: number; titles: string[] }>
 ) {
   const subject = program.course?.subject ?? null;
   const stats = subject ? subjectStats.get(subject.id) : null;
@@ -161,12 +163,19 @@ export class PublicAcademyController {
           subjectStats.set(course.subjectId, current);
         }
       }
-      return sendSuccess(req, res, programs.map((program) => mapCatalogProgram(program, subjectStats)), 200, null, {
-        academyCatalog: {
-          resolved: true,
-          publicProgramCount: programs.length,
-        },
-      });
+      return sendSuccess(
+        req,
+        res,
+        programs.map(program => mapCatalogProgram(program, subjectStats)),
+        200,
+        null,
+        {
+          academyCatalog: {
+            resolved: true,
+            publicProgramCount: programs.length,
+          },
+        }
+      );
     } catch (error) {
       next(error);
     }
@@ -183,7 +192,7 @@ export class PublicAcademyController {
             res,
             503,
             'ACADEMY_CATALOG_NOT_CONFIGURED',
-            'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+            'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
           );
         }
         return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
@@ -194,7 +203,7 @@ export class PublicAcademyController {
         const subjectCourses = await buildCatalogSubjectStats([result.program]);
         subjectStats.set(subjectId, {
           count: subjectCourses.length,
-          titles: subjectCourses.slice(0, 6).map((course) => course.title),
+          titles: subjectCourses.slice(0, 6).map(course => course.title),
         });
       }
       return sendSuccess(req, res, mapCatalogProgram(result.program, subjectStats));
@@ -285,7 +294,7 @@ export class PublicAcademyController {
       const result = await academySubscriptionService.removeProgram(
         userId,
         tenantId,
-        req.params.programId,
+        req.params.programId
       );
       return sendSuccess(req, res, result);
     } catch (error) {
@@ -305,7 +314,7 @@ export class PublicAcademyController {
       const result = await academySubscriptionService.removeSubject(
         userId,
         tenantId,
-        req.params.subjectId,
+        req.params.subjectId
       );
       return sendSuccess(req, res, result);
     } catch (error) {
@@ -331,7 +340,7 @@ export class PublicAcademyController {
             res,
             503,
             'ACADEMY_CATALOG_NOT_CONFIGURED',
-            'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env',
+            'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
           );
         }
         return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
@@ -375,7 +384,7 @@ export class PublicAcademyController {
           paymentId: payment.id,
           paypackRef: paypackResponse.ref,
         },
-        202,
+        202
       );
     } catch (error) {
       next(error);
@@ -414,7 +423,10 @@ export class PublicAcademyController {
       if (!payment) {
         const academyResult = await academySubscriptionService.handlePaymentWebhook(ref, status);
         if (!academyResult.handled) {
-          academyWebhookLog.info({ ref, status }, 'Ignored Paypack webhook for unknown payment reference');
+          academyWebhookLog.info(
+            { ref, status },
+            'Ignored Paypack webhook for unknown payment reference'
+          );
           return res.status(200).send('Payment not found (ignored)');
         }
 
@@ -427,15 +439,17 @@ export class PublicAcademyController {
             subscriptionId:
               'subscriptionId' in academyResult ? academyResult.subscriptionId : undefined,
           },
-          'Processed academy subscription Paypack webhook',
+          'Processed academy subscription Paypack webhook'
         );
 
-        getIO().to(`trx-${ref}`).emit('transactionUpdate', {
-          event: 'payment:processed',
-          status: academyResult.status,
-          paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
-          ref,
-        });
+        getIO()
+          .to(`trx-${ref}`)
+          .emit('transactionUpdate', {
+            event: 'payment:processed',
+            status: academyResult.status,
+            paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
+            ref,
+          });
 
         return res.status(200).send('OK');
       }
@@ -443,13 +457,13 @@ export class PublicAcademyController {
       if (payment.status !== 'PENDING') {
         academyWebhookLog.info(
           { ref, status, paymentId: payment.id, paymentStatus: payment.status },
-          'Ignored already-processed legacy payment webhook',
+          'Ignored already-processed legacy payment webhook'
         );
         return res.status(200).send('Already processed');
       }
 
       if (status === 'successful') {
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async tx => {
           await tx.payment.update({
             where: { id: payment.id },
             data: { status: 'COMPLETED' },
@@ -494,7 +508,7 @@ export class PublicAcademyController {
 
         academyWebhookLog.info(
           { ref, status, paymentId: payment.id, paymentStatus: 'COMPLETED' },
-          'Processed legacy program payment Paypack webhook',
+          'Processed legacy program payment Paypack webhook'
         );
       } else if (status === 'failed' || status === 'cancelled') {
         const newStatus = status === 'failed' ? 'FAILED' : 'CANCELLED';
@@ -512,12 +526,12 @@ export class PublicAcademyController {
 
         academyWebhookLog.info(
           { ref, status, paymentId: payment.id, paymentStatus: newStatus },
-          'Processed legacy program payment Paypack webhook',
+          'Processed legacy program payment Paypack webhook'
         );
       } else {
         academyWebhookLog.info(
           { ref, status, paymentId: payment.id, paymentStatus: payment.status },
-          'Received Paypack webhook with non-terminal legacy payment status',
+          'Received Paypack webhook with non-terminal legacy payment status'
         );
       }
 

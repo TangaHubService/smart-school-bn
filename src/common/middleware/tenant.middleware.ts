@@ -3,11 +3,7 @@ import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app-error';
 import { mergeAuditRequestContext } from '../utils/request-audit-context';
 
-export function enforceTenant(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+export function enforceTenant(req: Request, _res: Response, next: NextFunction): void {
   const tenantId = req.user?.tenantId;
   if (!tenantId) {
     next(new AppError(401, 'AUTH_UNAUTHORIZED', 'User tenant not found'));

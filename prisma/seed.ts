@@ -23,7 +23,7 @@ type SeedGradingBand = {
 
 function resolveSeedBand(rules: SeedGradingBand[], score: number) {
   return (
-    rules.find((rule) => score >= rule.min && score <= rule.max) ?? {
+    rules.find(rule => score >= rule.min && score <= rule.max) ?? {
       grade: 'N/A',
       remark: 'No grade',
     }
@@ -61,13 +61,12 @@ function buildSeedReportCardPayload(params: {
   classSize: number;
   position: number;
 }) {
-  const subjects = params.subjects.map((subject) => {
-    const subjectWeightTotal =
-      subject.exams.reduce((sum, exam) => sum + exam.weight, 0) || 1;
+  const subjects = params.subjects.map(subject => {
+    const subjectWeightTotal = subject.exams.reduce((sum, exam) => sum + exam.weight, 0) || 1;
     const averagePercentage =
       subject.exams.reduce(
         (sum, exam) => sum + (exam.marksObtained / exam.totalMarks) * 100 * exam.weight,
-        0,
+        0
       ) / subjectWeightTotal;
     const subjectBand = resolveSeedBand(params.rules, averagePercentage);
 
@@ -77,7 +76,7 @@ function buildSeedReportCardPayload(params: {
       averagePercentage: Number(averagePercentage.toFixed(2)),
       grade: subjectBand.grade,
       remark: subjectBand.remark,
-      exams: subject.exams.map((exam) => ({
+      exams: subject.exams.map(exam => ({
         examId: exam.id,
         name: exam.name,
         marksObtained: exam.marksObtained,
@@ -91,12 +90,11 @@ function buildSeedReportCardPayload(params: {
   const totalMarksObtained = params.subjects.reduce(
     (sum, subject) =>
       sum + subject.exams.reduce((examSum, exam) => examSum + exam.marksObtained, 0),
-    0,
+    0
   );
   const totalMarksPossible = params.subjects.reduce(
-    (sum, subject) =>
-      sum + subject.exams.reduce((examSum, exam) => examSum + exam.totalMarks, 0),
-    0,
+    (sum, subject) => sum + subject.exams.reduce((examSum, exam) => examSum + exam.totalMarks, 0),
+    0
   );
   const overallPercentage = subjects.length
     ? subjects.reduce((sum, subject) => sum + subject.averagePercentage, 0) / subjects.length
@@ -172,9 +170,9 @@ function buildRwandaStyleReportSnapshotPayload(params: {
   classSize: number;
   position: number;
 }) {
-  const subjects = params.subjects.map((subject) => {
-    const catExams = subject.exams.filter((e) => e.examType === 'CAT');
-    const termExams = subject.exams.filter((e) => e.examType === 'EXAM');
+  const subjects = params.subjects.map(subject => {
+    const catExams = subject.exams.filter(e => e.examType === 'CAT');
+    const termExams = subject.exams.filter(e => e.examType === 'EXAM');
     const weighted = (list: typeof subject.exams) => {
       if (!list.length) {
         return 0;
@@ -210,7 +208,7 @@ function buildRwandaStyleReportSnapshotPayload(params: {
       decision,
       grade: band.grade,
       remark: band.remark,
-      exams: subject.exams.map((e) => ({
+      exams: subject.exams.map(e => ({
         examId: e.examId,
         name: e.name,
         examType: e.examType,
@@ -223,7 +221,9 @@ function buildRwandaStyleReportSnapshotPayload(params: {
     };
   });
 
-  const avg = subjects.length ? subjects.reduce((s, x) => s + x.finalPercent, 0) / subjects.length : 0;
+  const avg = subjects.length
+    ? subjects.reduce((s, x) => s + x.finalPercent, 0) / subjects.length
+    : 0;
   const overallBand = resolveSeedBand(params.rules, avg);
   const totalMarksObtained = subjects.reduce((s, x) => s + x.finalPercent, 0);
   const totalMarksPossible = subjects.length * 100;
@@ -299,10 +299,10 @@ function buildThreeTermYearlyReportSnapshotPayload(params: {
 }) {
   const termCount = params.termPayloads.length;
   const subjects = params.termPayloads[0].subjects.map((_, subjectIndex) => {
-    const yearlyTermBreakdown = params.termPayloads.map((tp) => {
+    const yearlyTermBreakdown = params.termPayloads.map(tp => {
       const s = tp.subjects[subjectIndex];
-      const cat = s.exams.find((e) => e.examType === 'CAT');
-      const ex = s.exams.find((e) => e.examType === 'EXAM');
+      const cat = s.exams.find(e => e.examType === 'CAT');
+      const ex = s.exams.find(e => e.examType === 'EXAM');
       return {
         termName: tp.termName,
         caObtained: cat?.marksObtained ?? 0,
@@ -312,16 +312,15 @@ function buildThreeTermYearlyReportSnapshotPayload(params: {
         termFinalPercent: s.finalPercent,
       };
     });
-    const finals = yearlyTermBreakdown.map((t) => t.termFinalPercent);
+    const finals = yearlyTermBreakdown.map(t => t.termFinalPercent);
     const yearlyAveragePercent =
       finals.length > 0 ? finals.reduce((a, b) => a + b, 0) / finals.length : 0;
     const totalRawObtained = yearlyTermBreakdown.reduce(
       (sum, t) => sum + t.caObtained + t.examObtained,
-      0,
+      0
     );
     const totalRawMax = termCount * (params.caMax + params.examMax);
-    const yearlyTotalRawPercent =
-      totalRawMax > 0 ? (totalRawObtained / totalRawMax) * 100 : 0;
+    const yearlyTotalRawPercent = totalRawMax > 0 ? (totalRawObtained / totalRawMax) * 100 : 0;
     const band = resolveSeedBand(params.rules, yearlyAveragePercent);
     const decision = yearlyAveragePercent >= params.passMark ? 'PASS' : 'FAIL';
     const yAvg = Number(yearlyAveragePercent.toFixed(2));
@@ -539,15 +538,9 @@ async function main() {
   });
 
   const defaultSchoolRoles = buildDefaultTenantRoles();
-  const teacherRoleDefinition = defaultSchoolRoles.find(
-    (role) => role.name === 'TEACHER',
-  )!;
-  const studentRoleDefinition = defaultSchoolRoles.find(
-    (role) => role.name === 'STUDENT',
-  )!;
-  const parentRoleDefinition = defaultSchoolRoles.find(
-    (role) => role.name === 'PARENT',
-  )!;
+  const teacherRoleDefinition = defaultSchoolRoles.find(role => role.name === 'TEACHER')!;
+  const studentRoleDefinition = defaultSchoolRoles.find(role => role.name === 'STUDENT')!;
+  const parentRoleDefinition = defaultSchoolRoles.find(role => role.name === 'PARENT')!;
 
   const teacherRole = await prisma.role.upsert({
     where: {
@@ -1143,25 +1136,25 @@ async function main() {
 
   const course = existingCourse
     ? await prisma.course.update({
-      where: { id: existingCourse.id },
-      data: {
-        subjectId: mathSubject.id,
-        description: 'Weekly Grade 1 mathematics lessons and assignments.',
-        isActive: true,
-      },
-    })
+        where: { id: existingCourse.id },
+        data: {
+          subjectId: mathSubject.id,
+          description: 'Weekly Grade 1 mathematics lessons and assignments.',
+          isActive: true,
+        },
+      })
     : await prisma.course.create({
-      data: {
-        tenantId: schoolTenant.id,
-        academicYearId: academicYear.id,
-        classRoomId: classRoom.id,
-        subjectId: mathSubject.id,
-        teacherUserId: teacherUser.id,
-        title: 'Mathematics Grade 1',
-        description: 'Weekly Grade 1 mathematics lessons and assignments.',
-        isActive: true,
-      },
-    });
+        data: {
+          tenantId: schoolTenant.id,
+          academicYearId: academicYear.id,
+          classRoomId: classRoom.id,
+          subjectId: mathSubject.id,
+          teacherUserId: teacherUser.id,
+          title: 'Mathematics Grade 1',
+          description: 'Weekly Grade 1 mathematics lessons and assignments.',
+          isActive: true,
+        },
+      });
 
   const existingLessonOne = await prisma.lesson.findFirst({
     where: {
@@ -1173,33 +1166,33 @@ async function main() {
 
   const lessonOne = await (existingLessonOne
     ? prisma.lesson.update({
-      where: { id: existingLessonOne.id },
-      data: {
-        title: 'Counting up to 20',
-        summary: 'Practice counting objects up to twenty.',
-        contentType: 'TEXT',
-        body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T08:15:00.000Z'),
-        createdByUserId: teacherUser.id,
-        publishedByUserId: teacherUser.id,
-      },
-    })
+        where: { id: existingLessonOne.id },
+        data: {
+          title: 'Counting up to 20',
+          summary: 'Practice counting objects up to twenty.',
+          contentType: 'TEXT',
+          body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T08:15:00.000Z'),
+          createdByUserId: teacherUser.id,
+          publishedByUserId: teacherUser.id,
+        },
+      })
     : prisma.lesson.create({
-      data: {
-        tenantId: schoolTenant.id,
-        courseId: course.id,
-        sequence: 1,
-        title: 'Counting up to 20',
-        summary: 'Practice counting objects up to twenty.',
-        contentType: 'TEXT',
-        body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T08:15:00.000Z'),
-        createdByUserId: teacherUser.id,
-        publishedByUserId: teacherUser.id,
-      },
-    }));
+        data: {
+          tenantId: schoolTenant.id,
+          courseId: course.id,
+          sequence: 1,
+          title: 'Counting up to 20',
+          summary: 'Practice counting objects up to twenty.',
+          contentType: 'TEXT',
+          body: 'Use the lesson notes and examples to count classroom items from 1 to 20.',
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T08:15:00.000Z'),
+          createdByUserId: teacherUser.id,
+          publishedByUserId: teacherUser.id,
+        },
+      }));
 
   const existingLessonTwo = await prisma.lesson.findFirst({
     where: {
@@ -1211,33 +1204,33 @@ async function main() {
 
   const lessonTwo = existingLessonTwo
     ? await prisma.lesson.update({
-      where: { id: existingLessonTwo.id },
-      data: {
-        title: 'Shapes around us',
-        summary: 'Watch a short shape recognition lesson.',
-        contentType: 'VIDEO',
-        externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T08:30:00.000Z'),
-        createdByUserId: teacherUser.id,
-        publishedByUserId: teacherUser.id,
-      },
-    })
+        where: { id: existingLessonTwo.id },
+        data: {
+          title: 'Shapes around us',
+          summary: 'Watch a short shape recognition lesson.',
+          contentType: 'VIDEO',
+          externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T08:30:00.000Z'),
+          createdByUserId: teacherUser.id,
+          publishedByUserId: teacherUser.id,
+        },
+      })
     : await prisma.lesson.create({
-      data: {
-        tenantId: schoolTenant.id,
-        courseId: course.id,
-        sequence: 2,
-        title: 'Shapes around us',
-        summary: 'Watch a short shape recognition lesson.',
-        contentType: 'VIDEO',
-        externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T08:30:00.000Z'),
-        createdByUserId: teacherUser.id,
-        publishedByUserId: teacherUser.id,
-      },
-    });
+        data: {
+          tenantId: schoolTenant.id,
+          courseId: course.id,
+          sequence: 2,
+          title: 'Shapes around us',
+          summary: 'Watch a short shape recognition lesson.',
+          contentType: 'VIDEO',
+          externalUrl: 'https://www.youtube.com/watch?v=OEbRDtCAFdU',
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T08:30:00.000Z'),
+          createdByUserId: teacherUser.id,
+          publishedByUserId: teacherUser.id,
+        },
+      });
 
   const existingAssignment = await prisma.assignment.findFirst({
     where: {
@@ -1249,31 +1242,31 @@ async function main() {
 
   const assignment = existingAssignment
     ? await prisma.assignment.update({
-      where: { id: existingAssignment.id },
-      data: {
-        lessonId: lessonTwo.id,
-        instructions:
-          'Count five objects at home or in class and submit your answers in text or link form.',
-        dueAt: new Date('2026-03-15T17:00:00.000Z'),
-        maxPoints: 20,
-        isPublished: true,
-        createdByUserId: teacherUser.id,
-      },
-    })
+        where: { id: existingAssignment.id },
+        data: {
+          lessonId: lessonTwo.id,
+          instructions:
+            'Count five objects at home or in class and submit your answers in text or link form.',
+          dueAt: new Date('2026-03-15T17:00:00.000Z'),
+          maxPoints: 20,
+          isPublished: true,
+          createdByUserId: teacherUser.id,
+        },
+      })
     : await prisma.assignment.create({
-      data: {
-        tenantId: schoolTenant.id,
-        courseId: course.id,
-        lessonId: lessonTwo.id,
-        title: 'Count the classroom objects',
-        instructions:
-          'Count five objects at home or in class and submit your answers in text or link form.',
-        dueAt: new Date('2026-03-15T17:00:00.000Z'),
-        maxPoints: 20,
-        isPublished: true,
-        createdByUserId: teacherUser.id,
-      },
-    });
+        data: {
+          tenantId: schoolTenant.id,
+          courseId: course.id,
+          lessonId: lessonTwo.id,
+          title: 'Count the classroom objects',
+          instructions:
+            'Count five objects at home or in class and submit your answers in text or link form.',
+          dueAt: new Date('2026-03-15T17:00:00.000Z'),
+          maxPoints: 20,
+          isPublished: true,
+          createdByUserId: teacherUser.id,
+        },
+      });
 
   await prisma.submission.upsert({
     where: {
@@ -1501,7 +1494,7 @@ async function main() {
     >
   >();
   for (const exam of seededExams) {
-    const marks = demoExams.find((item) => item.name === exam.name)?.marks ?? [];
+    const marks = demoExams.find(item => item.name === exam.name)?.marks ?? [];
     for (const mark of marks) {
       const studentSubjects = seededExamMarksByStudentId.get(mark.studentId) ?? new Map();
       const subjectEntry = studentSubjects.get(exam.subjectId) ?? {
@@ -1521,7 +1514,7 @@ async function main() {
     }
   }
 
-  const baseReportCards = [studentOne, studentTwo].map((student) => ({
+  const baseReportCards = [studentOne, studentTwo].map(student => ({
     student,
     payload: buildSeedReportCardPayload({
       schoolName: 'Green School Rwanda',
@@ -1559,11 +1552,11 @@ async function main() {
     .slice()
     .sort(
       (left, right) =>
-        right.payload.totals.averagePercentage - left.payload.totals.averagePercentage,
+        right.payload.totals.averagePercentage - left.payload.totals.averagePercentage
     );
 
   const rankingByStudentId = new Map(
-    rankedStudents.map((entry, index) => [entry.student.id, index + 1]),
+    rankedStudents.map((entry, index) => [entry.student.id, index + 1])
   );
 
   for (const { student, payload: basePayload } of baseReportCards) {
@@ -1624,35 +1617,35 @@ async function main() {
 
   const demoAssessment = existingAssessment
     ? await prisma.assessment.update({
-      where: { id: existingAssessment.id },
-      data: {
-        lessonId: lessonOne.id,
-        instructions: '<p>Choose the best answer for each counting question.</p>',
-        dueAt: new Date('2026-03-20T17:00:00.000Z'),
-        timeLimitMinutes: 10,
-        maxAttempts: 2,
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T09:00:00.000Z'),
-        createdByUserId: teacherUser.id,
-        updatedByUserId: teacherUser.id,
-      },
-    })
+        where: { id: existingAssessment.id },
+        data: {
+          lessonId: lessonOne.id,
+          instructions: '<p>Choose the best answer for each counting question.</p>',
+          dueAt: new Date('2026-03-20T17:00:00.000Z'),
+          timeLimitMinutes: 10,
+          maxAttempts: 2,
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T09:00:00.000Z'),
+          createdByUserId: teacherUser.id,
+          updatedByUserId: teacherUser.id,
+        },
+      })
     : await prisma.assessment.create({
-      data: {
-        tenantId: schoolTenant.id,
-        courseId: course.id,
-        lessonId: lessonOne.id,
-        title: 'Counting quick check',
-        instructions: '<p>Choose the best answer for each counting question.</p>',
-        dueAt: new Date('2026-03-20T17:00:00.000Z'),
-        timeLimitMinutes: 10,
-        maxAttempts: 2,
-        isPublished: true,
-        publishedAt: new Date('2026-03-06T09:00:00.000Z'),
-        createdByUserId: teacherUser.id,
-        updatedByUserId: teacherUser.id,
-      },
-    });
+        data: {
+          tenantId: schoolTenant.id,
+          courseId: course.id,
+          lessonId: lessonOne.id,
+          title: 'Counting quick check',
+          instructions: '<p>Choose the best answer for each counting question.</p>',
+          dueAt: new Date('2026-03-20T17:00:00.000Z'),
+          timeLimitMinutes: 10,
+          maxAttempts: 2,
+          isPublished: true,
+          publishedAt: new Date('2026-03-06T09:00:00.000Z'),
+          createdByUserId: teacherUser.id,
+          updatedByUserId: teacherUser.id,
+        },
+      });
 
   const demoQuestionDefinitions = [
     {
@@ -1698,24 +1691,24 @@ async function main() {
 
     const question = existingQuestion
       ? await prisma.assessmentQuestion.update({
-        where: { id: existingQuestion.id },
-        data: {
-          prompt: definition.prompt,
-          explanation: definition.explanation,
-          points: definition.points,
-        },
-      })
+          where: { id: existingQuestion.id },
+          data: {
+            prompt: definition.prompt,
+            explanation: definition.explanation,
+            points: definition.points,
+          },
+        })
       : await prisma.assessmentQuestion.create({
-        data: {
-          tenantId: schoolTenant.id,
-          assessmentId: demoAssessment.id,
-          prompt: definition.prompt,
-          explanation: definition.explanation,
-          type: 'MCQ_SINGLE',
-          sequence: definition.sequence,
-          points: definition.points,
-        },
-      });
+          data: {
+            tenantId: schoolTenant.id,
+            assessmentId: demoAssessment.id,
+            prompt: definition.prompt,
+            explanation: definition.explanation,
+            type: 'MCQ_SINGLE',
+            sequence: definition.sequence,
+            points: definition.points,
+          },
+        });
 
     for (const option of definition.options) {
       await prisma.assessmentOption.upsert({
@@ -1758,7 +1751,7 @@ async function main() {
       seededQuestions.push({
         id: refreshedQuestion.id,
         sequence: refreshedQuestion.sequence,
-        options: refreshedQuestion.options.map((option) => ({
+        options: refreshedQuestion.options.map(option => ({
           id: option.id,
           sequence: option.sequence,
           isCorrect: option.isCorrect,
@@ -1805,8 +1798,8 @@ async function main() {
   for (const question of seededQuestions) {
     const selectedOption =
       question.sequence === 1
-        ? question.options.find((option) => option.isCorrect)
-        : question.options.find((option) => option.sequence === 2);
+        ? question.options.find(option => option.isCorrect)
+        : question.options.find(option => option.sequence === 2);
     const isCorrect = Boolean(selectedOption?.isCorrect);
 
     if (!selectedOption) {
@@ -2752,7 +2745,7 @@ async function main() {
   });
 
   const mapSubjectForYearly = (
-    s: (typeof termOneReportPayload)['subjects'][number],
+    s: (typeof termOneReportPayload)['subjects'][number]
   ): {
     subjectId: string;
     subjectName: string;
@@ -2762,7 +2755,7 @@ async function main() {
     subjectId: s.subjectId ?? '',
     subjectName: s.subjectName,
     finalPercent: s.finalPercent,
-    exams: s.exams.map((e) => ({
+    exams: s.exams.map(e => ({
       examType: e.examType as SeedExamType,
       marksObtained: e.marksObtained ?? 0,
       totalMarks: e.totalMarks,
@@ -2799,9 +2792,24 @@ async function main() {
   });
 
   const nyangeTermSnapshotData = [
-    { term: nyangeTermOne, payload: termOneReportPayload, lockedAt: '2026-04-12T16:00:00.000Z', publishedAt: '2026-04-13T09:00:00.000Z' },
-    { term: nyangeTermTwo, payload: termTwoReportPayload, lockedAt: '2026-08-14T16:00:00.000Z', publishedAt: '2026-08-15T09:00:00.000Z' },
-    { term: nyangeTermThree, payload: termThreeReportPayload, lockedAt: '2026-12-15T16:00:00.000Z', publishedAt: '2026-12-16T09:00:00.000Z' },
+    {
+      term: nyangeTermOne,
+      payload: termOneReportPayload,
+      lockedAt: '2026-04-12T16:00:00.000Z',
+      publishedAt: '2026-04-13T09:00:00.000Z',
+    },
+    {
+      term: nyangeTermTwo,
+      payload: termTwoReportPayload,
+      lockedAt: '2026-08-14T16:00:00.000Z',
+      publishedAt: '2026-08-15T09:00:00.000Z',
+    },
+    {
+      term: nyangeTermThree,
+      payload: termThreeReportPayload,
+      lockedAt: '2026-12-15T16:00:00.000Z',
+      publishedAt: '2026-12-16T09:00:00.000Z',
+    },
   ] as const;
 
   for (const row of nyangeTermSnapshotData) {
@@ -2940,12 +2948,7 @@ async function main() {
       entity: 'Tenant',
       entityId: schoolTenant.id,
       payload: {
-        createdRoles: [
-          schoolAdminRole.name,
-          teacherRole.name,
-          studentRole.name,
-          parentRole.name,
-        ],
+        createdRoles: [schoolAdminRole.name, teacherRole.name, studentRole.name, parentRole.name],
         sampleLogins: {
           authLoginBody: {
             identifier: 'email or username (trimmed, stored lowercase for email/username match)',
@@ -3007,7 +3010,7 @@ async function main() {
 }
 
 void main()
-  .catch((error) => {
+  .catch(error => {
     console.error(error);
     process.exit(1);
   })

@@ -25,7 +25,7 @@ async function main() {
 
   for (const user of users) {
     const data: any = {};
-    
+
     // 1. Backfill username
     if (!user.username) {
       if (user.studentProfile) {
@@ -36,7 +36,7 @@ async function main() {
     }
 
     // 2. Set initial password for students if they only have a placeholder or if required
-    // NOTE: This assumes students didn't have a password before. 
+    // NOTE: This assumes students didn't have a password before.
     // If they did, this will override it with their studentCode.
     // Given the report said "student login is password-less", this is a safe initial step.
     if (user.studentProfile) {
@@ -67,7 +67,7 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
+  .catch(e => {
     console.error(e);
     process.exit(1);
   })

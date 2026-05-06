@@ -26,7 +26,9 @@ async function main() {
     data: { isAcademyCatalog: true },
   });
 
-  console.log(`Created/Updated Tenant: ${academyTenant.name} (${academyTenant.id}) — academy catalog`);
+  console.log(
+    `Created/Updated Tenant: ${academyTenant.name} (${academyTenant.id}) — academy catalog`
+  );
 
   // Create PUBLIC_LEARNER role
   const publicLearnerRole = await prisma.role.upsert({
@@ -37,22 +39,14 @@ async function main() {
       },
     },
     update: {
-      permissions: [
-        'students.my_courses.read',
-        'assessments.submit',
-        'files.upload',
-      ],
+      permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload'],
     },
     create: {
       tenantId: academyTenant.id,
       name: 'PUBLIC_LEARNER',
       description: 'Public Academy learner role',
       isSystem: true,
-      permissions: [
-        'students.my_courses.read',
-        'assessments.submit',
-        'files.upload',
-      ],
+      permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload'],
     },
   });
 
@@ -213,21 +207,24 @@ async function main() {
     {
       title: 'Web Development Bootcamp',
       description: 'Learn full-stack web development from scratch.',
-      thumbnail: 'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/web-dev.jpg',
+      thumbnail:
+        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/web-dev.jpg',
       price: 50000,
       durationDays: 90,
     },
     {
       title: 'Digital Marketing Essentials',
       description: 'Master the basics of SEO, SEM, and social media marketing.',
-      thumbnail: 'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/marketing.jpg',
+      thumbnail:
+        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/marketing.jpg',
       price: 25000,
       durationDays: 30,
     },
     {
       title: 'Mobile App Development with React Native',
       description: 'Build cross-platform mobile apps for iOS and Android.',
-      thumbnail: 'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/mobile-dev.jpg',
+      thumbnail:
+        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/mobile-dev.jpg',
       price: 45000,
       durationDays: 60,
     },
@@ -321,7 +318,7 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
+  .catch(e => {
     console.error(e);
     process.exit(1);
   })

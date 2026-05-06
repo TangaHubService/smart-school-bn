@@ -23,7 +23,7 @@ export class ConductController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -31,20 +31,13 @@ export class ConductController {
 
   async listIncidents(req: Request, res: Response): Promise<Response> {
     const query = listConductIncidentsQuerySchema.parse(req.query);
-    const result = await conductService.listIncidents(
-      req.tenantId!,
-      query,
-      req.user,
-    );
+    const result = await conductService.listIncidents(req.tenantId!, query, req.user);
 
     return sendSuccess(req, res, result);
   }
 
   async getIncidentDetail(req: Request, res: Response): Promise<Response> {
-    const result = await conductService.getIncidentDetail(
-      req.tenantId!,
-      req.params.id,
-    );
+    const result = await conductService.getIncidentDetail(req.tenantId!, req.params.id);
 
     return sendSuccess(req, res, result);
   }
@@ -55,7 +48,7 @@ export class ConductController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -67,7 +60,7 @@ export class ConductController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -79,7 +72,7 @@ export class ConductController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -90,7 +83,7 @@ export class ConductController {
     const result = await conductService.getStudentConductProfile(
       req.tenantId!,
       req.params.studentId,
-      query,
+      query
     );
 
     return sendSuccess(req, res, result);
@@ -98,11 +91,7 @@ export class ConductController {
 
   async getMyConductProfile(req: Request, res: Response): Promise<Response> {
     const query = studentConductProfileQuerySchema.parse(req.query);
-    const result = await conductService.getMyConductProfile(
-      req.tenantId!,
-      req.user!,
-      query,
-    );
+    const result = await conductService.getMyConductProfile(req.tenantId!, req.user!, query);
 
     return sendSuccess(req, res, result);
   }

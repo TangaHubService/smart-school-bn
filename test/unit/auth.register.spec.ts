@@ -128,7 +128,7 @@ describe('AuthService register', () => {
         requestId: 'req-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-      },
+      }
     );
 
     expect(txUserCreate).toHaveBeenCalled();
@@ -141,7 +141,7 @@ describe('AuthService register', () => {
         user: expect.any(Object),
         student: expect.any(Object),
         userRole: expect.any(Object),
-      }),
+      })
     );
     expect(result.roles).toContain('PUBLIC_LEARNER');
   });

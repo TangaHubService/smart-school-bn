@@ -24,11 +24,7 @@ export class AnnouncementsController {
       page: Number(req.query.page) || 1,
       pageSize: Number(req.query.pageSize) || 20,
     };
-    const result = await service.listForStudent(
-      req.tenantId!,
-      student.id,
-      query,
-    );
+    const result = await service.listForStudent(req.tenantId!, student.id, query);
     return sendSuccess(req, res, result);
   }
 
@@ -43,7 +39,7 @@ export class AnnouncementsController {
       req.tenantId!,
       body,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result, 201);
   }
@@ -55,7 +51,7 @@ export class AnnouncementsController {
       req.params.id,
       body,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
   }
@@ -65,7 +61,7 @@ export class AnnouncementsController {
       req.tenantId!,
       req.params.id,
       req.user!,
-      buildRequestAuditContext(req),
+      buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
   }

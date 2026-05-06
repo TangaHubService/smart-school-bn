@@ -1,8 +1,4 @@
-import {
-  Prisma,
-  SystemAnnouncementStatus,
-  SystemAnnouncementTarget,
-} from '@prisma/client';
+import { Prisma, SystemAnnouncementStatus, SystemAnnouncementTarget } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
@@ -26,7 +22,7 @@ export function isSystemAnnouncementVisible(
   targetTenantIds: string[],
   targetRoleNames: string[],
   tenantId: string,
-  viewerRoleNames: string[],
+  viewerRoleNames: string[]
 ): boolean {
   switch (targetType) {
     case SystemAnnouncementTarget.ALL_SCHOOLS:
@@ -34,11 +30,10 @@ export function isSystemAnnouncementVisible(
     case SystemAnnouncementTarget.SPECIFIC_SCHOOLS:
       return targetTenantIds.includes(tenantId);
     case SystemAnnouncementTarget.SPECIFIC_ROLES:
-      return viewerRoleNames.some((r) => targetRoleNames.includes(r));
+      return viewerRoleNames.some(r => targetRoleNames.includes(r));
     case SystemAnnouncementTarget.SCHOOLS_AND_ROLES:
       return (
-        targetTenantIds.includes(tenantId) &&
-        viewerRoleNames.some((r) => targetRoleNames.includes(r))
+        targetTenantIds.includes(tenantId) && viewerRoleNames.some(r => targetRoleNames.includes(r))
       );
     default:
       return false;
@@ -65,17 +60,17 @@ export class SystemAnnouncementsService {
       take: 50,
     });
 
-    const items = rows.filter((row) =>
+    const items = rows.filter(row =>
       isSystemAnnouncementVisible(
         row.targetType,
         row.targetTenantIds,
         row.targetRoleNames,
         tenantId,
-        viewerRoleNames,
-      ),
+        viewerRoleNames
+      )
     );
 
-    return items.map((a) => ({
+    return items.map(a => ({
       id: a.id,
       title: a.title,
       body: a.body,
@@ -95,10 +90,7 @@ export class SystemAnnouncementsService {
 
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const where =
-      query.status != null
-        ? { status: query.status }
-        : {};
+    const where = query.status != null ? { status: query.status } : {};
 
     try {
       const [totalItems, rows] = await prisma.$transaction([
@@ -117,7 +109,7 @@ export class SystemAnnouncementsService {
       ]);
 
       return {
-        items: rows.map((a) => ({
+        items: rows.map(a => ({
           id: a.id,
           title: a.title,
           body: a.body,
@@ -138,7 +130,7 @@ export class SystemAnnouncementsService {
         throw new AppError(
           503,
           'SCHEMA_NOT_READY',
-          'System announcements are not available until database migrations are applied (SystemAnnouncement table missing).',
+          'System announcements are not available until database migrations are applied (SystemAnnouncement table missing).'
         );
       }
       throw e;
@@ -173,7 +165,7 @@ export class SystemAnnouncementsService {
         targetRoleNames: input.targetRoleNames,
         publishedAt:
           input.status === SystemAnnouncementStatus.PUBLISHED
-            ? publishedAt ?? new Date()
+            ? (publishedAt ?? new Date())
             : publishedAt,
         expiresAt,
       },
@@ -194,12 +186,7 @@ export class SystemAnnouncementsService {
     return { id: created.id };
   }
 
-  async update(
-    id: string,
-    actor: JwtUser,
-    input: UpdateInput,
-    context: RequestAuditContext,
-  ) {
+  async update(id: string, actor: JwtUser, input: UpdateInput, context: RequestAuditContext) {
     if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Only super admins can update system announcements');
     }

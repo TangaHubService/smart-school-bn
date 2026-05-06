@@ -49,8 +49,8 @@ export class UsersService {
       throw new AppError(401, 'AUTH_USER_NOT_FOUND', 'User not found');
     }
 
-    const roles = user.userRoles.map((ur) => ur.role.name);
-    const permissions = normalizePermissions(user.userRoles.map((ur) => ur.role.permissions).flat());
+    const roles = user.userRoles.map(ur => ur.role.name);
+    const permissions = normalizePermissions(user.userRoles.map(ur => ur.role.permissions).flat());
 
     const latestEnrollment = user.studentProfile?.enrollments[0] ?? null;
 
@@ -160,66 +160,59 @@ export class UsersService {
     const page = input.page ?? 1;
     const pageSize = input.pageSize ?? 50;
 
-    const [
-      totalRaw,
-      users,
-      superAdmins,
-      schoolAdmins,
-      teachers,
-      students,
-      parents,
-    ] = await prisma.$transaction([
-      prisma.user.count({ where }),
-      prisma.user.findMany({
-        where,
-        include: {
-          tenant: true,
-          userRoles: {
-            include: {
-              role: true,
+    const [totalRaw, users, superAdmins, schoolAdmins, teachers, students, parents] =
+      await prisma.$transaction([
+        prisma.user.count({ where }),
+        prisma.user.findMany({
+          where,
+          include: {
+            tenant: true,
+            userRoles: {
+              include: {
+                role: true,
+              },
             },
           },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      prisma.user.count({
-        where: {
-          ...where,
-          userRoles: { some: { role: { name: 'SUPER_ADMIN' } } },
-        },
-      }),
-      prisma.user.count({
-        where: {
-          ...where,
-          userRoles: { some: { role: { name: 'SCHOOL_ADMIN' } } },
-        },
-      }),
-      prisma.user.count({
-        where: {
-          ...where,
-          userRoles: { some: { role: { name: 'TEACHER' } } },
-        },
-      }),
-      prisma.user.count({
-        where: {
-          ...where,
-          userRoles: { some: { role: { name: 'STUDENT' } } },
-        },
-      }),
-      prisma.user.count({
-        where: {
-          ...where,
-          userRoles: { some: { role: { name: 'PARENT' } } },
-        },
-      }),
-    ]);
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.user.count({
+          where: {
+            ...where,
+            userRoles: { some: { role: { name: 'SUPER_ADMIN' } } },
+          },
+        }),
+        prisma.user.count({
+          where: {
+            ...where,
+            userRoles: { some: { role: { name: 'SCHOOL_ADMIN' } } },
+          },
+        }),
+        prisma.user.count({
+          where: {
+            ...where,
+            userRoles: { some: { role: { name: 'TEACHER' } } },
+          },
+        }),
+        prisma.user.count({
+          where: {
+            ...where,
+            userRoles: { some: { role: { name: 'STUDENT' } } },
+          },
+        }),
+        prisma.user.count({
+          where: {
+            ...where,
+            userRoles: { some: { role: { name: 'PARENT' } } },
+          },
+        }),
+      ]);
 
     return {
-      items: users.map((user) => ({
+      items: users.map(user => ({
         id: user.id,
         email: user.email,
         firstName: user.firstName,
@@ -234,7 +227,7 @@ export class UsersService {
               code: user.tenant.code,
             }
           : null,
-        roles: user.userRoles.map((item) => item.role.name),
+        roles: user.userRoles.map(item => item.role.name),
       })),
       metrics: {
         total: totalRaw,
@@ -267,7 +260,7 @@ export class UsersService {
     if (!isSuperAdmin && user.tenantId !== currentUser.tenantId) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot access this user');
     }
-    if (!isSuperAdmin && user.userRoles.some((ur) => ur.role.name === 'SUPER_ADMIN')) {
+    if (!isSuperAdmin && user.userRoles.some(ur => ur.role.name === 'SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot access this user');
     }
 
@@ -288,7 +281,7 @@ export class UsersService {
             code: user.tenant.code,
           }
         : null,
-      roles: user.userRoles.map((r) => r.role.name),
+      roles: user.userRoles.map(r => r.role.name),
     };
   }
 
@@ -314,7 +307,7 @@ export class UsersService {
     if (!isSuperAdmin && user.tenantId !== currentUser.tenantId) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot update this user');
     }
-    if (!isSuperAdmin && user.userRoles.some((ur) => ur.role.name === 'SUPER_ADMIN')) {
+    if (!isSuperAdmin && user.userRoles.some(ur => ur.role.name === 'SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot update this user');
     }
 
@@ -347,27 +340,19 @@ export class UsersService {
       take: 10000,
     });
 
-    const header = [
-      'email',
-      'firstName',
-      'lastName',
-      'phone',
-      'school',
-      'roles',
-      'status',
-    ];
+    const header = ['email', 'firstName', 'lastName', 'phone', 'school', 'roles', 'status'];
 
-    const lines = users.map((user) => {
+    const lines = users.map(user => {
       return [
         user.email,
         user.firstName ?? '',
         user.lastName ?? '',
         user.phone ?? '',
         user.tenant?.name ?? '',
-        user.userRoles.map((ur) => ur.role.name).join('; '),
+        user.userRoles.map(ur => ur.role.name).join('; '),
         user.status,
       ]
-        .map((value) => this.escapeCsvValue(value))
+        .map(value => this.escapeCsvValue(value))
         .join(',');
     });
 

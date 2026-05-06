@@ -23,11 +23,7 @@ import { prisma } from '../../src/db/prisma';
 import { validateBody } from '../../src/common/middleware/validate.middleware';
 import { AuthController } from '../../src/modules/auth/auth.controller';
 import { acceptInviteSchema } from '../../src/modules/staff/staff.schemas';
-import {
-  createMockRequest,
-  createMockResponse,
-  runMiddleware,
-} from './test-harness';
+import { createMockRequest, createMockResponse, runMiddleware } from './test-harness';
 
 const mockedPrisma = prisma as any;
 const authController = new AuthController();
@@ -66,7 +62,7 @@ describe('auth accept invite integration', () => {
         invite: {
           update: jest.fn().mockResolvedValue({ id: 'invite-1' }),
         },
-      }),
+      })
     );
 
     const req = createMockRequest({

@@ -26,21 +26,21 @@ announcementsRoutes.get(
     PERMISSIONS.ANNOUNCEMENTS_MY_READ,
   ]),
   enforceTenant,
-  asyncHandler((req, res) => controller.listForStudent(req, res)),
+  asyncHandler((req, res) => controller.listForStudent(req, res))
 );
 
 announcementsRoutes.get(
   '/announcements',
   requireAnyPermissions([PERMISSIONS.ANNOUNCEMENTS_READ, PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
   enforceTenant,
-  asyncHandler((req, res) => controller.list(req, res)),
+  asyncHandler((req, res) => controller.list(req, res))
 );
 
 announcementsRoutes.get(
   '/announcements/:id',
   requireAnyPermissions([PERMISSIONS.ANNOUNCEMENTS_READ, PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
   enforceTenant,
-  asyncHandler((req, res) => controller.getById(req, res)),
+  asyncHandler((req, res) => controller.getById(req, res))
 );
 
 announcementsRoutes.post(
@@ -48,7 +48,7 @@ announcementsRoutes.post(
   requirePermissions([PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
   enforceTenant,
   validateBody(createAnnouncementSchema),
-  asyncHandler((req, res) => controller.create(req, res)),
+  asyncHandler((req, res) => controller.create(req, res))
 );
 
 announcementsRoutes.patch(
@@ -56,12 +56,12 @@ announcementsRoutes.patch(
   requirePermissions([PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
   enforceTenant,
   validateBody(updateAnnouncementSchema),
-  asyncHandler((req, res) => controller.update(req, res)),
+  asyncHandler((req, res) => controller.update(req, res))
 );
 
 announcementsRoutes.delete(
   '/announcements/:id',
   requirePermissions([PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
   enforceTenant,
-  asyncHandler((req, res) => controller.delete(req, res)),
+  asyncHandler((req, res) => controller.delete(req, res))
 );

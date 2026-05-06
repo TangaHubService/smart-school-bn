@@ -14,7 +14,7 @@ export const acceptInviteSchema = z.object({
   phone: z
     .union([z.string().trim().min(7).max(30), z.literal('')])
     .optional()
-    .transform((value) => (value && value.trim() ? value.trim() : undefined)),
+    .transform(value => (value && value.trim() ? value.trim() : undefined)),
   password: z.string().min(8).max(128),
 });
 

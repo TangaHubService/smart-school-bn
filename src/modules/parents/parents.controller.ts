@@ -31,7 +31,7 @@ export class ParentsController {
       req.tenantId!,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -43,7 +43,7 @@ export class ParentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result);
@@ -55,7 +55,7 @@ export class ParentsController {
       req.params.id,
       req.body,
       req.user!,
-      buildContext(req),
+      buildContext(req)
     );
 
     return sendSuccess(req, res, result, 201);
@@ -78,7 +78,7 @@ export class ParentsController {
       req.tenantId!,
       req.user!.sub,
       req.params.studentId,
-      query,
+      query
     );
 
     return sendSuccess(req, res, result);
@@ -88,7 +88,7 @@ export class ParentsController {
     const result = await parentsService.getMyStudentLearning(
       req.tenantId!,
       req.user!.sub,
-      req.params.studentId,
+      req.params.studentId
     );
     return sendSuccess(req, res, result);
   }

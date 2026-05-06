@@ -48,9 +48,12 @@ export async function loadTermConductNumbersMap(params: {
 
   const deductedByStudent = new Map<string, number>();
   for (const d of deductionRows) {
-    deductedByStudent.set(d.studentId, (deductedByStudent.get(d.studentId) ?? 0) + d.pointsDeducted);
+    deductedByStudent.set(
+      d.studentId,
+      (deductedByStudent.get(d.studentId) ?? 0) + d.pointsDeducted
+    );
   }
-  const remarkByStudent = new Map(gradeRows.map((g) => [g.studentId, g.remark ?? null]));
+  const remarkByStudent = new Map(gradeRows.map(g => [g.studentId, g.remark ?? null]));
 
   for (const sid of studentIds) {
     const deducted = deductedByStudent.get(sid) ?? 0;
@@ -73,7 +76,7 @@ export async function loadTermConductDisplayMap(params: {
 }): Promise<Map<string, { grade: string; remark: string | null }>> {
   const nums = await loadTermConductNumbersMap(params);
   return new Map(
-    [...nums].map(([id, n]) => [id, { grade: `${n.finalScore}/${n.totalMarks}`, remark: n.remark }]),
+    [...nums].map(([id, n]) => [id, { grade: `${n.finalScore}/${n.totalMarks}`, remark: n.remark }])
   );
 }
 
@@ -90,14 +93,14 @@ export async function loadLedgerConductDisplayMap(params: {
     return result;
   }
 
-  const uniqueTermIds = [...new Set(keys.map((k) => k.termId))];
+  const uniqueTermIds = [...new Set(keys.map(k => k.termId))];
   const settings = await prisma.conductTermSetting.findMany({
     where: { tenantId, termId: { in: uniqueTermIds } },
     select: { termId: true, totalMarks: true },
   });
-  const totalByTerm = new Map(settings.map((s) => [s.termId, s.totalMarks]));
+  const totalByTerm = new Map(settings.map(s => [s.termId, s.totalMarks]));
 
-  const orTriple = keys.map((k) => ({
+  const orTriple = keys.map(k => ({
     termId: k.termId,
     classRoomId: k.classRoomId,
     studentId: k.studentId,
@@ -111,7 +114,7 @@ export async function loadLedgerConductDisplayMap(params: {
     prisma.conductGrade.findMany({
       where: {
         tenantId,
-        OR: keys.map((k) => ({
+        OR: keys.map(k => ({
           academicYearId: k.academicYearId,
           termId: k.termId,
           classRoomId: k.classRoomId,
@@ -169,15 +172,15 @@ export async function loadYearlyConductDisplayMap(params: {
   }
 
   const termMaps = await Promise.all(
-    teachingTermIds.map((termId) =>
+    teachingTermIds.map(termId =>
       loadTermConductNumbersMap({
         tenantId: params.tenantId,
         academicYearId: params.academicYearId,
         termId,
         classRoomId: params.classRoomId,
         studentIds,
-      }),
-    ),
+      })
+    )
   );
 
   for (const sid of studentIds) {

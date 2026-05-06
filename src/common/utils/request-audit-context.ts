@@ -24,17 +24,14 @@ export function buildRequestAuditContext(req: Request): RequestAuditContext {
   };
 }
 
-export function runWithAuditRequestContext(
-  req: Request,
-  callback: () => void,
-): void {
+export function runWithAuditRequestContext(req: Request, callback: () => void): void {
   auditRequestStorage.run(
     {
       ...buildRequestAuditContext(req),
       actor: req.user ?? null,
       tenantId: req.tenantId ?? req.user?.tenantId ?? null,
     },
-    callback,
+    callback
   );
 }
 
@@ -42,9 +39,7 @@ export function getAuditRequestContext(): AuditRequestStore | undefined {
   return auditRequestStorage.getStore();
 }
 
-export function mergeAuditRequestContext(
-  partial: Partial<AuditRequestStore>,
-): void {
+export function mergeAuditRequestContext(partial: Partial<AuditRequestStore>): void {
   const store = auditRequestStorage.getStore();
   if (!store) {
     return;

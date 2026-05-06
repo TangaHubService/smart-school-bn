@@ -44,35 +44,37 @@ const bulkSlotSchema = z.object({
   endTime: timeSchema,
 });
 
-export const bulkUpsertTimetableSlotsSchema = z.object({
-  academicYearId: z.string().uuid(),
-  termId: z.string().uuid(),
-  classRoomId: z.string().uuid(),
-  slots: z.array(bulkSlotSchema).min(1).max(200),
-}).superRefine((value, ctx) => {
-  const periodKeys = new Set<string>();
-  for (let index = 0; index < value.slots.length; index += 1) {
-    const slot = value.slots[index];
-    const key = `${slot.dayOfWeek}:${slot.periodNumber}`;
-    if (periodKeys.has(key)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['slots', index, 'periodNumber'],
-        message: 'Duplicate class period in bulk timetable payload',
-      });
+export const bulkUpsertTimetableSlotsSchema = z
+  .object({
+    academicYearId: z.string().uuid(),
+    termId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    slots: z.array(bulkSlotSchema).min(1).max(200),
+  })
+  .superRefine((value, ctx) => {
+    const periodKeys = new Set<string>();
+    for (let index = 0; index < value.slots.length; index += 1) {
+      const slot = value.slots[index];
+      const key = `${slot.dayOfWeek}:${slot.periodNumber}`;
+      if (periodKeys.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['slots', index, 'periodNumber'],
+          message: 'Duplicate class period in bulk timetable payload',
+        });
+      }
+      periodKeys.add(key);
+      const [sh, sm] = slot.startTime.split(':').map(Number);
+      const [eh, em] = slot.endTime.split(':').map(Number);
+      if (eh * 60 + (em || 0) <= sh * 60 + (sm || 0)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['slots', index, 'endTime'],
+          message: 'End time must be after start time',
+        });
+      }
     }
-    periodKeys.add(key);
-    const [sh, sm] = slot.startTime.split(':').map(Number);
-    const [eh, em] = slot.endTime.split(':').map(Number);
-    if (eh * 60 + (em || 0) <= sh * 60 + (sm || 0)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['slots', index, 'endTime'],
-        message: 'End time must be after start time',
-      });
-    }
-  }
-});
+  });
 
 export type CreateTimetableSlotInput = z.infer<typeof createTimetableSlotSchema>;
 export type UpdateTimetableSlotInput = z.infer<typeof updateTimetableSlotSchema>;

@@ -57,14 +57,14 @@ describe('TenantsService status management', () => {
         tenant: { update: txTenantUpdate },
         refreshToken: { updateMany: txRefreshUpdateMany },
         invite: { updateMany: txInviteUpdateMany },
-      }),
+      })
     );
 
     const result = await tenantsService.updateTenantStatus(
       'tenant-1',
       { isActive: false },
       actor,
-      context,
+      context
     );
 
     expect(result).toEqual({
@@ -81,7 +81,7 @@ describe('TenantsService status management', () => {
           event: 'TENANT_DEACTIVATED',
           tenantId: 'tenant-1',
         }),
-      }),
+      })
     );
   });
 
@@ -107,14 +107,14 @@ describe('TenantsService status management', () => {
         tenant: { update: txTenantUpdate },
         refreshToken: { updateMany: txRefreshUpdateMany },
         invite: { updateMany: txInviteUpdateMany },
-      }),
+      })
     );
 
     const result = await tenantsService.updateTenantStatus(
       'tenant-1',
       { isActive: true },
       actor,
-      context,
+      context
     );
 
     expect(result).toEqual({
@@ -131,7 +131,7 @@ describe('TenantsService status management', () => {
           event: 'TENANT_ACTIVATED',
           tenantId: 'tenant-1',
         }),
-      }),
+      })
     );
   });
 
@@ -147,7 +147,7 @@ describe('TenantsService status management', () => {
       'tenant-1',
       { isActive: true },
       actor,
-      context,
+      context
     );
 
     expect(result).toEqual({

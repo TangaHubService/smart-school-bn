@@ -19,7 +19,7 @@ export async function grantCatalogTrialEnrollments(userId: string, catalogTenant
     return;
   }
 
-  const programIds = programs.map((p) => p.id);
+  const programIds = programs.map(p => p.id);
   const paidRows = await prisma.programEnrollment.findMany({
     where: {
       userId,
@@ -28,11 +28,11 @@ export async function grantCatalogTrialEnrollments(userId: string, catalogTenant
     },
     select: { programId: true },
   });
-  const paidProgramIds = new Set(paidRows.map((r) => r.programId));
+  const paidProgramIds = new Set(paidRows.map(r => r.programId));
 
   const ops = programs
-    .filter((p) => !paidProgramIds.has(p.id))
-    .map((p) =>
+    .filter(p => !paidProgramIds.has(p.id))
+    .map(p =>
       prisma.programEnrollment.upsert({
         where: {
           userId_programId: {
@@ -54,7 +54,7 @@ export async function grantCatalogTrialEnrollments(userId: string, catalogTenant
           isActive: true,
           isTrial: true,
         },
-      }),
+      })
     );
 
   if (ops.length) {

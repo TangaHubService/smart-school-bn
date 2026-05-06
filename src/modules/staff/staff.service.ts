@@ -24,7 +24,7 @@ export class StaffService {
     tenantId: string,
     input: InviteStaffInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const role = await prisma.role.findFirst({
       where: {
@@ -44,21 +44,19 @@ export class StaffService {
       throw new AppError(
         400,
         'INVALID_INVITE_ROLE',
-        'SUPER_ADMIN role cannot be invited from school staff flow',
+        'SUPER_ADMIN role cannot be invited from school staff flow'
       );
     }
 
     const rawToken = randomBytes(48).toString('hex');
     const tokenHash = this.hashInviteToken(rawToken);
-    const expiresAt = new Date(
-      Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000);
 
     let createdInviteId = '';
     const inviteLink = `${env.APP_WEB_URL.replace(/\/$/, '')}/accept-invite?token=${rawToken}`;
 
     try {
-      const createdInvite = await prisma.$transaction(async (tx) => {
+      const createdInvite = await prisma.$transaction(async tx => {
         await tx.invite.deleteMany({
           where: {
             tenantId,
@@ -83,10 +81,7 @@ export class StaffService {
 
       createdInviteId = createdInvite.id;
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new AppError(409, 'INVITE_ALREADY_EXISTS', 'Pending invite already exists');
       }
 
@@ -120,7 +115,7 @@ export class StaffService {
       throw new AppError(
         502,
         'INVITE_EMAIL_FAILED',
-        'Failed to send invite email. Check SMTP settings and retry.',
+        'Failed to send invite email. Check SMTP settings and retry.'
       );
     }
 
@@ -178,7 +173,7 @@ export class StaffService {
 
     const passwordHash = await bcrypt.hash(input.password, env.BCRYPT_ROUNDS);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async tx => {
       const user = await tx.user.upsert({
         where: {
           tenantId_email: {
@@ -329,7 +324,7 @@ export class StaffService {
       take: 200,
     });
 
-    return members.map((item) => this.mapStaffMember(item));
+    return members.map(item => this.mapStaffMember(item));
   }
 
   async getMember(tenantId: string, userId: string) {
@@ -364,7 +359,7 @@ export class StaffService {
     userId: string,
     input: UpdateStaffMemberInput,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const member = await prisma.user.findFirst({
       where: {
@@ -389,12 +384,16 @@ export class StaffService {
       throw new AppError(404, 'STAFF_MEMBER_NOT_FOUND', 'Staff member not found');
     }
 
-    if (member.userRoles.some((item) => item.role.name === 'SUPER_ADMIN')) {
+    if (member.userRoles.some(item => item.role.name === 'SUPER_ADMIN')) {
       throw new AppError(400, 'STAFF_MEMBER_UPDATE_FORBIDDEN', 'Super admin cannot be edited here');
     }
 
     if (actor.sub === member.id && input.status && input.status !== UserStatus.ACTIVE) {
-      throw new AppError(400, 'STAFF_MEMBER_SELF_STATUS_FORBIDDEN', 'You cannot deactivate your own account');
+      throw new AppError(
+        400,
+        'STAFF_MEMBER_SELF_STATUS_FORBIDDEN',
+        'You cannot deactivate your own account'
+      );
     }
 
     const shouldRevokeRefreshTokens =
@@ -402,7 +401,7 @@ export class StaffService {
       input.status !== member.status &&
       input.status !== UserStatus.ACTIVE;
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async tx => {
       const nextMember = await tx.user.update({
         where: {
           id: member.id,
@@ -467,7 +466,7 @@ export class StaffService {
     tenantId: string,
     userId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const member = await prisma.user.findFirst({
       where: {
@@ -493,14 +492,22 @@ export class StaffService {
     }
 
     if (actor.sub === member.id) {
-      throw new AppError(400, 'STAFF_MEMBER_SELF_DELETE_FORBIDDEN', 'You cannot delete your own account');
+      throw new AppError(
+        400,
+        'STAFF_MEMBER_SELF_DELETE_FORBIDDEN',
+        'You cannot delete your own account'
+      );
     }
 
-    if (member.userRoles.some((item) => item.role.name === 'SUPER_ADMIN')) {
-      throw new AppError(400, 'STAFF_MEMBER_DELETE_FORBIDDEN', 'Super admin cannot be deleted here');
+    if (member.userRoles.some(item => item.role.name === 'SUPER_ADMIN')) {
+      throw new AppError(
+        400,
+        'STAFF_MEMBER_DELETE_FORBIDDEN',
+        'Super admin cannot be deleted here'
+      );
     }
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async tx => {
       await tx.refreshToken.deleteMany({
         where: {
           tenantId,
@@ -540,7 +547,7 @@ export class StaffService {
     tenantId: string,
     inviteId: string,
     actor: JwtUser,
-    context: RequestAuditContext,
+    context: RequestAuditContext
   ) {
     const invite = await prisma.invite.findFirst({
       where: {
@@ -557,11 +564,7 @@ export class StaffService {
     }
 
     if (invite.status !== InviteStatus.PENDING) {
-      throw new AppError(
-        400,
-        'INVITE_NOT_PENDING',
-        'Only pending invites can be revoked',
-      );
+      throw new AppError(400, 'INVITE_NOT_PENDING', 'Only pending invites can be revoked');
     }
 
     await prisma.invite.update({
@@ -605,7 +608,7 @@ export class StaffService {
       };
     }>;
   }) {
-    const roles = [...new Set(member.userRoles.map((item) => item.role.name))].sort();
+    const roles = [...new Set(member.userRoles.map(item => item.role.name))].sort();
 
     return {
       id: member.id,
@@ -621,8 +624,6 @@ export class StaffService {
   }
 
   private hashInviteToken(token: string): string {
-    return createHash('sha256')
-      .update(`${token}:${env.JWT_REFRESH_SECRET}`)
-      .digest('hex');
+    return createHash('sha256').update(`${token}:${env.JWT_REFRESH_SECRET}`).digest('hex');
   }
 }
