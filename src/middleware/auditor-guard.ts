@@ -20,6 +20,14 @@ export const auditorReadExtraGuard = (req: Request, res: Response, next: NextFun
     { method: 'POST', pattern: /^\/gov\/incidents\/[^/]+\/feedback$/ },
   ];
 
+  const allowedReadPaths = [
+    '/gov/dashboard',
+    '/gov/schools',
+    '/gov/audits',
+  ];
+
+  const isAllowedRead = allowedReadPaths.some(path => req.path.startsWith(path)) || req.path.startsWith('/gov/schools/');
+
   const isAllowedWrite = allowedWrites.some(
     entry => entry.method === req.method && entry.pattern.test(req.path)
   );
@@ -28,6 +36,13 @@ export const auditorReadExtraGuard = (req: Request, res: Response, next: NextFun
     return res.status(403).json({
       error: 'Forbidden',
       message: 'Auditors have read-only access and cannot perform this action.',
+    });
+  }
+
+  if (isAuditor && req.method === 'GET' && !isAllowedRead) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Auditors cannot access this endpoint.',
     });
   }
 

@@ -415,7 +415,7 @@ async function main() {
     },
   });
 
-  await prisma.role.upsert({
+  const govAuditorRole = await prisma.role.upsert({
     where: {
       tenantId_name: {
         tenantId: platformTenant.id,
@@ -431,6 +431,44 @@ async function main() {
       description: 'Government auditor role',
       isSystem: true,
       permissions: GOV_AUDITOR_PERMISSIONS,
+    },
+  });
+
+  const auditorPasswordHash = await bcrypt.hash('Auditor2024@', 12);
+  const auditorUser = await prisma.user.upsert({
+    where: {
+      tenantId_email: {
+        tenantId: platformTenant.id,
+        email: 'auditor@smartschool.rw',
+      },
+    },
+    update: {
+      passwordHash: auditorPasswordHash,
+      firstName: 'Auditor',
+      lastName: 'Government',
+    },
+    create: {
+      tenantId: platformTenant.id,
+      email: 'auditor@smartschool.rw',
+      passwordHash: auditorPasswordHash,
+      firstName: 'Auditor',
+      lastName: 'Government',
+    },
+  });
+
+  await prisma.userRole.upsert({
+    where: {
+      tenantId_userId_roleId: {
+        tenantId: platformTenant.id,
+        userId: auditorUser.id,
+        roleId: govAuditorRole.id,
+      },
+    },
+    update: {},
+    create: {
+      tenantId: platformTenant.id,
+      userId: auditorUser.id,
+      roleId: govAuditorRole.id,
     },
   });
 
@@ -1850,6 +1888,7 @@ async function main() {
       email: 'info@nyange-secondary.rw',
       phone: '+250788000200',
       city: 'Nyange',
+      province: 'West',
       district: 'Ngororero',
       country: 'Rwanda',
       timezone: 'Africa/Kigali',
@@ -1862,6 +1901,7 @@ async function main() {
       email: 'info@nyange-secondary.rw',
       phone: '+250788000200',
       city: 'Nyange',
+      province: 'West',
       district: 'Ngororero',
       country: 'Rwanda',
       timezone: 'Africa/Kigali',
@@ -2692,6 +2732,7 @@ async function main() {
     registrationNumber: 'NYANGE-SS-REG',
     email: 'info@nyange-secondary.rw',
     phone: '+250788000200',
+    province: 'West',
     district: 'Ngororero',
     country: 'Rwanda',
   };

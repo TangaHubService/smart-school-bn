@@ -178,6 +178,15 @@ enum AuditLogStatus {
   FAILED
 }
 
+enum AcademicAuditModule {
+  ATTENDANCE
+  COURSE_MANAGEMENT
+  LEARNING_INSIGHTS
+  CONTINUOUS_ASSESSMENTS
+  MARKS
+  TIMETABLE
+}
+
 model Tenant {
   id                 String   @id @default(uuid())
   code               String   @unique
@@ -240,6 +249,7 @@ model Tenant {
   schoolSubscription SchoolSubscription?
   studentLessonProgress StudentLessonProgress[]
   audits        Audit[]
+  academicAudits AcademicAudit[]
 
   @@index([isActive])
 }
@@ -268,6 +278,7 @@ model School {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   audits Audit[]
+  academicAudits AcademicAudit[]
 
   @@index([country])
   @@index([country, province, district, sector])
@@ -341,6 +352,7 @@ model User {
   auditorProfile         Auditor?
   createdAudits          Audit[]       @relation("AuditCreatedBy")
   submittedAuditReports  AuditReport[] @relation("AuditReportSubmittedBy")
+  academicAudits         AcademicAudit[] @relation("AcademicAuditByUser")
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -798,6 +810,28 @@ model AuditReport {
 
   @@index([submittedByUserId, submittedAt])
   @@index([score, submittedAt])
+}
+
+model AcademicAudit {
+  id             String              @id @default(uuid())
+  auditorId      String
+  schoolId       String
+  module         AcademicAuditModule
+  subType        String
+  score          Int
+  comment        String
+  recommendation String
+  createdAt      DateTime            @default(now())
+
+  auditor User   @relation("AcademicAuditByUser", fields: [auditorId], references: [id], onDelete: Restrict)
+  school  School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  tenantId String
+
+  @@index([auditorId, createdAt])
+  @@index([schoolId, createdAt])
+  @@index([module, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model StudentEnrollment {

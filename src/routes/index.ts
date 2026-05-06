@@ -9,7 +9,6 @@ import { conductMarksRoutes } from '../modules/conduct-marks/conduct-marks.route
 import { healthRoutes } from '../modules/health/health.routes';
 import { examsRoutes } from '../modules/exams/exams.routes';
 import { filesRoutes } from '../modules/files/files.routes';
-import { govRoutes } from '../modules/gov/gov.routes';
 import { lmsRoutes } from '../modules/lms/lms.routes';
 import { metaRoutes } from '../modules/meta/meta.routes';
 import { parentsRoutes } from '../modules/parents/parents.routes';
@@ -26,9 +25,9 @@ import { subscriptionsRoutes } from '../modules/subscriptions/subscriptions.rout
 import { systemAnnouncementsRoutes } from '../modules/system-announcements/system-announcements.routes';
 import { usersRoutes } from '../modules/users/users.routes';
 import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
+import { govRoutes } from '../modules/gov/gov.routes';
+import { adminAuditorsRoutes } from '../modules/admin-auditors/admin-auditors.routes';
 import { env } from '../config/env';
-
-import { auditorReadExtraGuard } from '../middleware/auditor-guard';
 
 export const apiRouter = Router();
 
@@ -36,7 +35,6 @@ apiRouter.use('/health', healthRoutes);
 apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/public-academy', publicAcademyRouter);
 apiRouter.use('/auth', authRoutes);
-apiRouter.use(auditorReadExtraGuard); // Global read-only enforcement for Auditors
 apiRouter.use('/', usersRoutes);
 apiRouter.use('/', auditRoutes);
 apiRouter.use('/', subscriptionsRoutes);
@@ -56,10 +54,9 @@ apiRouter.use('/', lmsRoutes);
 if (env.FEATURE_ASSESSMENTS_ENABLED) {
   apiRouter.use('/', assessmentsRoutes);
 }
-if (env.FEATURE_GOV_AUDITING_ENABLED) {
-  apiRouter.use('/', govRoutes);
-}
 apiRouter.use('/', timetableRoutes);
 apiRouter.use('/', announcementsRoutes);
 apiRouter.use('/', dashboardRoutes);
+apiRouter.use('/', govRoutes);
+apiRouter.use('/', adminAuditorsRoutes);
 apiRouter.use('/roles', rolesRoutes);
