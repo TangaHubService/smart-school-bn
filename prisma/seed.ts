@@ -533,32 +533,38 @@ async function main() {
     },
   });
 
-  await prisma.school.upsert({
+  const existingSchool = await prisma.school.findUnique({
     where: { tenantId: schoolTenant.id },
-    update: {
-      displayName: 'Green School Rwanda',
-      registrationNumber: '131011',
-      email: 'info@greenschool.rw',
-      phone: '+250788123456',
-      city: 'Kigali',
-      district: 'Gasabo',
-      country: 'Rwanda',
-      timezone: 'Africa/Kigali',
-      setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
-    },
-    create: {
-      tenantId: schoolTenant.id,
-      displayName: 'Green School Rwanda',
-      registrationNumber: '131011',
-      email: 'info@greenschool.rw',
-      phone: '+250788123456',
-      city: 'Kigali',
-      district: 'Gasabo',
-      country: 'Rwanda',
-      timezone: 'Africa/Kigali',
-      setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
-    },
   });
+
+  if (!existingSchool) {
+    await prisma.school.upsert({
+      where: { tenantId: schoolTenant.id },
+      update: {
+        displayName: 'Green School Rwanda',
+        registrationNumber: '131011',
+        email: 'info@greenschool.rw',
+        phone: '+250788123456',
+        city: 'Kigali',
+        district: 'Gasabo',
+        country: 'Rwanda',
+        timezone: 'Africa/Kigali',
+        setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
+      },
+      create: {
+        tenantId: schoolTenant.id,
+        displayName: 'Green School Rwanda',
+        registrationNumber: '131011',
+        email: 'info@greenschool.rw',
+        phone: '+250788123456',
+        city: 'Kigali',
+        district: 'Gasabo',
+        country: 'Rwanda',
+        timezone: 'Africa/Kigali',
+        setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
+      },
+    });
+  }
 
   const schoolAdminRole = await prisma.role.upsert({
     where: {
