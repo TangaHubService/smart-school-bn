@@ -525,7 +525,7 @@ async function main() {
     create: {
       code: 'gs-rwanda',
       name: 'Green School Rwanda',
-      domain: 'green-school-rwanda.local',
+      domain: `green-school-rwanda-${Date.now()}.local`,
     },
   });
 
