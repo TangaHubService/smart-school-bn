@@ -124,7 +124,7 @@ export class AuthService {
     }
 
     // Check if user has privileged role
-    const userRoles = resolvedUser.userRoles.map(ur => ur.role.name);
+    const userRoles = (resolvedUser.userRoles ?? []).map(ur => ur.role.name);
     const isPrivileged = userRoles.some(
       role => ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
     );
@@ -472,7 +472,7 @@ export class AuthService {
     }
 
     const superAdmins = users.filter(user =>
-      user.userRoles.some(item => item.role.name === 'SUPER_ADMIN')
+      (user.userRoles ?? []).some(item => item.role.name === 'SUPER_ADMIN')
     );
 
     if (superAdmins.length === 1) {
