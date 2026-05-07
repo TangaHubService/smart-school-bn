@@ -1,6 +1,6 @@
 import { UserStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../../config/env';
@@ -16,15 +16,8 @@ import { resolvePrimaryRole } from '../audit/audit-log.utils';
 import { EmailService } from '../notifications/email.service';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
-import {
-  ForgotPasswordInput,
-  LoginInput,
-  LogoutInput,
-  RefreshInput,
-  RegisterInput,
-  ResetPasswordInput,
-  VerifyOtpInput,
-} from './auth.schemas';
+import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
+import { generateOtp, hashOtp } from './otp.utils';
 
 const PUBLIC_LEARNER_PERMISSIONS = [
   'students.my_courses.read',
@@ -128,6 +121,41 @@ export class AuthService {
         'AUTH_AMBIGUOUS_ACCOUNT',
         'Multiple accounts match this identifier. Contact support.'
       );
+    }
+
+    // Check if user has privileged role
+    const userRoles = resolvedUser.userRoles.map(ur => ur.role.name);
+    const isPrivileged = userRoles.some(
+      role => ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
+    );
+
+    if (isPrivileged) {
+      // Generate OTP
+      const otp = generateOtp();
+      const otpHash = hashOtp(otp);
+      const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+      await prisma.user.update({
+        where: { id: resolvedUser.id },
+        data: {
+          otpHash,
+          otpExpiresAt: expiresAt,
+          otpAttempts: 0,
+          lastOtpSentAt: new Date(),
+          isTwoFactorVerified: false,
+        },
+      });
+
+      // Send OTP email
+      await this.emailService.sendTwoFactorOtp({
+        toEmail: resolvedUser.email,
+        otp,
+        expiresAt,
+      });
+
+      return {
+        requiresTwoFactor: true,
+      };
     }
 
     return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
@@ -435,6 +463,7 @@ export class AuthService {
 
   private resolveMatchedEmailUser<
     T extends {
+      id: string;
       userRoles: Array<{ role: { name: string } }>;
     },
   >(users: T[]): T | null {
@@ -552,7 +581,105 @@ export class AuthService {
     return { roles, permissions };
   }
 
-  async forgotPassword(input: ForgotPasswordInput, context: RequestAuditContext) {
+  async verifyTwoFactor(input: VerifyTwoFactorInput, context: RequestAuditContext) {
+    const { email, otp } = input;
+    const normalized = email.toLowerCase().trim();
+
+    const user = await prisma.user.findFirst({
+      where: {
+        email: normalized,
+        otpHash: { not: null },
+        otpExpiresAt: { gt: new Date() },
+        isTwoFactorVerified: false,
+      },
+      include: {
+        userRoles: {
+          include: { role: true },
+        },
+        tenant: {
+          select: {
+            name: true,
+            school: { select: { displayName: true } },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid or expired OTP');
+    }
+
+    if (user.otpAttempts && user.otpAttempts >= env.OTP_MAX_ATTEMPTS) {
+      throw new AppError(429, 'AUTH_OTP_ATTEMPT_LIMIT', 'Maximum OTP attempts exceeded');
+    }
+
+    const isValid = hashOtp(otp) === user.otpHash;
+
+    if (!isValid) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { otpAttempts: (user.otpAttempts ?? 0) + 1 },
+      });
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid OTP');
+    }
+
+    // OTP correct – mark as verified and clear otp fields
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isTwoFactorVerified: true,
+        otpHash: null,
+        otpExpiresAt: null,
+        otpAttempts: 0,
+        lastOtpSentAt: null,
+      },
+    });
+
+    // Complete login after successful 2FA
+    return this.completeLogin(user.tenantId, user, context);
+  }
+
+  async resendTwoFactorOtp(input: ResendTwoFactorOtpInput, context: RequestAuditContext) {
+    const { email } = input;
+    const normalized = email.toLowerCase().trim();
+
+    const user = await prisma.user.findFirst({
+      where: { email: normalized },
+    });
+    if (!user) {
+      throw new AppError(404, 'AUTH_USER_NOT_FOUND', 'User not found');
+    }
+
+    const now = new Date();
+    if (user.lastOtpSentAt && now.getTime() - user.lastOtpSentAt.getTime() < env.OTP_RESEND_COOLDOWN_MIN * 60 * 1000) {
+      throw new AppError(429, 'AUTH_OTP_RESEND_COOLDOWN', 'Please wait before resending OTP');
+    }
+
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        otpHash,
+        otpExpiresAt: expiresAt,
+        otpAttempts: 0,
+        lastOtpSentAt: now,
+        isTwoFactorVerified: false,
+      },
+    });
+
+    await this.emailService.sendTwoFactorOtp({
+      toEmail: user.email,
+      otp,
+      expiresAt,
+    });
+
+    return { message: 'OTP resent successfully' };
+  }
+
+  async forgotPassword(input: RequestPasswordResetInput, context: RequestAuditContext) {
     const { email } = input;
     const normalized = email.toLowerCase().trim();
 

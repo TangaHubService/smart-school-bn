@@ -50,6 +50,7 @@ export const forgotPasswordSchema = z.object({
 });
 
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type RequestPasswordResetInput = ForgotPasswordInput;
 
 export const resetPasswordSchema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -71,3 +72,16 @@ export const verifyOtpSchema = z.object({
 });
 
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
+
+export const verifyTwoFactorSchema = z.object({
+  email: z.string().trim().email(),
+  otp: z.string().length(6, 'OTP must be 6 digits'),
+});
+
+export type VerifyTwoFactorInput = z.infer<typeof verifyTwoFactorSchema>;
+
+export const resendTwoFactorOtpSchema = z.object({
+  email: z.string().trim().email(),
+});
+
+export type ResendTwoFactorOtpInput = z.infer<typeof resendTwoFactorOtpSchema>;
