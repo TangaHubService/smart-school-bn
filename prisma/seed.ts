@@ -472,11 +472,15 @@ async function main() {
     },
   });
 
-  const superAdminPasswordHash = await bcrypt.hash('Kigali2019@2022', 12);
-  const platformSuperAdminEmails = [
-    'smartschoolrwanda@gmail.com',
-    'sibomanadamascene1999@gmail.com',
-  ];
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Kigali2019@2022';
+  const superAdminPasswordHash = await bcrypt.hash(superAdminPassword, 12);
+  const superAdminFirstName = process.env.SUPER_ADMIN_FIRST_NAME || 'Sibmana';
+  const superAdminLastName = process.env.SUPER_ADMIN_LAST_NAME || 'Damascene';
+
+  const envSuperAdminEmails = process.env.SUPER_ADMIN_EMAILS;
+  const platformSuperAdminEmails = envSuperAdminEmails
+    ? envSuperAdminEmails.split(',').map(e => e.trim())
+    : ['smartschoolrwanda@gmail.com', 'sibomanadamascene1999@gmail.com'];
 
   for (const email of platformSuperAdminEmails) {
     const superAdminUser = await prisma.user.upsert({
@@ -488,15 +492,15 @@ async function main() {
       },
       update: {
         passwordHash: superAdminPasswordHash,
-        firstName: 'Sibmana',
-        lastName: 'Damascene',
+        firstName: superAdminFirstName,
+        lastName: superAdminLastName,
       },
       create: {
         tenantId: platformTenant.id,
         email,
         passwordHash: superAdminPasswordHash,
-        firstName: 'Sibmana',
-        lastName: 'Damascene',
+        firstName: superAdminFirstName,
+        lastName: superAdminLastName,
       },
     });
 
