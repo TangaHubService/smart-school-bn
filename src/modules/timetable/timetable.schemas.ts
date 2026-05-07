@@ -6,11 +6,15 @@ const createTimetableSlotBaseSchema = z.object({
   academicYearId: z.string().uuid(),
   termId: z.string().uuid(),
   classRoomId: z.string().uuid(),
-  courseId: z.string().uuid(),
+  courseId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
   dayOfWeek: z.number().int().min(1).max(5),
   periodNumber: z.number().int().min(1).max(12),
   startTime: timeSchema,
   endTime: timeSchema,
+}).refine((data) => data.courseId || data.subjectId, {
+  message: 'Either courseId or subjectId is required',
+  path: ['courseId'],
 });
 
 export const createTimetableSlotSchema = createTimetableSlotBaseSchema.superRefine((value, ctx) => {
@@ -27,7 +31,17 @@ export const createTimetableSlotSchema = createTimetableSlotBaseSchema.superRefi
   }
 });
 
-export const updateTimetableSlotSchema = createTimetableSlotBaseSchema.partial();
+export const updateTimetableSlotSchema = z.object({
+  academicYearId: z.string().uuid().optional(),
+  termId: z.string().uuid().optional(),
+  classRoomId: z.string().uuid().optional(),
+  courseId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
+  dayOfWeek: z.number().int().min(1).max(5).optional(),
+  periodNumber: z.number().int().min(1).max(12).optional(),
+  startTime: timeSchema.optional(),
+  endTime: timeSchema.optional(),
+});
 
 export const listTimetableSlotsQuerySchema = z.object({
   academicYearId: z.string().uuid(),
@@ -37,11 +51,15 @@ export const listTimetableSlotsQuerySchema = z.object({
 });
 
 const bulkSlotSchema = z.object({
-  courseId: z.string().uuid(),
+  courseId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
   dayOfWeek: z.number().int().min(1).max(5),
   periodNumber: z.number().int().min(1).max(12),
   startTime: timeSchema,
   endTime: timeSchema,
+}).refine((data) => data.courseId || data.subjectId, {
+  message: 'Either courseId or subjectId is required',
+  path: ['courseId'],
 });
 
 export const bulkUpsertTimetableSlotsSchema = z
