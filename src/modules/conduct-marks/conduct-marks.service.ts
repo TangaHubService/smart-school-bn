@@ -16,10 +16,11 @@ export class ConductMarksService {
   private readonly auditService = new AuditService();
 
   private isTeacherOnly(actor: JwtUser) {
+    const roles = actor.roles ?? [];
     return (
-      actor.roles.includes('TEACHER') &&
-      !actor.roles.includes('SUPER_ADMIN') &&
-      !actor.roles.includes('SCHOOL_ADMIN')
+      roles.includes('TEACHER') &&
+      !roles.includes('SUPER_ADMIN') &&
+      !roles.includes('SCHOOL_ADMIN')
     );
   }
 
@@ -29,7 +30,8 @@ export class ConductMarksService {
     classRoomId: string,
     actor: JwtUser
   ) {
-    if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
+    const roles = actor.roles ?? [];
+    if (roles.includes('SUPER_ADMIN') || roles.includes('SCHOOL_ADMIN')) {
       return;
     }
     const course = await prisma.course.findFirst({

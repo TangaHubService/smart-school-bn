@@ -32,7 +32,7 @@ const auditLogInclude = {
 
 export class AuditListService {
   async listSuperAdmin(actor: JwtUser, query: ListAuditLogsQueryInput) {
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(403, 'FORBIDDEN', 'Only super admins can list activity logs');
     }
 

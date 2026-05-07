@@ -100,7 +100,8 @@ export class UsersService {
   }
 
   private buildListWhere(currentUser: JwtUser, input: ListUsersQueryInput): Prisma.UserWhereInput {
-    const isSuperAdmin = currentUser.roles.includes('SUPER_ADMIN');
+    const roles = currentUser.roles ?? [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
     };
@@ -256,7 +257,8 @@ export class UsersService {
       throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
     }
 
-    const isSuperAdmin = currentUser.roles.includes('SUPER_ADMIN');
+    const roles = currentUser.roles ?? [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     if (!isSuperAdmin && user.tenantId !== currentUser.tenantId) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot access this user');
     }
@@ -303,7 +305,8 @@ export class UsersService {
       throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
     }
 
-    const isSuperAdmin = currentUser.roles.includes('SUPER_ADMIN');
+    const roles = currentUser.roles ?? [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     if (!isSuperAdmin && user.tenantId !== currentUser.tenantId) {
       throw new AppError(403, 'FORBIDDEN', 'Cannot update this user');
     }

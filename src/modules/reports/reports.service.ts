@@ -30,10 +30,11 @@ type ExamWithMarks = Prisma.ExamGetPayload<{
 
 export class ReportsService {
   private isTeacherOnly(actor: JwtUser) {
+    const roles = actor.roles ?? [];
     return (
-      actor.roles.includes('TEACHER') &&
-      !actor.roles.includes('SUPER_ADMIN') &&
-      !actor.roles.includes('SCHOOL_ADMIN')
+      roles.includes('TEACHER') &&
+      !roles.includes('SUPER_ADMIN') &&
+      !roles.includes('SCHOOL_ADMIN')
     );
   }
 

@@ -806,7 +806,7 @@ export class StudentsService {
       return tenantId;
     }
 
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(
         403,
         'STUDENT_IMPORT_TENANT_FORBIDDEN',

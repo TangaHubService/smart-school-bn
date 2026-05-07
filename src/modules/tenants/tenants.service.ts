@@ -25,7 +25,7 @@ export class TenantsService {
   private readonly emailService = new EmailService();
 
   private assertSuperAdminCatalog(actor: JwtUser) {
-    if (!actor.roles.includes('SUPER_ADMIN')) {
+    if (!(actor.roles ?? []).includes('SUPER_ADMIN')) {
       throw new AppError(
         403,
         'FORBIDDEN',

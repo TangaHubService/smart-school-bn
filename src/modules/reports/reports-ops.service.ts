@@ -33,10 +33,11 @@ export class ReportsOpsService {
   private readonly timetableService = new TimetableService();
 
   private isTeacherOnly(actor: JwtUser) {
+    const roles = actor.roles ?? [];
     return (
-      actor.roles.includes('TEACHER') &&
-      !actor.roles.includes('SUPER_ADMIN') &&
-      !actor.roles.includes('SCHOOL_ADMIN')
+      roles.includes('TEACHER') &&
+      !roles.includes('SUPER_ADMIN') &&
+      !roles.includes('SCHOOL_ADMIN')
     );
   }
 
@@ -248,7 +249,7 @@ export class ReportsOpsService {
       allowedIds.add(actor.sub);
     }
 
-    const isSuper = actor.roles.includes('SUPER_ADMIN');
+    const isSuper = (actor.roles ?? []).includes('SUPER_ADMIN');
     const canAttendance = isSuper || actor.permissions.includes(PERMISSIONS.ATTENDANCE_READ);
     const canExams = isSuper || actor.permissions.includes(PERMISSIONS.EXAMS_READ);
 

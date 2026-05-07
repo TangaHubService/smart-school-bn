@@ -2094,11 +2094,13 @@ export class LmsService {
   }
 
   private isTeacherOnly(actor: JwtUser) {
-    return actor.roles.includes('TEACHER') && !this.isAdmin(actor);
+    const roles = actor.roles ?? [];
+    return roles.includes('TEACHER') && !this.isAdmin(actor);
   }
 
   private isAdmin(actor: JwtUser) {
-    return actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN');
+    const roles = actor.roles ?? [];
+    return roles.includes('SUPER_ADMIN') || roles.includes('SCHOOL_ADMIN');
   }
 
   private ensureAdminCanAssignTeacher(actor: JwtUser) {
@@ -2118,7 +2120,8 @@ export class LmsService {
       return;
     }
 
-    if (actor.roles.includes('TEACHER') && actor.sub === teacherUserId) {
+    const roles = actor.roles ?? [];
+    if (roles.includes('TEACHER') && actor.sub === teacherUserId) {
       return;
     }
 

@@ -2847,7 +2847,8 @@ export class ExamsService {
     classRoomId: string,
     actor: JwtUser
   ) {
-    if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
+    const roles = actor.roles ?? [];
+    if (roles.includes('SUPER_ADMIN') || roles.includes('SCHOOL_ADMIN')) {
       return;
     }
     const perms = new Set(actor.permissions ?? []);
@@ -3289,27 +3290,30 @@ export class ExamsService {
   }
 
   private ensureAdmin(actor: JwtUser) {
-    if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
+    const roles = actor.roles ?? [];
+    if (roles.includes('SUPER_ADMIN') || roles.includes('SCHOOL_ADMIN')) {
       return;
     }
     throw new AppError(403, 'RESULTS_FORBIDDEN', 'Only administrators can perform this action');
   }
 
   private ensureCanManageTeacherOwnedEntity(teacherUserId: string, actor: JwtUser) {
-    if (actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('SCHOOL_ADMIN')) {
+    const roles = actor.roles ?? [];
+    if (roles.includes('SUPER_ADMIN') || roles.includes('SCHOOL_ADMIN')) {
       return;
     }
-    if (actor.roles.includes('TEACHER') && actor.sub === teacherUserId) {
+    if (roles.includes('TEACHER') && actor.sub === teacherUserId) {
       return;
     }
     throw new AppError(403, 'EXAM_FORBIDDEN', 'You cannot manage this exam');
   }
 
   private isTeacherOnly(actor: JwtUser) {
+    const roles = actor.roles ?? [];
     return (
-      actor.roles.includes('TEACHER') &&
-      !actor.roles.includes('SUPER_ADMIN') &&
-      !actor.roles.includes('SCHOOL_ADMIN')
+      roles.includes('TEACHER') &&
+      !roles.includes('SUPER_ADMIN') &&
+      !roles.includes('SCHOOL_ADMIN')
     );
   }
 }
