@@ -110,10 +110,31 @@ export class TimetableService {
     context: RequestAuditContext
   ) {
     this.ensureActorCanManageTimetable(actor);
-    await this.ensureSlotTargets(tenantId, input);
+
+    let courseId = input.courseId;
+    if (!courseId && input.subjectId) {
+      const course = await this.findOrCreateCourseFromSubject(
+        tenantId,
+        input.academicYearId,
+        input.classRoomId,
+        input.subjectId,
+        actor
+      );
+      courseId = course.id;
+    }
+    if (!courseId) {
+      throw new AppError(400, 'COURSE_REQUIRED', 'Either courseId or subjectId is required');
+    }
+
+    await this.ensureSlotTargets(tenantId, {
+      academicYearId: input.academicYearId,
+      termId: input.termId,
+      classRoomId: input.classRoomId,
+      courseId,
+    });
     this.ensureValidTimeRange(input.startTime, input.endTime);
-    const courseMap = await this.getCourseTeacherMap(tenantId, [input.courseId]);
-    const teacherUserId = courseMap.get(input.courseId);
+    const courseMap = await this.getCourseTeacherMap(tenantId, [courseId]);
+    const teacherUserId = courseMap.get(courseId);
     if (!teacherUserId) {
       throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
     }
@@ -123,7 +144,7 @@ export class TimetableService {
         academicYearId: input.academicYearId,
         termId: input.termId,
         classRoomId: input.classRoomId,
-        courseId: input.courseId,
+        courseId,
         teacherUserId,
         dayOfWeek: input.dayOfWeek,
         periodNumber: input.periodNumber,
@@ -138,7 +159,8 @@ export class TimetableService {
         academicYearId: input.academicYearId,
         termId: input.termId,
         classRoomId: input.classRoomId,
-        courseId: input.courseId,
+        courseId,
+        subjectId: input.subjectId,
         dayOfWeek: input.dayOfWeek,
         periodNumber: input.periodNumber,
         startTime: input.startTime,
@@ -184,12 +206,30 @@ export class TimetableService {
 
     this.ensureActorCanManageTimetable(actor);
 
-    if (input.academicYearId || input.termId || input.classRoomId || input.courseId) {
+    let nextCourseId = input.courseId ?? existing.courseId ?? undefined;
+    if (!nextCourseId && input.subjectId) {
+      const course = await this.findOrCreateCourseFromSubject(
+        tenantId,
+        input.academicYearId ?? existing.academicYearId,
+        input.classRoomId ?? existing.classRoomId,
+        input.subjectId,
+        actor
+      );
+      nextCourseId = course.id;
+    }
+    if (!nextCourseId && (input.courseId !== undefined || input.subjectId !== undefined)) {
+      throw new AppError(400, 'COURSE_REQUIRED', 'Either courseId or subjectId is required');
+    }
+    if (!nextCourseId) {
+      nextCourseId = existing.courseId ?? undefined;
+    }
+
+    if (nextCourseId) {
       await this.ensureSlotTargets(tenantId, {
         academicYearId: input.academicYearId ?? existing.academicYearId,
         termId: input.termId ?? existing.termId,
         classRoomId: input.classRoomId ?? existing.classRoomId,
-        courseId: input.courseId ?? existing.courseId,
+        courseId: nextCourseId,
       });
     }
 
@@ -200,31 +240,32 @@ export class TimetableService {
     const nextAcademicYearId = input.academicYearId ?? existing.academicYearId;
     const nextTermId = input.termId ?? existing.termId;
     const nextClassRoomId = input.classRoomId ?? existing.classRoomId;
-    const nextCourseId = input.courseId ?? existing.courseId;
 
-    const courseMap = await this.getCourseTeacherMap(tenantId, [nextCourseId]);
-    const teacherUserId = courseMap.get(nextCourseId);
-    if (!teacherUserId) {
-      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    if (nextCourseId) {
+      const courseMap = await this.getCourseTeacherMap(tenantId, [nextCourseId]);
+      const teacherUserId = courseMap.get(nextCourseId);
+      if (!teacherUserId) {
+        throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+      }
+      const existingSlots = await this.getExistingSlots(tenantId, nextAcademicYearId, nextTermId);
+      this.validateScheduleChanges(
+        existingSlots.filter(slot => slot.id !== slotId),
+        [
+          {
+            id: slotId,
+            academicYearId: nextAcademicYearId,
+            termId: nextTermId,
+            classRoomId: nextClassRoomId,
+            courseId: nextCourseId,
+            teacherUserId,
+            dayOfWeek: input.dayOfWeek ?? existing.dayOfWeek,
+            periodNumber: input.periodNumber ?? existing.periodNumber,
+            startTime: nextStart,
+            endTime: nextEnd,
+          },
+        ]
+      );
     }
-    const existingSlots = await this.getExistingSlots(tenantId, nextAcademicYearId, nextTermId);
-    this.validateScheduleChanges(
-      existingSlots.filter(slot => slot.id !== slotId),
-      [
-        {
-          id: slotId,
-          academicYearId: nextAcademicYearId,
-          termId: nextTermId,
-          classRoomId: nextClassRoomId,
-          courseId: nextCourseId,
-          teacherUserId,
-          dayOfWeek: input.dayOfWeek ?? existing.dayOfWeek,
-          periodNumber: input.periodNumber ?? existing.periodNumber,
-          startTime: nextStart,
-          endTime: nextEnd,
-        },
-      ]
-    );
 
     const updated = await prisma.timetableSlot.update({
       where: { id: slotId },
@@ -232,7 +273,8 @@ export class TimetableService {
         ...(input.academicYearId && { academicYearId: input.academicYearId }),
         ...(input.termId && { termId: input.termId }),
         ...(input.classRoomId && { classRoomId: input.classRoomId }),
-        ...(input.courseId && { courseId: input.courseId }),
+        ...(nextCourseId && { courseId: nextCourseId }),
+        ...(input.subjectId && { subjectId: input.subjectId }),
         ...(input.dayOfWeek != null && { dayOfWeek: input.dayOfWeek }),
         ...(input.periodNumber != null && { periodNumber: input.periodNumber }),
         ...(input.startTime && { startTime: input.startTime }),
@@ -303,7 +345,32 @@ export class TimetableService {
     context: RequestAuditContext
   ) {
     this.ensureActorCanManageTimetable(actor);
-    const uniqueCourseIds = [...new Set(input.slots.map(s => s.courseId))];
+
+    for (const s of input.slots) {
+      this.ensureValidTimeRange(s.startTime, s.endTime);
+    }
+
+    const processedSlots = await Promise.all(
+      input.slots.map(async (slot) => {
+        let courseId = slot.courseId;
+        if (!courseId && slot.subjectId) {
+          const course = await this.findOrCreateCourseFromSubject(
+            tenantId,
+            input.academicYearId,
+            input.classRoomId,
+            slot.subjectId,
+            actor
+          );
+          courseId = course.id;
+        }
+        if (!courseId) {
+          throw new AppError(400, 'COURSE_REQUIRED', 'Either courseId or subjectId is required');
+        }
+        return { ...slot, courseId };
+      })
+    );
+
+    const uniqueCourseIds = [...new Set(processedSlots.map(s => s.courseId).filter(Boolean))];
     for (const courseId of uniqueCourseIds) {
       await this.ensureSlotTargets(tenantId, {
         academicYearId: input.academicYearId,
@@ -312,13 +379,10 @@ export class TimetableService {
         courseId,
       });
     }
-    for (const s of input.slots) {
-      this.ensureValidTimeRange(s.startTime, s.endTime);
-    }
 
     const courseMap = await this.getCourseTeacherMap(tenantId, uniqueCourseIds);
-    const candidates: CandidateSlot[] = input.slots.map(s => {
-      const teacherUserId = courseMap.get(s.courseId);
+    const candidates: CandidateSlot[] = processedSlots.map(s => {
+      const teacherUserId = courseMap.get(s.courseId!);
       if (!teacherUserId) {
         throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
       }
@@ -326,7 +390,7 @@ export class TimetableService {
         academicYearId: input.academicYearId,
         termId: input.termId,
         classRoomId: input.classRoomId,
-        courseId: s.courseId,
+        courseId: s.courseId!,
         teacherUserId,
         dayOfWeek: s.dayOfWeek,
         periodNumber: s.periodNumber,
@@ -405,8 +469,8 @@ export class TimetableService {
     academicYearId: string;
     termId: string;
     classRoomId: string;
-    courseId?: string;
-    course?: { id: string };
+    courseId?: string | null;
+    course?: { id: string } | null;
     dayOfWeek: number;
     periodNumber: number;
     startTime: string;
@@ -633,5 +697,43 @@ export class TimetableService {
   private timeToMinutes(time: string): number {
     const [h, m] = time.split(':').map(Number);
     return h * 60 + (m || 0);
+  }
+
+  private async findOrCreateCourseFromSubject(
+    tenantId: string,
+    academicYearId: string,
+    classRoomId: string,
+    subjectId: string,
+    actor: JwtUser
+  ) {
+    const existingCourse = await prisma.course.findFirst({
+      where: {
+        tenantId,
+        academicYearId,
+        classRoomId,
+        subjectId,
+        isActive: true,
+      },
+    });
+    if (existingCourse) {
+      return existingCourse;
+    }
+    const subject = await prisma.subject.findFirst({
+      where: { id: subjectId, tenantId },
+    });
+    if (!subject) {
+      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
+    }
+    const createdCourse = await prisma.course.create({
+      data: {
+        tenantId,
+        academicYearId,
+        classRoomId,
+        subjectId,
+        teacherUserId: actor.sub,
+        title: subject.name,
+      },
+    });
+    return createdCourse;
   }
 }
