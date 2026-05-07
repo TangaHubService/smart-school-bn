@@ -16,7 +16,7 @@ import { resolvePrimaryRole } from '../audit/audit-log.utils';
 import { EmailService } from '../notifications/email.service';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
-import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
+import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, SelectSchoolInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
 import { generateOtp, hashOtp } from './otp.utils';
 
 const PUBLIC_LEARNER_PERMISSIONS = [
@@ -119,7 +119,8 @@ export class AuthService {
       throw new AppError(
         409,
         'AUTH_AMBIGUOUS_ACCOUNT',
-        'Multiple accounts match this identifier. Contact support.'
+        'Multiple accounts match this identifier',
+        { matchedSchools: matchedUsers.map(u => ({ tenantId: u.tenantId, tenantName: u.tenant.name, schoolName: u.tenant.school?.displayName ?? u.tenant.name })) }
       );
     }
 
@@ -159,6 +160,90 @@ export class AuthService {
     }
 
     return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
+  }
+
+  async selectSchool(input: SelectSchoolInput, context: RequestAuditContext) {
+    const { identifier, password, tenantId } = input;
+    const trimmedIdentifier = identifier.trim();
+
+    const user = await prisma.user.findFirst({
+      where: {
+        tenantId,
+        OR: [
+          { email: { equals: trimmedIdentifier, mode: 'insensitive' } },
+          { username: { equals: trimmedIdentifier, mode: 'insensitive' } },
+        ],
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+      },
+      include: {
+        tenant: {
+          select: {
+            name: true,
+            school: {
+              select: {
+                displayName: true,
+              },
+            },
+          },
+        },
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) {
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        actorUserId: user.id,
+        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { reason: 'WRONG_PASSWORD', identifier: trimmedIdentifier },
+      });
+      throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+    }
+
+    const userRoles = (user.userRoles ?? []).map((ur) => ur.role.name);
+    const isPrivileged = userRoles.some(
+      (role) => ['SUPER_ADMIN', 'ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
+    );
+
+    if (isPrivileged) {
+      const otp = generateOtp();
+      const otpHash = hashOtp(otp);
+      const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          otpHash,
+          otpExpiresAt: expiresAt,
+          otpAttempts: 0,
+          lastOtpSentAt: new Date(),
+          isTwoFactorVerified: false,
+        },
+      });
+
+      await this.emailService.sendTwoFactorOtp({
+        toEmail: user.email,
+        otp,
+        expiresAt,
+      });
+
+      return { requiresTwoFactor: true };
+    }
+
+    return this.completeLogin(user.tenantId, user, context);
   }
 
   async register(input: RegisterInput, context: RequestAuditContext) {

@@ -10,6 +10,7 @@ import {
   RefreshInput,
   RegisterInput,
   ResetPasswordInput,
+  SelectSchoolInput,
   VerifyOtpInput,
   VerifyTwoFactorInput,
   ResendTwoFactorOtpInput,
@@ -86,6 +87,11 @@ export class AuthController {
       req.body as ResendTwoFactorOtpInput,
       buildContext(req)
     );
+    return sendSuccess(req, res, result);
+  }
+
+  async selectSchool(req: Request, res: Response): Promise<Response> {
+    const result = await authService.selectSchool(req.body as SelectSchoolInput, buildContext(req));
     return sendSuccess(req, res, result);
   }
 }

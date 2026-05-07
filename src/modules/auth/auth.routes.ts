@@ -13,6 +13,7 @@ import {
   refreshSchema,
   registerSchema,
   resetPasswordSchema,
+  selectSchoolSchema,
   verifyOtpSchema,
   verifyTwoFactorSchema,
   resendTwoFactorOtpSchema,
@@ -81,4 +82,10 @@ authRoutes.post(
   '/resend-two-factor-otp',
   validateBody(resendTwoFactorOtpSchema),
   asyncHandler((req, res) => authController.resendTwoFactorOtp(req, res))
+);
+
+authRoutes.post(
+  '/select-school',
+  validateBody(selectSchoolSchema),
+  asyncHandler((req, res) => authController.selectSchool(req, res))
 );

@@ -85,3 +85,11 @@ export const resendTwoFactorOtpSchema = z.object({
 });
 
 export type ResendTwoFactorOtpInput = z.infer<typeof resendTwoFactorOtpSchema>;
+
+export const selectSchoolSchema = z.object({
+  identifier: z.string().trim().toLowerCase().min(1),
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  tenantId: z.string().uuid('Invalid tenant ID'),
+});
+
+export type SelectSchoolInput = z.infer<typeof selectSchoolSchema>;
