@@ -729,7 +729,8 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
 
     const row2H = 22;
     const bornPart = bornStr ? `${bornStr}` : '';
-    const row2Text = `Born: ${bornPart || '        '} at ${'        '}    N. Students: ${payload.totals.classSize}    Conduct: ${conductText || '        '}`;
+    const positionText = payload.totals.position > 0 ? `Position: ${payload.totals.position}/${payload.totals.classSize}` : '';
+    const row2Text = `Born: ${bornPart || '        '} at ${'        '}    N. Students: ${payload.totals.classSize}    ${positionText}    Conduct: ${conductText || '        '}`;
     drawCell(doc, innerX, y, innerW, row2H, row2Text, { size: 9, paddingY: 5 });
     y += row2H;
 
@@ -979,35 +980,38 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       const rightSigW = colWY[23] + colWY[24];
       const headSig = 20;
       
-      // For yearly, use same structure but add QR column
-      const qrColW = 60;
-      const sigColW = rightSigW - qrColW;
-      const sigRowH = 25;
-
-      // Header row
-      drawCell(doc, tableX, y, leftObsW, sigRowH, 'Observations', { bold: true, size: 9, paddingY: 4 });
-      drawCell(doc, tableX + leftObsW, y, sigColW, sigRowH, 'Teacher Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-      drawCell(doc, tableX + leftObsW + sigColW, y, qrColW, sigRowH, 'QR Code', { bold: true, size: 9, align: 'center', paddingY: 4 });
+      // For yearly, use same one-row structure: Observations | Teacher | Head Teacher | Parent | QR
+      // Footer spans full table width
+      const totalTableWidth = colWY.reduce((a, b) => a + b, 0);
+      const footerColCount = 5;
+      const footerColWidth = totalTableWidth / footerColCount;
+      
+      const sigRowH = 18;
+      const bodyH = 40;
+      
+      // ONE Header row with all 5 columns
+      drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
       y += sigRowH;
 
-      // Teacher signature row with QR
-      const bodyH = 50;
-      drawCell(doc, tableX, y, leftObsW, bodyH, teacherComment, { size: 8.5, paddingY: 6 });
-      drawCell(doc, tableX + leftObsW, y, sigColW, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 8, align: 'center', paddingY: 20 });
+      // ONE Value row below
+      drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
+      drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
+      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+      // QR in last column - draw cell for borders, then overlay QR image
+      const qrCellX = tableX + footerColWidth * 4;
+      drawCell(doc, qrCellX, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
       if (qrImageData) {
-        const qrSize = 45;
-        const qrX = tableX + leftObsW + sigColW + (qrColW - qrSize) / 2;
-        doc.image(qrImageData, qrX, y + 2, { fit: [qrSize, qrSize] });
+        const qrSize = 26;
+        const qrX = qrCellX + (footerColWidth - qrSize) / 2;
+        const qrY = y + (bodyH - qrSize) / 2;
+        doc.image(qrImageData, qrX, qrY, { fit: [qrSize, qrSize] });
       }
       y += bodyH;
-
-      // Head Teacher row
-      drawCell(doc, tableX, y, leftObsW + sigColW + qrColW, sigRowH, 'Head Teacher Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-      y += sigRowH;
-
-      // Parent signature row
-      drawCell(doc, tableX, y, leftObsW + sigColW + qrColW, sigRowH, 'Parent Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-      y += sigRowH;
 
       doc.end();
       return;
@@ -1020,6 +1024,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
     const termHeaderH = 26;
     const sepXTerm = tableX + colW[0] + colW[1] + colW[2] + colW[3];
     y += drawTermTableHeader(doc, tableX, y, colW, headerFill, termHeaderH);
+    const tableStartY = y;
 
     let cx = tableX;
 
@@ -1081,39 +1086,41 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       }
     }
 
+    // Total row - shows column sums (not averages)
     const totalCells = [
-      'Avg',
-      nAcc ? (acc.mCat / nAcc).toFixed(1) : '—',
-      nAcc ? (acc.mEx / nAcc).toFixed(1) : '—',
-      nAcc ? (acc.mTot / nAcc).toFixed(1) : '—',
-      nAcc ? (acc.oCat / nAcc).toFixed(1) : '—',
-      nAcc ? (acc.oEx / nAcc).toFixed(1) : '—',
-      nAcc ? (acc.oTot / nAcc).toFixed(1) : '—',
-      '—',
+      'Total',
+      nAcc ? String(acc.mCat) : '—',
+      nAcc ? String(acc.mEx) : '—',
+      nAcc ? String(acc.mTot) : '—',
+      nAcc ? String(acc.oCat) : '—',
+      nAcc ? String(acc.oEx) : '—',
+      nAcc ? String(acc.oTot) : '—',
+      '',
       '',
     ];
     cx = tableX;
     for (let i = 0; i < totalCells.length; i += 1) {
       drawCell(doc, cx, y, colW[i], rowH, totalCells[i], {
-        fillColor: '#f0f0f0',
+        fillColor: '#e0e0e0',
         bold: true,
-        size: 8.5,
+        size: 8,
         align: i === 0 ? 'left' : 'center',
-        compact: i !== 0 && i !== 8,
+        compact: i !== 0,
       });
       cx += colW[i];
     }
     drawThickColumnSeparator(doc, sepXTerm, y, rowH);
     y += rowH;
 
+    // Average row - shows average percentage, position and grade
     const avgCells = [
-      'Avg',
+      'Average',
       '',
       '',
       '',
       '',
       '',
-      `${payload.totals.averagePercentage.toFixed(1)}`,
+      nAcc ? (acc.oTot / nAcc).toFixed(1) : '—',
       `${payload.totals.position}/${payload.totals.classSize}`,
       payload.totals.grade,
     ];
@@ -1122,46 +1129,54 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       drawCell(doc, cx, y, colW[i], rowH, avgCells[i], {
         fillColor: '#fafafa',
         bold: i === 0,
-        size: 7.8,
+        size: 8,
         align: i === 0 ? 'left' : 'center',
-        compact: i !== 0 && i !== 8,
+        compact: i !== 0,
       });
       cx += colW[i];
     }
     drawThickColumnSeparator(doc, sepXTerm, y, rowH);
     y += rowH + 6;
 
-    // Footer: Observations (left) | Signatures (middle) | QR Code (right)
-    const obsWidth = colW[0] + colW[1] + colW[2] + colW[3] + colW[4] + colW[5];
-    const sigWidth = colW[6] + colW[7];
-    const qrWidth = colW[8];
-    const sigRowH = 25;
+    const tableEndY = y;
+    const tableHeight = tableEndY - tableStartY;
+    if (tableHeight > 0) {
+      const tableWidth = innerX + innerW - tableX;
+      drawBox(doc, tableX, tableStartY, tableWidth, tableHeight, undefined, 1);
+    }
 
-    // Header row
-    drawCell(doc, tableX, y, obsWidth, sigRowH, 'Observations', { bold: true, size: 9, paddingY: 4 });
-    drawCell(doc, tableX + obsWidth, y, sigWidth, sigRowH, 'Teacher Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-    drawCell(doc, tableX + obsWidth + sigWidth, y, qrWidth, sigRowH, 'QR Code', { bold: true, size: 9, align: 'center', paddingY: 4 });
+    // Footer: All in ONE row - Observations | Teacher | Head Teacher | Parent | QR
+    // Footer spans full table width
+    const totalTableWidth = colW.reduce((a, b) => a + b, 0);
+    const footerColCount = 5;
+    const footerColWidth = totalTableWidth / footerColCount;
+    
+    const sigRowH = 18;
+    const bodyH = 40;
+    
+    // ONE Header row with all 5 columns
+    drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
     y += sigRowH;
 
-    // Teacher signature row with QR code
-    const bodyH = 50;
-    drawCell(doc, tableX, y, obsWidth, bodyH, teacherComment, { size: 8.5, paddingY: 6 });
-    drawCell(doc, tableX + obsWidth, y, sigWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 8, align: 'center', paddingY: 20 });
-    // Add QR in the third column
+    // ONE Value row below
+    drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
+    drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
+    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+    // QR in the last column - draw cell for borders, then overlay QR image
+    const qrCellX = tableX + footerColWidth * 4;
+    drawCell(doc, qrCellX, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
     if (qrImageData) {
-      const qrSize = 45;
-      const qrX = tableX + obsWidth + sigWidth + (qrWidth - qrSize) / 2;
-      doc.image(qrImageData, qrX, y + 2, { fit: [qrSize, qrSize] });
+      const qrSize = 26;
+      const qrX = qrCellX + (footerColWidth - qrSize) / 2;
+      const qrY = y + (bodyH - qrSize) / 2;
+      doc.image(qrImageData, qrX, qrY, { fit: [qrSize, qrSize] });
     }
     y += bodyH;
-
-    // Head Teacher row
-    drawCell(doc, tableX, y, obsWidth + sigWidth + qrWidth, sigRowH, 'Head Teacher Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-    y += sigRowH;
-
-    // Parent signature row  
-    drawCell(doc, tableX, y, obsWidth + sigWidth + qrWidth, sigRowH, 'Parent Signature', { bold: true, size: 9, align: 'center', paddingY: 4 });
-    y += sigRowH;
 
     doc.end();
   });
