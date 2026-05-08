@@ -991,16 +991,16 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       
       // ONE Header row with all 5 columns
       drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
       drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
       y += sigRowH;
 
       // ONE Value row below
       drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
-      drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
-      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+      drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
       drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
       // QR in last column - draw cell for borders, then overlay QR image
       const qrCellX = tableX + footerColWidth * 4;
@@ -1145,7 +1145,7 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
       drawBox(doc, tableX, tableStartY, tableWidth, tableHeight, undefined, 1);
     }
 
-    // Footer: All in ONE row - Observations | Teacher | Head Teacher | Parent | QR
+    // Footer: All in ONE row - Observations | Parent | Teacher | Head Teacher | QR
     // Footer spans full table width
     const totalTableWidth = colW.reduce((a, b) => a + b, 0);
     const footerColCount = 5;
@@ -1156,16 +1156,16 @@ export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Bu
     
     // ONE Header row with all 5 columns
     drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
+    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
     drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
     y += sigRowH;
 
     // ONE Value row below
     drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
-    drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
-    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+    drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
+    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
     drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
     // QR in the last column - draw cell for borders, then overlay QR image
     const qrCellX = tableX + footerColWidth * 4;

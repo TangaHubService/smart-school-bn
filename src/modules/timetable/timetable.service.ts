@@ -49,7 +49,14 @@ type ExistingSlot = {
     teacherUserId: string;
     classRoomId: string;
   };
-  classRoom: { name: string; code: string };
+  classRoom: {
+    name: string;
+    code: string;
+  };
+  createdAt: Date;
+  updatedAt: Date;
+  subjectId: string | null;
+  courseId: string | null;
 };
 
 type CandidateSlot = {
@@ -174,7 +181,7 @@ export class TimetableService {
       actor: { userId: actor.sub },
       event: AUDIT_EVENT.TIMETABLE_SLOT_CREATED,
       module: 'Timetable',
-      description: `Created timetable slot for course ${slot.course.title}`,
+      description: `Created timetable slot for course ${slot.course?.title ?? 'unknown'}`,
       entity: 'TimetableSlot',
       entityId: slot.id,
       recordId: slot.id,
@@ -670,7 +677,7 @@ export class TimetableService {
     academicYearId: string,
     termId: string
   ): Promise<ExistingSlot[]> {
-    return prisma.timetableSlot.findMany({
+    const slots = await prisma.timetableSlot.findMany({
       where: { tenantId, academicYearId, termId },
       include: {
         classRoom: { select: { name: true, code: true } },
@@ -684,6 +691,8 @@ export class TimetableService {
         },
       },
     });
+    const filtered = slots.filter((s) => s.course !== null) as ExistingSlot[];
+    return filtered;
   }
 
   private async getCourseTeacherMap(tenantId: string, courseIds: string[]) {

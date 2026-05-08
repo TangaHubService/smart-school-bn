@@ -115,6 +115,7 @@ export class ReportsOpsService {
     const minutesByTeacher = new Map<string, number>();
     const slotCountByTeacher = new Map<string, number>();
     for (const s of slots) {
+      if (!s.course) continue;
       const tid = s.course.teacherUserId;
       const mins = slotDurationMinutes(s.startTime, s.endTime);
       minutesByTeacher.set(tid, (minutesByTeacher.get(tid) ?? 0) + mins);
