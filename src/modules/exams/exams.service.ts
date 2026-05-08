@@ -2167,7 +2167,30 @@ export class ExamsService {
       ];
     }
 
-    const [totalItems, snapshots] = await prisma.$transaction([
+    let totalItems = 0;
+    let snapshots: any[] = [];
+    try {
+      [totalItems, snapshots] = await prisma.$transaction([
+        prisma.resultSnapshot.count({ where }),
+        prisma.resultSnapshot.findMany({
+          where,
+          include: this.resultSnapshotInclude,
+          orderBy: [
+            { term: { startDate: 'desc' } },
+            { student: { lastName: 'asc' } },
+            { student: { firstName: 'asc' } },
+            { classRoom: { code: 'asc' } },
+          ],
+          skip: (query.page - 1) * query.pageSize,
+          take: query.pageSize,
+        }),
+      ]);
+    } catch (err) {
+      this.logger.error('Failed to list report cards catalog', err);
+      // Return empty result set instead of crashing
+      totalItems = 0;
+      snapshots = [];
+    }
       prisma.resultSnapshot.count({ where }),
       prisma.resultSnapshot.findMany({
         where,
