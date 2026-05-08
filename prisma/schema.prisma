@@ -1354,6 +1354,8 @@ model ResultSnapshot {
   lockedByUserId       String
   publishedAt          DateTime?
   publishedByUserId    String?
+  verificationToken   String?              @unique
+  generatedAt          DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 

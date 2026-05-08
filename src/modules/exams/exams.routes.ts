@@ -29,6 +29,11 @@ examsRoutes.get(
   asyncHandler((req, res) => examsController.verifyReportCard(req, res))
 );
 
+examsRoutes.get(
+  '/report-cards/public/:snapshotId/pdf',
+  asyncHandler((req, res) => examsController.downloadPublicReportCardPdf(req, res))
+);
+
 examsRoutes.use(authenticate, enforceTenant);
 
 examsRoutes.get(

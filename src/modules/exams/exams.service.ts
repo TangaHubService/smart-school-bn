@@ -2415,6 +2415,7 @@ export class ExamsService {
       valid: true,
       verificationCode: this.buildVerificationCode(snapshot.id),
       verificationUrl: this.buildVerificationUrl(snapshot.id),
+      pdfDownloadUrl: `${env.APP_WEB_URL.replace(/\/$/, '')}/api/report-cards/public/${snapshot.id}/pdf`,
       school: {
         name: payload.school?.displayName ?? payload.schoolName,
         code: payload.school?.registrationNumber ?? payload.school?.code ?? null,
@@ -2430,6 +2431,30 @@ export class ExamsService {
       totals: payload.totals,
       issuedAt: snapshot.publishedAt ?? snapshot.lockedAt,
       message: 'This report card is valid and was published by Smart School Rwanda.',
+    };
+  }
+
+  async getPublicReportCardPdf(snapshotId: string) {
+    const snapshot = await prisma.resultSnapshot.findFirst({
+      where: {
+        id: snapshotId,
+        status: ResultSnapshotStatus.PUBLISHED,
+      },
+      include: this.resultSnapshotInclude,
+    });
+
+    if (!snapshot) {
+      throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found');
+    }
+
+    const payload = this.buildPayloadWithVerification(
+      snapshot.payload as unknown as ReportCardPayload,
+      snapshot.id
+    );
+
+    return {
+      fileName: this.buildReportFileName(snapshot),
+      buffer: await buildReportCardPdfBuffer(payload),
     };
   }
 
@@ -2473,9 +2498,14 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
+    const payload = this.buildPayloadWithVerification(
+      snapshot.payload as unknown as ReportCardPayload,
+      snapshot.id
+    );
+
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
+      buffer: await buildReportCardPdfBuffer(payload),
     };
   }
 
@@ -2501,9 +2531,14 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
+    const payload = this.buildPayloadWithVerification(
+      snapshot.payload as unknown as ReportCardPayload,
+      snapshot.id
+    );
+
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
+      buffer: await buildReportCardPdfBuffer(payload),
     };
   }
 
@@ -2544,9 +2579,14 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
+    const payload = this.buildPayloadWithVerification(
+      snapshot.payload as unknown as ReportCardPayload,
+      snapshot.id
+    );
+
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(snapshot.payload as unknown as ReportCardPayload),
+      buffer: await buildReportCardPdfBuffer(payload),
     };
   }
 
@@ -3192,6 +3232,13 @@ export class ExamsService {
 
   private buildVerificationUrl(snapshotId: string) {
     return `${env.APP_WEB_URL.replace(/\/$/, '')}/verify/report-cards/${snapshotId}`;
+  }
+
+  private buildPayloadWithVerification(payload: ReportCardPayload, snapshotId: string): ReportCardPayload {
+    return {
+      ...payload,
+      verificationUrl: this.buildVerificationUrl(snapshotId),
+    };
   }
 
   private async logReportCardViewed(

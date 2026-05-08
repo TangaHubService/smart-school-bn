@@ -30,6 +30,13 @@ export class ExamsController {
     return sendSuccess(req, res, result);
   }
 
+  async downloadPublicReportCardPdf(req: Request, res: Response) {
+    const result = await examsService.getPublicReportCardPdf(req.params.snapshotId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    return res.send(result.buffer);
+  }
+
   async listGradingSchemes(req: Request, res: Response) {
     const result = await examsService.listGradingSchemes(req.tenantId!);
     return sendSuccess(req, res, result);
