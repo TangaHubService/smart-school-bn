@@ -191,12 +191,12 @@ function drawTermTableHeader(
   const labelsRowHeight = headerH - titleRowHeight;
   let yPos = y;
 
-  drawCell(doc, tableX, yPos, colW[0], titleRowHeight, 'SUBJECT', {
+  drawCell(doc, tableX, yPos, colW[0], headerH, 'SUBJECT', {
     fillColor: headerFill,
     bold: true,
     size: 8.5,
     align: 'left',
-    paddingY: 2,
+    paddingY: 4,
   });
 
   const maxWidth = colW[1] + colW[2] + colW[3];
@@ -217,41 +217,41 @@ function drawTermTableHeader(
     paddingY: 2,
   });
 
-  drawCell(doc, tableX + colW[0] + maxWidth + obtWidth, yPos, colW[7], titleRowHeight, 'Rank', {
-    fillColor: headerFill,
-    bold: true,
-    size: 9,
-    align: 'center',
-    paddingY: 2,
-  });
+  drawCell(
+    doc,
+    tableX + colW[0] + maxWidth + obtWidth,
+    yPos,
+    colW[7],
+    headerH,
+    'Rank',
+    {
+      fillColor: headerFill,
+      bold: true,
+      size: 9,
+      align: 'center',
+      paddingY: 5,
+    }
+  );
 
   drawCell(
     doc,
     tableX + colW[0] + maxWidth + obtWidth + colW[7],
     yPos,
     colW[8],
-    titleRowHeight,
+    headerH,
     'Comments',
     {
       fillColor: headerFill,
       bold: true,
       size: 9,
       align: 'center',
-      paddingY: 2,
+      paddingY: 5,
     }
   );
 
   yPos += titleRowHeight;
 
-  drawCell(doc, tableX, yPos, colW[0], labelsRowHeight, '', {
-    fillColor: headerFill,
-    bold: true,
-    size: 8.5,
-    align: 'left',
-    paddingY: 2,
-  });
-
-  const labels = ['CAT', 'EXAM', 'TOTAL', 'CAT', 'EXAM', 'TOTAL', 'Rank', 'Comments'];
+  const labels = ['CAT', 'EXAM', 'TOTAL', 'CAT', 'EXAM', 'TOTAL'];
   let gx = tableX + colW[0];
   for (let i = 0; i < labels.length; i += 1) {
     drawCell(doc, gx, yPos, colW[1 + i], labelsRowHeight, labels[i], {
