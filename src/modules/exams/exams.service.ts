@@ -1534,23 +1534,24 @@ export class ExamsService {
     actor: JwtUser,
     context: RequestAuditContext
   ) {
-    this.ensureAdmin(actor);
-    const scope = await this.getResultScope(tenantId, input.termId, input.classRoomId);
+    try {
+      this.ensureAdmin(actor);
+      const scope = await this.getResultScope(tenantId, input.termId, input.classRoomId);
 
-    const existing = await prisma.resultSnapshot.count({
-      where: {
-        tenantId,
-        termId: input.termId,
-        classRoomId: input.classRoomId,
-      },
-    });
-    if (existing > 0) {
-      throw new AppError(
-        409,
-        'RESULTS_ALREADY_LOCKED',
-        'Results are already locked for this term and class. Unlock first to make changes'
-      );
-    }
+      const existing = await prisma.resultSnapshot.count({
+        where: {
+          tenantId,
+          termId: input.termId,
+          classRoomId: input.classRoomId,
+        },
+      });
+      if (existing > 0) {
+        throw new AppError(
+          409,
+          'RESULTS_ALREADY_LOCKED',
+          'Results are already locked for this term and class. Unlock first to make changes'
+        );
+      }
 
     const gradingScheme = await this.getGradingSchemeForUse(tenantId, input.gradingSchemeId);
 
@@ -1722,6 +1723,9 @@ export class ExamsService {
       snapshotsCreated: created,
       classSize,
     };
+    } catch (error) {
+      this.handlePrismaError(error, 'lockResults');
+    }
   }
 
   /**
@@ -1974,34 +1978,38 @@ export class ExamsService {
     actor: JwtUser,
     context: RequestAuditContext
   ) {
-    this.ensureAdmin(actor);
+    try {
+      this.ensureAdmin(actor);
 
-    const deleted = await prisma.resultSnapshot.deleteMany({
-      where: {
+      const deleted = await prisma.resultSnapshot.deleteMany({
+        where: {
+          tenantId,
+          termId: input.termId,
+          classRoomId: input.classRoomId,
+        },
+      });
+
+      await this.auditService.log({
         tenantId,
-        termId: input.termId,
-        classRoomId: input.classRoomId,
-      },
-    });
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.RESULTS_UNLOCKED,
+        entity: 'ResultSnapshot',
+        entityId: `${input.termId}:${input.classRoomId}`,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: {
+          deletedCount: deleted.count,
+        },
+      });
 
-    await this.auditService.log({
-      tenantId,
-      actorUserId: actor.sub,
-      event: AUDIT_EVENT.RESULTS_UNLOCKED,
-      entity: 'ResultSnapshot',
-      entityId: `${input.termId}:${input.classRoomId}`,
-      requestId: context.requestId,
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-      payload: {
-        deletedCount: deleted.count,
-      },
-    });
-
-    return {
-      deleted: true,
-      snapshotsRemoved: deleted.count,
-    };
+      return {
+        deleted: true,
+        snapshotsRemoved: deleted.count,
+      };
+    } catch (error) {
+      this.handlePrismaError(error, 'unlockResults');
+    }
   }
 
   async publishResults(
@@ -2010,19 +2018,20 @@ export class ExamsService {
     actor: JwtUser,
     context: RequestAuditContext
   ) {
-    this.ensureAdmin(actor);
+    try {
+      this.ensureAdmin(actor);
 
-    const snapshots = await prisma.resultSnapshot.findMany({
-      where: {
-        tenantId,
-        termId: input.termId,
-        classRoomId: input.classRoomId,
-      },
-      select: { id: true },
-    });
+      const snapshots = await prisma.resultSnapshot.findMany({
+        where: {
+          tenantId,
+          termId: input.termId,
+          classRoomId: input.classRoomId,
+        },
+        select: { id: true },
+      });
 
-    if (!snapshots.length) {
-      throw new AppError(409, 'RESULTS_NOT_LOCKED', 'Lock results before publishing');
+      if (!snapshots.length) {
+        throw new AppError(409, 'RESULTS_NOT_LOCKED', 'Lock results before publishing');
     }
 
     const publishedAt = new Date();
@@ -2058,6 +2067,9 @@ export class ExamsService {
       snapshotsUpdated: updated.count,
       publishedAt,
     };
+    } catch (error) {
+      this.handlePrismaError(error, 'publishResults');
+    }
   }
 
   /**
@@ -3343,6 +3355,40 @@ export class ExamsService {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', message);
     }
+  }
+
+  private handlePrismaError(error: unknown, context: string) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (error.code) {
+        case 'P2003':
+          throw new AppError(
+            400,
+            'INVALID_REFERENCE',
+            `Invalid ${context}: referenced record does not exist`
+          );
+        case 'P2005':
+          throw new AppError(400, 'INVALID_FIELD', `Invalid field value in ${context}`);
+        case 'P2006':
+          throw new AppError(400, 'INVALID_VALUE', `Invalid value in ${context}`);
+        case 'P2014':
+          throw new AppError(
+            400,
+            'RELATION_CONSTRAINT',
+            `Required relationship not established in ${context}`
+          );
+        case 'P2025':
+          throw new AppError(404, 'RECORD_NOT_FOUND', `Record not found during ${context}`);
+        default:
+          throw new AppError(500, 'DATABASE_ERROR', `Database error during ${context}`);
+      }
+    }
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+      throw new AppError(503, 'DATABASE_UNAVAILABLE', 'Database connection failed');
+    }
+    if (error instanceof Prisma.PrismaClientRustPanicError) {
+      throw new AppError(503, 'DATABASE_PANIC', 'Database connection error');
+    }
+    throw error;
   }
 
   private ensureAdmin(actor: JwtUser) {
