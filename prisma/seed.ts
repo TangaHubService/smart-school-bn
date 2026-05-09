@@ -533,38 +533,44 @@ async function main() {
     },
   });
 
-  const existingSchool = await prisma.school.findUnique({
-    where: { tenantId: schoolTenant.id },
+  const existingSchool = await prisma.school.findFirst({
+    where: {
+      OR: [{ tenantId: schoolTenant.id }, { registrationNumber: '131011' }],
+    },
   });
 
-  if (!existingSchool) {
-    await prisma.school.upsert({
-      where: { tenantId: schoolTenant.id },
-      update: {
-        displayName: 'Green School Rwanda',
-        registrationNumber: '131011',
-        email: 'info@greenschool.rw',
-        phone: '+250788123456',
-        city: 'Kigali',
-        district: 'Gasabo',
-        country: 'Rwanda',
-        timezone: 'Africa/Kigali',
-        setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
-      },
-      create: {
-        tenantId: schoolTenant.id,
-        displayName: 'Green School Rwanda',
-        registrationNumber: '131011',
-        email: 'info@greenschool.rw',
-        phone: '+250788123456',
-        city: 'Kigali',
-        district: 'Gasabo',
-        country: 'Rwanda',
-        timezone: 'Africa/Kigali',
-        setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
-      },
-    });
-  }
+  const greenSchool = await prisma.school.upsert({
+    where: { registrationNumber: '131011' },
+    update: {
+      tenantId: schoolTenant.id,
+      displayName: 'Green School Rwanda',
+      registrationNumber: '131011',
+      email: 'info@greenschool.rw',
+      phone: '+250788123456',
+      city: 'Kigali',
+      district: 'Gasabo',
+      country: 'Rwanda',
+      timezone: 'Africa/Kigali',
+      setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
+    },
+    create: {
+      tenantId: schoolTenant.id,
+      displayName: 'Green School Rwanda',
+      registrationNumber: '131011',
+      email: 'info@greenschool.rw',
+      phone: '+250788123456',
+      city: 'Kigali',
+      district: 'Gasabo',
+      country: 'Rwanda',
+      timezone: 'Africa/Kigali',
+      setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
+    },
+  });
+  console.log(
+    existingSchool
+      ? `[SEED] Updated existing school: Green School Rwanda (registrationNumber: 131011)`
+      : `[SEED] Created new school: Green School Rwanda (registrationNumber: 131011)`
+  );
 
   const schoolAdminRole = await prisma.role.upsert({
     where: {
@@ -1890,9 +1896,16 @@ async function main() {
     },
   });
 
-  await prisma.school.upsert({
-    where: { tenantId: nyangeTenant.id },
+  const existingNyangeSchool = await prisma.school.findFirst({
+    where: {
+      OR: [{ tenantId: nyangeTenant.id }, { registrationNumber: 'NYANGE-SS-REG' }],
+    },
+  });
+
+  const nyangeSchool = await prisma.school.upsert({
+    where: { registrationNumber: 'NYANGE-SS-REG' },
     update: {
+      tenantId: nyangeTenant.id,
       displayName: 'Nyange Secondary School',
       registrationNumber: 'NYANGE-SS-REG',
       email: 'info@nyange-secondary.rw',
@@ -1918,6 +1931,11 @@ async function main() {
       setupCompletedAt: new Date('2026-03-06T08:00:00.000Z'),
     },
   });
+  console.log(
+    existingNyangeSchool
+      ? `[SEED] Updated existing school: Nyange Secondary School (registrationNumber: NYANGE-SS-REG)`
+      : `[SEED] Created new school: Nyange Secondary School (registrationNumber: NYANGE-SS-REG)`
+  );
 
   const nyangeSchoolAdminRole = await prisma.role.upsert({
     where: {
