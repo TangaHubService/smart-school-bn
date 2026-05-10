@@ -544,6 +544,7 @@ model Subject {
   courses Course[]
   exams   Exam[]
   subjectAssessmentPolicies SubjectAssessmentPolicy[]
+  timetableSlots TimetableSlot[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
