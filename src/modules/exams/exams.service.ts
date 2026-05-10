@@ -2428,7 +2428,20 @@ export class ExamsService {
     });
 
     if (!snapshot) {
-      throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found');
+      // Check if snapshot exists but is not published
+      const existingSnapshot = await prisma.resultSnapshot.findUnique({
+        where: { id: snapshotId },
+      });
+      if (existingSnapshot) {
+        throw new AppError(
+          404,
+          'REPORT_CARD_NOT_PUBLISHED',
+          'This report card has not yet been published. Contact the school for assistance.'
+        );
+      }
+      throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found. The QR code may be invalid or expired.');
+    }
+      throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found. The QR code may be invalid or expired.');
     }
 
     const payload = snapshot.payload as unknown as ReportCardPayload;
@@ -2466,6 +2479,17 @@ export class ExamsService {
     });
 
     if (!snapshot) {
+      // Check if snapshot exists but is not published
+      const existingSnapshot = await prisma.resultSnapshot.findUnique({
+        where: { id: snapshotId },
+      });
+      if (existingSnapshot) {
+        throw new AppError(
+          404,
+          'REPORT_CARD_NOT_PUBLISHED',
+          'This report card has not yet been published.'
+        );
+      }
       throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found');
     }
 
