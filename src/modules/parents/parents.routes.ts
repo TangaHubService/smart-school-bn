@@ -65,3 +65,9 @@ parentsRoutes.get(
   requirePermissions([PERMISSIONS.PARENT_MY_CHILDREN_READ]),
   asyncHandler((req, res) => parentsController.getMyStudentLearning(req, res))
 );
+
+parentsRoutes.delete(
+  '/parents/:id',
+  requirePermissions([PERMISSIONS.PARENTS_MANAGE]),
+  asyncHandler((req, res) => parentsController.deleteParent(req, res))
+);

@@ -92,4 +92,14 @@ export class ParentsController {
     );
     return sendSuccess(req, res, result);
   }
+
+  async deleteParent(req: Request, res: Response): Promise<Response> {
+    const result = await parentsService.deleteParent(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
 }

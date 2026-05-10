@@ -1125,4 +1125,72 @@ export class ParentsService {
   private toSchoolDateString(date: Date): string {
     return date.toISOString().slice(0, 10);
   }
+
+  async deleteParent(
+    tenantId: string,
+    parentId: string,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const existingParent = await prisma.parent.findFirst({
+      where: {
+        id: parentId,
+        tenantId,
+        deletedAt: null,
+      },
+    });
+
+    if (!existingParent) {
+      throw new AppError(404, 'PARENT_NOT_FOUND', 'Parent not found');
+    }
+
+    const linkedStudents = await prisma.parentStudent.findMany({
+      where: {
+        parentId,
+        deletedAt: null,
+      },
+    });
+
+    if (linkedStudents.length > 0) {
+      await prisma.$transaction([
+        prisma.parentStudent.updateMany({
+          where: {
+            parentId,
+            deletedAt: null,
+          },
+          data: {
+            deletedAt: new Date(),
+          },
+        }),
+        prisma.parent.update({
+          where: { id: parentId },
+          data: { deletedAt: new Date() },
+        }),
+      ]);
+    } else {
+      await prisma.parent.update({
+        where: { id: parentId },
+        data: { deletedAt: new Date() },
+      });
+    }
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.PARENT_DELETED,
+      entity: 'Parent',
+      entityId: parentId,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        parentId,
+        firstName: existingParent.firstName,
+        lastName: existingParent.lastName,
+        linkedStudentsCount: linkedStudents.length,
+      },
+    });
+
+    return { deleted: true };
+  }
 }
