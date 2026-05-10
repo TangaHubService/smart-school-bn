@@ -1651,6 +1651,7 @@ model TimetableSlot {
   term         Term         @relation(fields: [termId], references: [id], onDelete: Cascade)
   classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Cascade)
   course       Course?      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  subject      Subject?     @relation(fields: [subjectId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, academicYearId, termId, classRoomId, dayOfWeek, periodNumber])
   @@index([tenantId, academicYearId, termId, classRoomId])
