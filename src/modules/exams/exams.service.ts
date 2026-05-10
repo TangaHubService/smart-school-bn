@@ -2441,8 +2441,6 @@ export class ExamsService {
       }
       throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found. The QR code may be invalid or expired.');
     }
-      throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found. The QR code may be invalid or expired.');
-    }
 
     const payload = snapshot.payload as unknown as ReportCardPayload;
 
