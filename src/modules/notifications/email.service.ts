@@ -132,12 +132,17 @@ export class EmailService {
 
   async sendTwoFactorOtp(input: { toEmail: string; otp: string; expiresAt: Date }): Promise<void> {
     const subject = `Your Smart School Rwanda Two-Factor Authentication Code`;
-    const expirationTime = input.expiresAt.toLocaleTimeString([], {
+    const expirationDate = input.expiresAt.toLocaleDateString('en-US', {
+      timeZone: 'Africa/Kigali',
+    });
+    const expirationTime = input.expiresAt.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Africa/Kigali',
+      hour12: false,
     });
     const escapedOtp = escapeHtml(input.otp);
-    const escapedExpirationTime = escapeHtml(expirationTime);
+    const escapedExpirationTime = escapeHtml(`${expirationDate} at ${expirationTime}`);
 
     const text = [
       `Hello,`,
@@ -147,7 +152,7 @@ export class EmailService {
       ``,
       `${input.otp}`,
       ``,
-      `This code will expire at ${expirationTime}.`,
+      `This code will expire on ${expirationDate} at ${expirationTime} (Africa/Kigali time).`,
       `If you did not request this login, please ignore this email or contact support.`,
       ``,
       `Smart School Rwanda`,
