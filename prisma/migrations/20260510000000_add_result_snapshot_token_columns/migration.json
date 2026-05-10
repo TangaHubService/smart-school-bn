@@ -1,0 +1,16 @@
+{
+  "version": "20260510000000",
+  "engine": "prisma",
+  "createdAt": "2026-05-10T12:40:00.000Z",
+  "prisma": "6.0.0",
+  "status": "SUCCESS",
+  "message": "Add verificationToken and generatedAt columns to ResultSnapshot",
+  "steps": [
+    {
+      "stepType": " alteration",
+      "arguments": {
+        "source": "20260510000000_add_result_snapshot_token_columns/migration.sql"
+      }
+    }
+  ]
+}
