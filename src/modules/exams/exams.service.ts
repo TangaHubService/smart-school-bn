@@ -2129,6 +2129,7 @@ export class ExamsService {
 
     const where: Prisma.ResultSnapshotWhereInput = {
       tenantId,
+      status: ResultSnapshotStatus.PUBLISHED,
       ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
       ...(query.termId ? { termId: query.termId } : {}),
       ...(query.classRoomId ? { classRoomId: query.classRoomId } : {}),
