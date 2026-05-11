@@ -18,6 +18,14 @@ type AuditorScope = {
   sector: string | null;
 };
 
+type HierarchicalAccess = {
+  canView: boolean;
+  canReview: boolean;
+  canApprove: boolean;
+  accessibleSchoolIds: string[];
+  subordinateAuditorIds: string[];
+};
+
 export class GovService {
   async getAuditorScope(user: JwtUser) {
     const now = new Date();
@@ -144,6 +152,205 @@ export class GovService {
     }
 
     return school;
+  }
+
+  private async getSchoolsForTenant(tenantId: string) {
+    const schools = await prisma.school.findMany({
+      where: { tenantId },
+      select: { id: true },
+    });
+
+    return schools.map((school) => school.id);
+  }
+
+  /**
+   * Determines hierarchical access permissions for a user
+   */
+  private async getHierarchicalAccess(user: JwtUser): Promise<HierarchicalAccess> {
+    const roles = user.roles ?? [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
+    const isGovAuditor = roles.includes('GOV_AUDITOR');
+    const isSchoolAdmin = roles.includes('SCHOOL_ADMIN');
+    const isTenantAdmin = roles.includes('ADMIN');
+    const isDirector = roles.includes('DIRECTOR');
+
+    if (isSuperAdmin) {
+      const allSchools = await prisma.school.findMany({ select: { id: true } });
+      const allAuditors = await prisma.auditor.findMany({ select: { userId: true } });
+
+      return {
+        canView: true,
+        canReview: true,
+        canApprove: true,
+        accessibleSchoolIds: allSchools.map((s) => s.id),
+        subordinateAuditorIds: allAuditors.map((a) => a.userId),
+      };
+    }
+
+    if (isDirector || isSchoolAdmin || isTenantAdmin) {
+      const accessibleSchoolIds = await this.getSchoolsForTenant(user.tenantId);
+      return {
+        canView: true,
+        canReview: true,
+        canApprove: isDirector,
+        accessibleSchoolIds,
+        subordinateAuditorIds: [],
+      };
+    }
+
+    if (isGovAuditor) {
+      const scope = await this.getAuditorScope(user);
+      const accessibleSchoolIds = await this.getSchoolIdsInScope(scope);
+      const subordinateAuditors = await this.getSubordinateAuditors(scope);
+
+      return {
+        canView: true,
+        canReview: this.canReviewAudits(scope),
+        canApprove: this.canApproveAudits(scope),
+        accessibleSchoolIds,
+        subordinateAuditorIds: subordinateAuditors.map((a) => a.userId),
+      };
+    }
+
+    return {
+      canView: false,
+      canReview: false,
+      canApprove: false,
+      accessibleSchoolIds: [],
+      subordinateAuditorIds: [],
+    };
+  }
+
+  /**
+   * Get auditors who report to this auditor (subordinates)
+   */
+  private async getSubordinateAuditors(scope: AuditorScope): Promise<{ userId: string; level: string }[]> {
+    const where: Prisma.AuditorWhereInput = { isActive: true };
+
+    switch (scope.level) {
+      case 'NATIONAL':
+        break;
+      case 'PROVINCE':
+        where.OR = [
+          { level: 'DISTRICT', province: scope.province },
+          { level: 'SECTOR', province: scope.province },
+        ];
+        break;
+      case 'DISTRICT':
+        where.level = 'SECTOR';
+        where.district = scope.district;
+        break;
+      case 'SECTOR':
+        return [];
+    }
+
+    const auditors = await prisma.auditor.findMany({
+      where,
+      select: { userId: true, level: true },
+    });
+
+    return auditors;
+  }
+
+  private canReviewAudits(scope: AuditorScope): boolean {
+    return scope.level === 'NATIONAL' || scope.level === 'PROVINCE';
+  }
+
+  private canApproveAudits(scope: AuditorScope): boolean {
+    return scope.level === 'NATIONAL';
+  }
+
+  private async assertSchoolAccessible(user: JwtUser, schoolId: string) {
+    const access = await this.getHierarchicalAccess(user);
+    if (!access.accessibleSchoolIds.includes(schoolId)) {
+      throw new AppError(403, 'SCHOOL_OUT_OF_SCOPE', 'School is outside your accessible audit scope.');
+    }
+  }
+
+  private async buildAuditWhereForUser(
+    user: JwtUser,
+    query: AcademicAuditQueryInput
+  ): Promise<Prisma.AcademicAuditWhereInput> {
+    const access = await this.getHierarchicalAccess(user);
+    if (!access.canView) {
+      throw new AppError(403, 'AUDIT_ACCESS_DENIED', 'User cannot view audit reports.');
+    }
+
+    const conditions: Prisma.AcademicAuditWhereInput[] = [
+      { auditorId: user.sub },
+      ...(access.subordinateAuditorIds.length > 0 ? [{ auditorId: { in: access.subordinateAuditorIds } }] : []),
+      ...(access.accessibleSchoolIds.length > 0 ? [{ schoolId: { in: access.accessibleSchoolIds } }] : []),
+    ];
+
+    const where: Prisma.AcademicAuditWhereInput = {
+      OR: conditions,
+    };
+
+    const filters: Prisma.AcademicAuditWhereInput[] = [];
+
+    if (query.schoolId) {
+      await this.assertSchoolAccessible(user, query.schoolId);
+      filters.push({ schoolId: query.schoolId });
+    }
+
+    if (query.auditorId) {
+      filters.push({ auditorId: query.auditorId });
+    }
+
+    if (query.module) {
+      filters.push({ module: query.module });
+    }
+
+    if (query.status) {
+      filters.push({ status: query.status });
+    }
+
+    if (query.from || query.to) {
+      filters.push({
+        createdAt: {
+          ...(query.from ? { gte: query.from } : {}),
+          ...(query.to ? { lte: query.to } : {}),
+        },
+      });
+    }
+
+    if (query.province || query.district || query.sector) {
+      filters.push({
+        school: {
+          ...(query.province ? { province: query.province } : {}),
+          ...(query.district ? { district: query.district } : {}),
+          ...(query.sector ? { sector: query.sector } : {}),
+        },
+      });
+    }
+
+    if (filters.length > 0) {
+      where.AND = filters;
+    }
+
+    return where;
+  }
+
+  private async canAccessAudit(user: JwtUser, auditId: string): Promise<boolean> {
+    const access = await this.getHierarchicalAccess(user);
+
+    if (!access.canView) {
+      return false;
+    }
+
+    const audit = await prisma.academicAudit.findFirst({
+      where: {
+        id: auditId,
+        OR: [
+          { auditorId: user.sub },
+          ...(access.subordinateAuditorIds.length > 0 ? [{ auditorId: { in: access.subordinateAuditorIds } }] : []),
+          ...(access.accessibleSchoolIds.length > 0 ? [{ schoolId: { in: access.accessibleSchoolIds } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+
+    return !!audit;
   }
 
   async listSchoolsInScope(user: JwtUser) {
@@ -496,6 +703,8 @@ export class GovService {
         score: input.score,
         comment: input.comment,
         recommendation: input.recommendation || '',
+        status: 'SUBMITTED',
+        submittedAt: new Date(),
       },
     });
 
@@ -533,22 +742,7 @@ export class GovService {
   async listMyAudits(user: JwtUser, query: AcademicAuditQueryInput) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
-    const scope = await this.getAuditorScope(user);
-
-    const where: Prisma.AcademicAuditWhereInput = {
-      auditorId: user.sub,
-    };
-
-    if (query.schoolId) {
-      await this.getSchoolInAssignedScope(user, query.schoolId);
-      where.schoolId = query.schoolId;
-    } else {
-      where.schoolId = { in: await this.getSchoolIdsInScope(scope) };
-    }
-
-    if (query.module) {
-      where.module = query.module;
-    }
+    const where = await this.buildAuditWhereForUser(user, query);
 
     const [total, audits] = await Promise.all([
       prisma.academicAudit.count({ where }),
@@ -572,11 +766,12 @@ export class GovService {
     ]);
 
     return {
-      items: audits.map(a => ({
+      items: audits.map((a) => ({
         id: a.id,
         school: a.school,
         module: a.module,
         score: a.score,
+        status: a.status,
         comment: a.comment,
         recommendation: a.recommendation,
         createdAt: a.createdAt.toISOString(),
@@ -591,14 +786,13 @@ export class GovService {
   }
 
   async getAuditById(user: JwtUser, auditId: string) {
-    const scope = await this.getAuditorScope(user);
-    const schoolIdsInScope = await this.getSchoolIdsInScope(scope);
-    const audit = await prisma.academicAudit.findFirst({
-      where: {
-        id: auditId,
-        auditorId: user.sub,
-        schoolId: { in: schoolIdsInScope },
-      },
+    const canView = await this.canAccessAudit(user, auditId);
+    if (!canView) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+
+    const audit = await prisma.academicAudit.findUnique({
+      where: { id: auditId },
       include: {
         school: {
           select: {
@@ -609,6 +803,22 @@ export class GovService {
             sector: true,
             email: true,
             phone: true,
+          },
+        },
+        auditor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+        reviewedBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
           },
         },
       },
@@ -669,11 +879,12 @@ export class GovService {
         completedAudits,
         pendingSchools,
       },
-      recentAudits: recentAudits.map(a => ({
+      recentAudits: recentAudits.map((a) => ({
         id: a.id,
         school: a.school.displayName,
         module: a.module,
         score: a.score,
+        status: a.status,
         createdAt: a.createdAt.toISOString(),
       })),
     };

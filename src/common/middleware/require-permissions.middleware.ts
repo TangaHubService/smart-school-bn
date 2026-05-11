@@ -37,8 +37,7 @@ function denyForMissingPermissions(
 export function requirePermissions(requiredPermissions: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const isSuperAdmin = req.user?.roles?.includes('SUPER_ADMIN') ?? false;
-    const isGovAuditor = req.user?.roles?.includes('GOV_AUDITOR') ?? false;
-    if (isSuperAdmin || isGovAuditor) {
+    if (isSuperAdmin) {
       next();
       return;
     }
@@ -58,8 +57,7 @@ export function requirePermissions(requiredPermissions: string[]) {
 export function requireAnyPermissions(requiredPermissions: string[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const isSuperAdmin = req.user?.roles?.includes('SUPER_ADMIN') ?? false;
-    const isGovAuditor = req.user?.roles?.includes('GOV_AUDITOR') ?? false;
-    if (isSuperAdmin || isGovAuditor) {
+    if (isSuperAdmin) {
       next();
       return;
     }

@@ -187,6 +187,15 @@ enum AcademicAuditModule {
   TIMETABLE
 }
 
+enum AcademicAuditStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
 model Tenant {
   id                 String   @id @default(uuid())
   code               String   @unique
@@ -358,6 +367,7 @@ model User {
   createdAudits          Audit[]       @relation("AuditCreatedBy")
   submittedAuditReports  AuditReport[] @relation("AuditReportSubmittedBy")
   academicAudits         AcademicAudit[] @relation("AcademicAuditByUser")
+  reviewedAudits        AcademicAudit[] @relation("AcademicAuditReviewedBy")
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -827,17 +837,25 @@ model AcademicAudit {
   score          Int
   comment        String
   recommendation String
+  status         AcademicAuditStatus @default(DRAFT)
+  submittedAt    DateTime?
+  reviewedAt     DateTime?
+  reviewedById   String?
   createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
-  auditor User   @relation("AcademicAuditByUser", fields: [auditorId], references: [id], onDelete: Restrict)
-  school  School @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  tenantId String
+  auditor     User     @relation("AcademicAuditByUser", fields: [auditorId], references: [id], onDelete: Restrict)
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reviewedBy  User?    @relation("AcademicAuditReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  tenantId    String
 
   @@index([auditorId, createdAt])
   @@index([schoolId, createdAt])
   @@index([module, createdAt])
   @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([reviewedById])
 }
 
 model StudentEnrollment {

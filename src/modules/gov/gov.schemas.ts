@@ -6,6 +6,16 @@ export const academicAuditModuleSchema = z.enum([
   'LEARNING_INSIGHTS',
   'CONTINUOUS_ASSESSMENTS',
   'MARKS',
+  'TIMETABLE',
+]);
+
+export const academicAuditStatusSchema = z.enum([
+  'DRAFT',
+  'SUBMITTED',
+  'UNDER_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'NEEDS_REVISION',
 ]);
 
 export const submitAcademicAuditSchema = z.object({
@@ -21,6 +31,13 @@ export const academicAuditQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   schoolId: z.string().uuid().optional(),
   module: academicAuditModuleSchema.optional(),
+  status: academicAuditStatusSchema.optional(),
+  auditorId: z.string().uuid().optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  province: z.string().optional(),
+  district: z.string().optional(),
+  sector: z.string().optional(),
 });
 
 export type SubmitAcademicAuditInput = z.infer<typeof submitAcademicAuditSchema>;
