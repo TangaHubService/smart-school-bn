@@ -21,3 +21,9 @@ filesRoutes.post(
   validateBody(signUploadSchema),
   asyncHandler((req, res) => filesController.signUpload(req, res))
 );
+
+filesRoutes.get(
+  '/files/:assetId/view',
+  requirePermissions([PERMISSIONS.COURSES_READ]),
+  asyncHandler((req, res) => filesController.getFileViewUrl(req, res))
+);

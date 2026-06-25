@@ -2613,6 +2613,7 @@ export class LmsService {
     title: string;
     description: string | null;
     thumbnail: string | null;
+    section: string | null;
     price: number;
     durationDays: number;
     isActive: boolean;
@@ -2628,6 +2629,7 @@ export class LmsService {
       title: p.title,
       description: p.description,
       thumbnail: p.thumbnail,
+      section: p.section,
       price: p.price,
       durationDays: p.durationDays,
       isActive: p.isActive,
@@ -2667,6 +2669,7 @@ export class LmsService {
           title: input.title,
           description: input.description?.trim() ? input.description.trim() : null,
           thumbnail: input.thumbnail?.trim() ? input.thumbnail.trim() : null,
+          section: input.section ?? null,
           price: input.price,
           durationDays: input.durationDays,
           isActive: input.isActive ?? true,
@@ -2729,6 +2732,9 @@ export class LmsService {
       data.thumbnail =
         input.thumbnail === null || input.thumbnail === '' ? null : input.thumbnail.trim();
     }
+    if (input.section !== undefined) {
+      data.section = input.section === null ? null : input.section;
+    }
     if (input.price !== undefined) {
       data.price = input.price;
     }
@@ -2777,6 +2783,22 @@ export class LmsService {
       this.handleUniqueError(error, 'A program with this title already exists for your school');
       throw error;
     }
+  }
+
+  async deleteAcademyProgram(tenantId: string, programId: string, actor: JwtUser, context: RequestAuditContext) {
+    const existing = await prisma.program.findFirst({ where: { id: programId, tenantId } });
+    if (!existing) throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
+
+    await prisma.program.update({ where: { id: programId }, data: { isActive: false } });
+
+    await this.auditService.log({
+      tenantId, actorUserId: actor.sub, event: AUDIT_EVENT.ACADEMY_PROGRAM_DELETED,
+      entity: 'Program', entityId: programId, requestId: context.requestId,
+      ipAddress: context.ipAddress, userAgent: context.userAgent,
+      payload: { title: existing.title },
+    });
+
+    return { id: programId, deleted: true };
   }
 
   /** Per-course completion and quiz aggregates for the signed-in teacher's courses. */

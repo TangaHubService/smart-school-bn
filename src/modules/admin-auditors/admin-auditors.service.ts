@@ -25,6 +25,14 @@ import {
 
 type AssignAuditorInputType = z.infer<typeof assignAuditorSchema>;
 
+type AuditorScope = {
+  level: 'NATIONAL' | 'PROVINCE' | 'DISTRICT' | 'SECTOR';
+  country: string;
+  province: string | null;
+  district: string | null;
+  sector: string | null;
+};
+
 export class AdminAuditorsService {
   async getLocations(province?: string, district?: string) {
     if (!province) {
@@ -431,6 +439,113 @@ export class AdminAuditorsService {
       district,
       sector,
     };
+  }
+
+  async getMyScope(user: JwtUser) {
+    const auditor = await prisma.auditor.findUnique({
+      where: { userId: user.sub },
+    });
+    if (!auditor || !auditor.isActive) {
+      throw new AppError(403, 'AUDITOR_NOT_ACTIVE', 'No active auditor scope found');
+    }
+    return {
+      level: auditor.level,
+      country: auditor.country,
+      province: auditor.province,
+      district: auditor.district,
+      sector: auditor.sector,
+      isActive: auditor.isActive,
+    };
+  }
+
+  async getAuditorReport(user: JwtUser) {
+    const auditor = await prisma.auditor.findUnique({
+      where: { userId: user.sub },
+    });
+    if (!auditor || !auditor.isActive) {
+      throw new AppError(403, 'AUDITOR_NOT_ACTIVE', 'No active auditor scope found');
+    }
+
+    const scope: AuditorScope = {
+      level: auditor.level as AuditorScope['level'],
+      country: auditor.country,
+      province: auditor.province,
+      district: auditor.district,
+      sector: auditor.sector,
+    };
+
+    const schools = await prisma.school.findMany({
+      where: this.buildSchoolWhereFromScope(scope),
+      select: { id: true, displayName: true, province: true, district: true, sector: true },
+    });
+    const schoolIds = schools.map(s => s.id);
+
+    const audits = await prisma.academicAudit.findMany({
+      where: { schoolId: { in: schoolIds } },
+      include: {
+        school: { select: { displayName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const moduleDistribution: Record<string, number> = {};
+    let totalScore = 0;
+    const auditedSchoolIds = new Set<string>();
+    for (const a of audits) {
+      moduleDistribution[a.module] = (moduleDistribution[a.module] || 0) + 1;
+      totalScore += a.score;
+      auditedSchoolIds.add(a.schoolId);
+    }
+
+    return {
+      scope,
+      report: {
+        totalSchoolsInScope: schoolIds.length,
+        schoolsAudited: auditedSchoolIds.size,
+        pendingSchools: schoolIds.length - auditedSchoolIds.size,
+        totalAudits: audits.length,
+        averageScore: audits.length > 0 ? Math.round(totalScore / audits.length) : null,
+        moduleDistribution,
+        schools: schools.map(s => ({
+          id: s.id,
+          name: s.displayName,
+          province: s.province,
+          district: s.district,
+          sector: s.sector,
+          auditCount: audits.filter(a => a.schoolId === s.id).length,
+          latestScore: audits.filter(a => a.schoolId === s.id).sort((a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )[0]?.score ?? null,
+        })),
+        recentAudits: audits.slice(0, 10).map(a => ({
+          id: a.id,
+          school: a.school.displayName,
+          module: a.module,
+          score: a.score,
+          status: a.status,
+          createdAt: a.createdAt.toISOString(),
+        })),
+      },
+    };
+  }
+
+  private buildSchoolWhereFromScope(scope: AuditorScope): Prisma.SchoolWhereInput {
+    const where: Prisma.SchoolWhereInput = {
+      country: scope.country,
+    };
+    if (scope.sector) {
+      where.district = scope.district;
+      where.sector = scope.sector;
+      return where;
+    }
+    if (scope.district) {
+      where.district = scope.district;
+      return where;
+    }
+    if (scope.province) {
+      where.province = scope.province;
+    }
+    return where;
   }
 
   private async ensureGovAuditorRole(

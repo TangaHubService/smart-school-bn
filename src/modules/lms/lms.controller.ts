@@ -274,6 +274,16 @@ export class LmsController {
     return sendSuccess(req, res, result);
   }
 
+  async deleteAcademyProgram(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.deleteAcademyProgram(
+      req.tenantId!,
+      req.params.programId,
+      req.user!,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
+
   async listTeacherLearningInsights(req: Request, res: Response): Promise<Response> {
     const result = await lmsService.listTeacherLearningInsights(req.tenantId!, req.user!);
     return sendSuccess(req, res, result);

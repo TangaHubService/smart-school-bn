@@ -53,4 +53,14 @@ export class AdminAuditorsController {
     const result = await adminAuditorsService.searchUsers(q, req.user!);
     return sendSuccess(req, res, result);
   }
+
+  async getMyScope(req: Request, res: Response) {
+    const result = await adminAuditorsService.getMyScope(req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async getAuditorReport(req: Request, res: Response) {
+    const result = await adminAuditorsService.getAuditorReport(req.user!);
+    return sendSuccess(req, res, result);
+  }
 }

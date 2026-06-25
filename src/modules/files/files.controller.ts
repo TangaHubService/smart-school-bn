@@ -10,4 +10,9 @@ export class FilesController {
     const result = await filesService.createSignedUpload(req.tenantId!, req.body);
     return sendSuccess(req, res, result);
   }
+
+  async getFileViewUrl(req: Request, res: Response): Promise<Response> {
+    const result = await filesService.getFileViewUrl(req.tenantId!, req.params.assetId, req.user!);
+    return sendSuccess(req, res, result);
+  }
 }

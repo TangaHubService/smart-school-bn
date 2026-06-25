@@ -259,6 +259,10 @@ model Tenant {
   studentLessonProgress StudentLessonProgress[]
   audits        Audit[]
   academicAudits AcademicAudit[]
+  lessonPlans    TeacherLessonPlan[]
+  chatGroups     StudentGroupChat[]
+  chatMessages   GroupChatMessage[]
+  academicYearPreferences UserAcademicYearPreference[]
 
   @@index([isActive])
 }
@@ -368,6 +372,9 @@ model User {
   submittedAuditReports  AuditReport[] @relation("AuditReportSubmittedBy")
   academicAudits         AcademicAudit[] @relation("AcademicAuditByUser")
   reviewedAudits        AcademicAudit[] @relation("AcademicAuditReviewedBy")
+  lessonPlans           TeacherLessonPlan[]
+  sentChatMessages      GroupChatMessage[]
+  academicYearPreference UserAcademicYearPreference?
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -1532,6 +1539,7 @@ model Program {
   title                  String
   description            String?
   thumbnail              String?
+  section                String?
   price                  Float
   durationDays           Int      @default(30)
   isActive               Boolean  @default(true)
@@ -1648,6 +1656,13 @@ enum AnnouncementAudience {
   ALL
   CLASS_ROOM
   GRADE_LEVEL
+  SPECIFIC_ROLES
+}
+
+enum LessonPlanStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
 }
 
 model TimetableSlot {
@@ -1687,6 +1702,7 @@ model Announcement {
   audience          AnnouncementAudience @default(ALL)
   targetClassRoomIds String[]           @default([]) // when audience=CLASS_ROOM
   targetGradeLevelIds String[]          @default([]) // when audience=GRADE_LEVEL
+  targetRoleNames   String[]            @default([]) // when audience=SPECIFIC_ROLES
   publishedAt       DateTime?
   expiresAt         DateTime?
   createdAt         DateTime            @default(now())
@@ -1784,4 +1800,82 @@ model SystemAnnouncement {
   author User @relation("SystemAnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
 
   @@index([status, publishedAt])
+}
+
+model UserAcademicYearPreference {
+  id             String   @id @default(uuid())
+  userId         String
+  tenantId       String
+  academicYearId String
+  termId         String?
+  selectedAt     DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, tenantId])
+  @@index([userId, tenantId])
+}
+
+model TeacherLessonPlan {
+  id              String            @id @default(uuid())
+  tenantId        String
+  teacherUserId   String
+  academicYearId  String
+  classRoomId     String
+  subjectId       String
+  title           String
+  objectives      String?
+  materials       String?
+  activities      String?
+  assessment      String?
+  feedback        String?
+  status          LessonPlanStatus  @default(DRAFT)
+  weekNumber      Int?
+  durationMinutes Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  teacherUser  User         @relation(fields: [teacherUserId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, teacherUserId, classRoomId, subjectId, weekNumber])
+  @@index([tenantId, teacherUserId, academicYearId])
+  @@index([tenantId, classRoomId, subjectId])
+}
+
+model StudentGroupChat {
+  id          String   @id @default(uuid())
+  tenantId    String
+  classRoomId String
+  title       String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  classRoom ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  messages  GroupChatMessage[]
+
+  @@unique([tenantId, classRoomId])
+  @@index([tenantId, classRoomId])
+}
+
+model GroupChatMessage {
+  id        String   @id @default(uuid())
+  chatId    String
+  senderId  String
+  content   String
+  fileUrl   String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  chat   StudentGroupChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User      @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([chatId, createdAt])
 }

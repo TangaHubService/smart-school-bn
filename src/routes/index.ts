@@ -27,6 +27,9 @@ import { usersRoutes } from '../modules/users/users.routes';
 import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
 import { govRoutes } from '../modules/gov/gov.routes';
 import { adminAuditorsRoutes } from '../modules/admin-auditors/admin-auditors.routes';
+import { academicYearPreferenceRoutes } from '../modules/academic-year-preference/academic-year-preference.routes';
+import { lessonPlansRoutes } from '../modules/lesson-plans/lesson-plans.routes';
+import { chatRoutes } from '../modules/chat/chat.routes';
 import { env } from '../config/env';
 
 export const apiRouter = Router();
@@ -59,4 +62,7 @@ apiRouter.use('/', announcementsRoutes);
 apiRouter.use('/', dashboardRoutes);
 apiRouter.use('/', govRoutes);
 apiRouter.use('/', adminAuditorsRoutes);
+apiRouter.use('/', academicYearPreferenceRoutes);
+apiRouter.use('/', lessonPlansRoutes);
+apiRouter.use('/', chatRoutes);
 apiRouter.use('/roles', rolesRoutes);

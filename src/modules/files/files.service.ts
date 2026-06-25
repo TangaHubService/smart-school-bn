@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 
+import { JwtUser } from '../../common/types/auth.types';
 import { AppError } from '../../common/errors/app-error';
 import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
@@ -41,6 +42,24 @@ export class FilesService {
       folder,
       signature,
       uploadUrl: `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/auto/upload`,
+    };
+  }
+
+  async getFileViewUrl(tenantId: string, assetId: string, _actor: JwtUser) {
+    const asset = await prisma.fileAsset.findFirst({
+      where: { id: assetId, tenantId },
+    });
+    if (!asset) {
+      throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+    }
+    const secureUrl = asset.secureUrl.includes('cloudinary')
+      ? asset.secureUrl.replace('/upload/', '/upload/fl_attachment:false/')
+      : asset.secureUrl;
+    return {
+      id: asset.id,
+      secureUrl,
+      originalName: asset.originalName,
+      mimeType: asset.mimeType,
     };
   }
 }

@@ -45,6 +45,25 @@ export interface SuperAdminDashboardData {
     weekly: Array<{ label: string; logins: number; courses: number; exams: number }>;
     monthly: Array<{ label: string; logins: number; courses: number; exams: number }>;
   };
+  revenue: {
+    totalRevenue: number;
+    monthlyRevenue: Array<{ month: string; amount: number }>;
+    revenueThisMonth: number;
+    revenueChange: number;
+  };
+  enrollmentTrends: {
+    weekly: Array<{ label: string; count: number }>;
+    monthly: Array<{ label: string; count: number }>;
+  };
+  completionRates: {
+    courseCompletionRate: number | null;
+    assessmentCompletionRate: number | null;
+    overallRate: number | null;
+  };
+  activeUsers: {
+    weeklyActive: number;
+    monthlyActive: number;
+  };
 }
 
 export interface SchoolAdminDashboardData {
@@ -87,6 +106,25 @@ export interface SchoolAdminDashboardData {
   systemAnalytics: {
     weekly: Array<{ label: string; logins: number; attendance: number; assignments: number }>;
     monthly: Array<{ label: string; logins: number; attendance: number; assignments: number }>;
+  };
+  revenue: {
+    totalRevenue: number;
+    monthlyRevenue: Array<{ month: string; amount: number }>;
+    revenueThisMonth: number;
+    revenueChange: number;
+  };
+  enrollmentTrends: {
+    weekly: Array<{ label: string; count: number }>;
+    monthly: Array<{ label: string; count: number }>;
+  };
+  completionRates: {
+    courseCompletionRate: number | null;
+    assessmentCompletionRate: number | null;
+    overallRate: number | null;
+  };
+  activeUsers: {
+    weeklyActive: number;
+    monthlyActive: number;
   };
 }
 
@@ -300,6 +338,117 @@ export class DashboardService {
       }
     }
 
+    let totalRevenue = 0;
+    let revenueThisMonth = 0;
+    let revenueLastMonth = 0;
+    let monthlyRevenue: Array<{ month: string; amount: number }> = [];
+    try {
+      const payments = await prisma.payment.findMany({
+        where: { status: 'COMPLETED' },
+        select: { amount: true, createdAt: true },
+      });
+      totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+      const monthMap = new Map<string, number>();
+      const nowDate = new Date();
+      const curMonth = nowDate.getMonth();
+      const curYear = nowDate.getFullYear();
+      for (const p of payments) {
+        const key = `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth() + 1).padStart(2, '0')}`;
+        monthMap.set(key, (monthMap.get(key) || 0) + p.amount);
+        if (p.createdAt.getMonth() === curMonth && p.createdAt.getFullYear() === curYear) {
+          revenueThisMonth += p.amount;
+        }
+        const lastM = curMonth === 0 ? 11 : curMonth - 1;
+        const lastY = curMonth === 0 ? curYear - 1 : curYear;
+        if (p.createdAt.getMonth() === lastM && p.createdAt.getFullYear() === lastY) {
+          revenueLastMonth += p.amount;
+        }
+      }
+      monthlyRevenue = Array.from(monthMap.entries())
+        .map(([month, amount]) => ({ month, amount }))
+        .sort((a, b) => a.month.localeCompare(b.month))
+        .slice(-12);
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    const revenueChange = revenueLastMonth > 0
+      ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+      : 0;
+
+    let enrollmentTrends: SuperAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
+    try {
+      const enrollments = await prisma.programEnrollment.findMany({
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const weekMap = new Map<string, number>();
+      const monthMap2 = new Map<string, number>();
+      for (const e of enrollments) {
+        const d = e.createdAt;
+        const weekStart = new Date(d);
+        weekStart.setDate(d.getDate() - d.getDay());
+        const weekKey = weekStart.toISOString().slice(0, 10);
+        weekMap.set(weekKey, (weekMap.get(weekKey) || 0) + 1);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthMap2.set(monthKey, (monthMap2.get(monthKey) || 0) + 1);
+      }
+      enrollmentTrends = {
+        weekly: Array.from(weekMap.entries())
+          .map(([label, count]) => ({ label, count }))
+          .slice(-7),
+        monthly: Array.from(monthMap2.entries())
+          .map(([label, count]) => ({ label, count }))
+          .slice(-12),
+      };
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+
+    let courseCompletionRate: number | null = null;
+    let assessmentCompletionRate: number | null = null;
+    try {
+      const totalEnrollments = await prisma.programEnrollment.count();
+      const completedEnrollments = await prisma.programEnrollment.count({
+        where: { isActive: false },
+      });
+      courseCompletionRate = totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : null;
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    try {
+      const totalAttempts = await prisma.assessmentAttempt.count();
+      const scoredAttempts = await prisma.assessmentAttempt.count({
+        where: { autoScore: { not: null }, status: 'SUBMITTED' },
+      });
+      assessmentCompletionRate = totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    const overallRate = courseCompletionRate !== null && assessmentCompletionRate !== null
+      ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+      : (courseCompletionRate ?? assessmentCompletionRate);
+
+    let weeklyActive = 0;
+    let monthlyActive = 0;
+    try {
+      const sevenDays = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDays = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      [weeklyActive, monthlyActive] = await Promise.all([
+        prisma.user.count({ where: { updatedAt: { gte: sevenDays }, deletedAt: null } }),
+        prisma.user.count({ where: { updatedAt: { gte: thirtyDays }, deletedAt: null } }),
+      ]);
+    } catch {
+      // best-effort
+    }
+
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
       const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -364,6 +513,22 @@ export class DashboardService {
           courses: classesCount,
           exams: assessmentsCount,
         }),
+      },
+      revenue: {
+        totalRevenue,
+        monthlyRevenue,
+        revenueThisMonth,
+        revenueChange,
+      },
+      enrollmentTrends,
+      completionRates: {
+        courseCompletionRate,
+        assessmentCompletionRate,
+        overallRate,
+      },
+      activeUsers: {
+        weeklyActive,
+        monthlyActive,
       },
     };
   }
@@ -603,6 +768,114 @@ export class DashboardService {
         where: { tenantId, deletedAt: null },
       }));
 
+    let totalRevenue = 0;
+    let revenueThisMonth = 0;
+    let revenueLastMonth = 0;
+    let monthlyRevenue: Array<{ month: string; amount: number }> = [];
+    try {
+      const payments = await prisma.payment.findMany({
+        where: { tenantId, status: 'COMPLETED' },
+        select: { amount: true, createdAt: true },
+      });
+      totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+      const monthMap = new Map<string, number>();
+      const nowDate = new Date();
+      const curMonth = nowDate.getMonth();
+      const curYear = nowDate.getFullYear();
+      for (const p of payments) {
+        const key = `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth() + 1).padStart(2, '0')}`;
+        monthMap.set(key, (monthMap.get(key) || 0) + p.amount);
+        if (p.createdAt.getMonth() === curMonth && p.createdAt.getFullYear() === curYear) {
+          revenueThisMonth += p.amount;
+        }
+        const lastM = curMonth === 0 ? 11 : curMonth - 1;
+        const lastY = curMonth === 0 ? curYear - 1 : curYear;
+        if (p.createdAt.getMonth() === lastM && p.createdAt.getFullYear() === lastY) {
+          revenueLastMonth += p.amount;
+        }
+      }
+      monthlyRevenue = Array.from(monthMap.entries())
+        .map(([month, amount]) => ({ month, amount }))
+        .sort((a, b) => a.month.localeCompare(b.month))
+        .slice(-12);
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+    const revenueChange = revenueLastMonth > 0
+      ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+      : 0;
+
+    let enrollmentTrends: SchoolAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
+    try {
+      const enrollments = await prisma.studentEnrollment.findMany({
+        where: { tenantId },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      const weekMap = new Map<string, number>();
+      const monthMap2 = new Map<string, number>();
+      for (const e of enrollments) {
+        const d = e.createdAt;
+        const weekStart = new Date(d);
+        weekStart.setDate(d.getDate() - d.getDay());
+        const weekKey = weekStart.toISOString().slice(0, 10);
+        weekMap.set(weekKey, (weekMap.get(weekKey) || 0) + 1);
+        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthMap2.set(monthKey, (monthMap2.get(monthKey) || 0) + 1);
+      }
+      enrollmentTrends = {
+        weekly: Array.from(weekMap.entries())
+          .map(([label, count]) => ({ label, count }))
+          .slice(-7),
+        monthly: Array.from(monthMap2.entries())
+          .map(([label, count]) => ({ label, count }))
+          .slice(-12),
+      };
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
+        throw e;
+      }
+    }
+
+    let courseCompletionRate: number | null = null;
+    let assessmentCompletionRate: number | null = null;
+    try {
+      const totalCourses = await prisma.course.count({ where: { tenantId } });
+      const completedCourses = await prisma.course.count({ where: { tenantId, isActive: false } });
+      courseCompletionRate = totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : null;
+    } catch {
+      // best-effort
+    }
+    try {
+      const totalAttempts = await prisma.assessmentAttempt.count({
+        where: { tenantId, status: 'SUBMITTED' },
+      });
+      const scoredAttempts = await prisma.assessmentAttempt.count({
+        where: { tenantId, autoScore: { not: null }, status: 'SUBMITTED' },
+      });
+      assessmentCompletionRate = totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+    } catch {
+      // best-effort
+    }
+    const overallRate = courseCompletionRate !== null && assessmentCompletionRate !== null
+      ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+      : (courseCompletionRate ?? assessmentCompletionRate);
+
+    let weeklyActive = 0;
+    let monthlyActive = 0;
+    try {
+      const sevenDays = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const thirtyDays = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      [weeklyActive, monthlyActive] = await Promise.all([
+        prisma.user.count({ where: { tenantId, updatedAt: { gte: sevenDays }, deletedAt: null } }),
+        prisma.user.count({ where: { tenantId, updatedAt: { gte: thirtyDays }, deletedAt: null } }),
+      ]);
+    } catch {
+      // best-effort
+    }
+
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
       const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -679,6 +952,22 @@ export class DashboardService {
           attendanceDelta
         ),
         monthly: this.getSchoolAnalyticsMonthly(attendanceSessionsThisWeek, submissionsCount),
+      },
+      revenue: {
+        totalRevenue,
+        monthlyRevenue,
+        revenueThisMonth,
+        revenueChange,
+      },
+      enrollmentTrends,
+      completionRates: {
+        courseCompletionRate,
+        assessmentCompletionRate,
+        overallRate,
+      },
+      activeUsers: {
+        weeklyActive,
+        monthlyActive,
       },
     };
   }

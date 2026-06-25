@@ -25,6 +25,20 @@ adminAuditorsRoutes.get(
 );
 
 adminAuditorsRoutes.get(
+  '/admin/auditors/scope',
+  authenticate,
+  requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
+  asyncHandler((req, res) => controller.getMyScope(req, res))
+);
+
+adminAuditorsRoutes.get(
+  '/admin/auditors/report',
+  authenticate,
+  requirePermissions([PERMISSIONS.GOV_DASHBOARD_READ]),
+  asyncHandler((req, res) => controller.getAuditorReport(req, res))
+);
+
+adminAuditorsRoutes.get(
   '/admin/auditors',
   authenticate,
   requirePermissions([PERMISSIONS.GOV_AUDITORS_MANAGE]),

@@ -56,6 +56,12 @@ lmsRoutes.patch(
   asyncHandler((req, res) => lmsController.updateAcademyProgram(req, res))
 );
 
+lmsRoutes.delete(
+  '/academy-programs/:programId',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  asyncHandler((req, res) => lmsController.deleteAcademyProgram(req, res))
+);
+
 lmsRoutes.get(
   '/courses',
   requirePermissions([PERMISSIONS.COURSES_READ]),

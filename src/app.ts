@@ -10,6 +10,7 @@ import { rootLogger } from './config/logger';
 import { errorHandlerMiddleware } from './common/middleware/error-handler.middleware';
 import { notFoundMiddleware } from './common/middleware/not-found.middleware';
 import { requestContextMiddleware } from './common/middleware/request-context.middleware';
+import { academicYearScopeMiddleware } from './middleware/academic-year-scope.middleware';
 import { apiRouter } from './routes';
 
 function httpRoute(req: IncomingMessage): string {
@@ -70,6 +71,7 @@ export function createApp() {
     })
   );
 
+  app.use(academicYearScopeMiddleware);
   app.use(apiRouter);
   app.use(notFoundMiddleware);
   app.use(errorHandlerMiddleware);
