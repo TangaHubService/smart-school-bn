@@ -264,12 +264,10 @@ export class AuthService {
       throw new AppError(503, 'AUTH_ACADEMY_NOT_CONFIGURED', 'Academy catalog tenant is missing.');
     }
 
-    const existingEmail = await prisma.user.findUnique({
+    const existingEmail = await prisma.user.findFirst({
       where: {
-        tenantId_email: {
-          tenantId: academyTenant.id,
-          email: normalizedEmail,
-        },
+        email: normalizedEmail,
+        deletedAt: null,
       },
     });
 
