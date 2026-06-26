@@ -581,9 +581,11 @@ model Student {
   email       String?
   firstName   String
   lastName    String
-  gender      StudentGender?
-  dateOfBirth DateTime?
-  isActive    Boolean       @default(true)
+  gender            StudentGender?
+  dateOfBirth       DateTime?
+  hasDisability     Boolean       @default(false)
+  disabilityType    String?
+  isActive          Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   deletedAt    DateTime?

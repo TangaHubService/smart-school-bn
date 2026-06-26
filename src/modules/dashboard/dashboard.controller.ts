@@ -37,4 +37,13 @@ export class DashboardController {
     const result = await dashboardService.getTeacherDashboard(req.user!);
     return sendSuccess(req, res, result);
   }
+
+  async getDemographics(req: Request, res: Response): Promise<Response> {
+    const filters = {
+      academicYear: typeof req.query.academicYear === 'string' ? req.query.academicYear : undefined,
+      term: typeof req.query.term === 'string' ? req.query.term : undefined,
+    };
+    const result = await dashboardService.getDemographics(req.user!, filters);
+    return sendSuccess(req, res, result);
+  }
 }

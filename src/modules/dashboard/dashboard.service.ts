@@ -1392,4 +1392,124 @@ export class DashboardService {
       }),
     };
   }
+
+  async getDemographics(
+    actor: JwtUser,
+    filters?: { academicYear?: string; term?: string }
+  ) {
+    const tenantId = actor.tenantId!;
+
+    const studentsWhere: Prisma.StudentWhereInput = {
+      tenantId,
+      deletedAt: null,
+      isActive: true,
+    };
+
+    if (filters?.academicYear) {
+      studentsWhere.enrollments = {
+        some: {
+          academicYearId: filters.academicYear,
+          isActive: true,
+        },
+      };
+    }
+
+    const students = await prisma.student.findMany({
+      where: studentsWhere,
+      select: {
+        gender: true,
+        hasDisability: true,
+        disabilityType: true,
+        enrollments: {
+          where: { isActive: true },
+          select: {
+            classRoom: {
+              select: { code: true },
+            },
+            academicYear: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+    });
+
+    let totalBoys = 0;
+    let totalGirls = 0;
+    let studentsWithDisabilities = 0;
+    const disabilityBreakdown: Record<string, number> = {
+      visual: 0,
+      hearing: 0,
+      mobility: 0,
+      intellectual: 0,
+      other: 0,
+    };
+
+    for (const s of students) {
+      if (s.gender === 'MALE') totalBoys += 1;
+      else if (s.gender === 'FEMALE') totalGirls += 1;
+
+      if (s.hasDisability) {
+        studentsWithDisabilities += 1;
+        const dt = s.disabilityType?.toLowerCase() ?? 'other';
+        if (dt in disabilityBreakdown) {
+          disabilityBreakdown[dt] += 1;
+        } else {
+          disabilityBreakdown.other += 1;
+        }
+      }
+    }
+
+    const sectorMap = new Map<string, { boys: number; girls: number; disabilities: number }>();
+    const gradeMap = new Map<string, { boys: number; girls: number; disabilities: number }>();
+    const yearMap = new Map<string, { boys: number; girls: number; disabilities: number }>();
+
+    for (const s of students) {
+      const sector = s.enrollments[0]?.classRoom?.code ?? 'Unknown';
+      const grade = s.enrollments[0]?.classRoom?.code ?? 'Unknown';
+      const year = s.enrollments[0]?.academicYear?.name ?? 'Unknown';
+
+      if (!sectorMap.has(sector)) sectorMap.set(sector, { boys: 0, girls: 0, disabilities: 0 });
+      if (!gradeMap.has(grade)) gradeMap.set(grade, { boys: 0, girls: 0, disabilities: 0 });
+      if (!yearMap.has(year)) yearMap.set(year, { boys: 0, girls: 0, disabilities: 0 });
+
+      const se = sectorMap.get(sector)!;
+      const gr = gradeMap.get(grade)!;
+      const yr = yearMap.get(year)!;
+
+      if (s.gender === 'MALE') { se.boys += 1; gr.boys += 1; yr.boys += 1; }
+      else if (s.gender === 'FEMALE') { se.girls += 1; gr.girls += 1; yr.girls += 1; }
+
+      if (s.hasDisability) { se.disabilities += 1; gr.disabilities += 1; yr.disabilities += 1; }
+    }
+
+    const bySector = Array.from(sectorMap.entries())
+      .map(([sector, d]) => ({ sector, ...d }))
+      .sort((a, b) => b.boys + b.girls - (a.boys + a.girls));
+
+    const byGrade = Array.from(gradeMap.entries())
+      .map(([grade, d]) => ({ grade, ...d }))
+      .sort((a, b) => b.boys + b.girls - (a.boys + a.girls));
+
+    const byAcademicYear = Array.from(yearMap.entries())
+      .map(([year, d]) => ({ year, ...d }))
+      .sort((a, b) => b.year.localeCompare(a.year));
+
+    return {
+      totalStudents: students.length,
+      totalBoys,
+      totalGirls,
+      studentsWithDisabilities,
+      disabilitiesBreakdown: {
+        visual: disabilityBreakdown.visual,
+        hearing: disabilityBreakdown.hearing,
+        mobility: disabilityBreakdown.mobility,
+        intellectual: disabilityBreakdown.intellectual,
+        other: disabilityBreakdown.other,
+      },
+      bySector,
+      byGrade,
+      byAcademicYear,
+    };
+  }
 }
