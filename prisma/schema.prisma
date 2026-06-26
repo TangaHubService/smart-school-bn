@@ -465,6 +465,8 @@ model AcademicYear {
   conductGrades   ConductGrade[]
   conductDeductions ConductDeduction[]
   timetableSlots TimetableSlot[]
+  userAcademicYearPreferences UserAcademicYearPreference[]
+  lessonPlans                  TeacherLessonPlan[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isCurrent, isActive])
@@ -540,6 +542,8 @@ model ClassRoom {
   conductGrades    ConductGrade[]
   conductDeductions ConductDeduction[]
   timetableSlots TimetableSlot[]
+  lessonPlans        TeacherLessonPlan[]
+  studentGroupChats  StudentGroupChat[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gradeLevelId, name])
@@ -562,6 +566,7 @@ model Subject {
   exams   Exam[]
   subjectAssessmentPolicies SubjectAssessmentPolicy[]
   timetableSlots TimetableSlot[]
+  lessonPlans TeacherLessonPlan[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
@@ -1814,7 +1819,7 @@ model UserAcademicYearPreference {
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
 
-  @@unique([userId, tenantId])
+  @@unique([userId])
   @@index([userId, tenantId])
 }
 
@@ -1869,13 +1874,15 @@ model GroupChatMessage {
   id        String   @id @default(uuid())
   chatId    String
   senderId  String
+  tenantId  String
   content   String
   fileUrl   String?
   readAt    DateTime?
   createdAt DateTime @default(now())
 
   chat   StudentGroupChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender User      @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  sender User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([chatId, createdAt])
 }
