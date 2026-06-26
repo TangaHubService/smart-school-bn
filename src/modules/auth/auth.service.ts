@@ -35,7 +35,7 @@ export class AuthService {
     const { identifier, password } = input;
     const trimmedIdentifier = identifier.trim();
 
-    // 1. Find all users matching the identifier (email OR username)
+    // 1. Find all users matching the identifier (email, username, or studentCode)
     const users = await prisma.user.findMany({
       where: {
         OR: [
@@ -67,7 +67,51 @@ export class AuthService {
       },
     });
 
+    // 1b. If no user found by email/username, try studentCode
     if (!users.length) {
+      const studentMatch = await prisma.student.findFirst({
+        where: {
+          studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
+          deletedAt: null,
+          isActive: true,
+          userId: { not: null },
+        },
+        select: { userId: true, tenantId: true, studentCode: true },
+      });
+
+      if (studentMatch?.userId) {
+        const studentUser = await prisma.user.findFirst({
+          where: {
+            id: studentMatch.userId,
+            deletedAt: null,
+            status: UserStatus.ACTIVE,
+            tenantId: studentMatch.tenantId,
+          },
+          include: {
+            tenant: {
+              select: {
+                name: true,
+                school: { select: { displayName: true } },
+              },
+            },
+            userRoles: { include: { role: true } },
+          },
+        });
+
+        if (studentUser) {
+          // Check if password matches studentCode
+          const isCodeMatch = password === studentMatch.studentCode;
+          if (isCodeMatch) {
+            const userRoles = (studentUser.userRoles ?? []).map(ur => ur.role.name);
+            const isPrivileged = userRoles.some(
+              role => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
+            );
+            if (isPrivileged) return this.handleTwoFactorLogin(studentUser, context);
+            return this.completeLogin(studentUser.tenantId, studentUser, context);
+          }
+        }
+      }
+
       throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
@@ -131,32 +175,7 @@ export class AuthService {
     );
 
     if (isPrivileged) {
-      // Generate OTP
-      const otp = generateOtp();
-      const otpHash = hashOtp(otp);
-      const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
-
-      await prisma.user.update({
-        where: { id: resolvedUser.id },
-        data: {
-          otpHash,
-          otpExpiresAt: expiresAt,
-          otpAttempts: 0,
-          lastOtpSentAt: new Date(),
-          isTwoFactorVerified: false,
-        },
-      });
-
-      // Send OTP email
-      await this.emailService.sendTwoFactorOtp({
-        toEmail: resolvedUser.email,
-        otp,
-        expiresAt,
-      });
-
-      return {
-        requiresTwoFactor: true,
-      };
+      return this.handleTwoFactorLogin(resolvedUser, context);
     }
 
     return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
@@ -166,7 +185,7 @@ export class AuthService {
     const { identifier, password, tenantId } = input;
     const trimmedIdentifier = identifier.trim();
 
-    const user = await prisma.user.findFirst({
+    let user = await prisma.user.findFirst({
       where: {
         tenantId,
         OR: [
@@ -195,6 +214,49 @@ export class AuthService {
       },
     });
 
+    // Fallback: look up by studentCode
+    if (!user) {
+      const studentMatch = await prisma.student.findFirst({
+        where: {
+          tenantId,
+          studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
+          deletedAt: null,
+          isActive: true,
+          userId: { not: null },
+        },
+        select: { userId: true, studentCode: true },
+      });
+
+      if (studentMatch?.userId) {
+        const studentUser = await prisma.user.findFirst({
+          where: {
+            id: studentMatch.userId,
+            tenantId,
+            deletedAt: null,
+            status: UserStatus.ACTIVE,
+          },
+          include: {
+            tenant: {
+              select: {
+                name: true,
+                school: { select: { displayName: true } },
+              },
+            },
+            userRoles: { include: { role: true } },
+          },
+        });
+
+        if (studentUser && password === studentMatch.studentCode) {
+          const userRoles = (studentUser.userRoles ?? []).map((ur) => ur.role.name);
+          const isPrivileged = userRoles.some(
+            (role) => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
+          );
+          if (isPrivileged) return this.handleTwoFactorLogin(studentUser, context);
+          return this.completeLogin(studentUser.tenantId, studentUser, context);
+        }
+      }
+    }
+
     if (!user) {
       throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
@@ -219,28 +281,7 @@ export class AuthService {
     );
 
     if (isPrivileged) {
-      const otp = generateOtp();
-      const otpHash = hashOtp(otp);
-      const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          otpHash,
-          otpExpiresAt: expiresAt,
-          otpAttempts: 0,
-          lastOtpSentAt: new Date(),
-          isTwoFactorVerified: false,
-        },
-      });
-
-      await this.emailService.sendTwoFactorOtp({
-        toEmail: user.email,
-        otp,
-        expiresAt,
-      });
-
-      return { requiresTwoFactor: true };
+      return this.handleTwoFactorLogin(user, context);
     }
 
     return this.completeLogin(user.tenantId, user, context);
@@ -908,5 +949,30 @@ export class AuthService {
     });
 
     return { message: 'Password reset successfully' };
+  }
+
+  private async handleTwoFactorLogin(user: any, context: RequestAuditContext) {
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        otpHash,
+        otpExpiresAt: expiresAt,
+        otpAttempts: 0,
+        lastOtpSentAt: new Date(),
+        isTwoFactorVerified: false,
+      },
+    });
+
+    await this.emailService.sendTwoFactorOtp({
+      toEmail: user.email,
+      otp,
+      expiresAt,
+    });
+
+    return { requiresTwoFactor: true };
   }
 }
