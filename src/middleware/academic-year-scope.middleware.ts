@@ -22,12 +22,7 @@ export async function academicYearScopeMiddleware(req: Request, _res: Response, 
 
     if (!academicYearId && req.user?.sub && req.tenantId) {
       const pref = await prisma.userAcademicYearPreference.findUnique({
-        where: {
-          userId_tenantId: {
-            userId: req.user.sub,
-            tenantId: req.tenantId,
-          },
-        },
+        where: { userId: req.user.sub },
       });
       if (pref) {
         academicYearId = pref.academicYearId;

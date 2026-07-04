@@ -42,6 +42,7 @@ export class ChatService {
     const message = await prisma.groupChatMessage.create({
       data: {
         chatId,
+        tenantId,
         senderId: actor.sub,
         content: input.content,
         fileUrl: input.fileUrl ?? null,

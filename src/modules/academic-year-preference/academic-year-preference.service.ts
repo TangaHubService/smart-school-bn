@@ -6,7 +6,7 @@ import { SetAcademicYearPreferenceInput } from './academic-year-preference.schem
 export class AcademicYearPreferenceService {
   async getPreference(tenantId: string, userId: string) {
     const pref = await prisma.userAcademicYearPreference.findUnique({
-      where: { userId_tenantId: { userId, tenantId } },
+      where: { userId },
       include: {
         academicYear: { select: { id: true, name: true, isCurrent: true } },
       },
@@ -34,7 +34,7 @@ export class AcademicYearPreferenceService {
     }
 
     const pref = await prisma.userAcademicYearPreference.upsert({
-      where: { userId_tenantId: { userId, tenantId } },
+      where: { userId },
       create: { userId, tenantId, academicYearId: input.academicYearId, termId: input.termId ?? null },
       update: { academicYearId: input.academicYearId, termId: input.termId ?? null },
     });
