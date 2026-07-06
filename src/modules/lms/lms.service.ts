@@ -3,6 +3,7 @@ import { Prisma, SubmissionStatus, UserStatus } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { buildPagination } from '../../common/utils/pagination';
+import { isProtectedPdfAsset } from '../../common/utils/protected-attachment';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
@@ -1499,24 +1500,16 @@ export class LmsService {
       include: {
         program: {
           select: {
-            courseId: true,
-            course: {
-              select: {
-                subjectId: true,
-              },
-            },
+            classRoomId: true,
           },
         },
       },
     });
 
-    const academyCourseIds = programEnrollments
-      .map(pe => pe.program.courseId)
-      .filter((id): id is string => Boolean(id));
-    const academySubjectIds = [
+    const academyClassRoomIds = [
       ...new Set(
         programEnrollments
-          .map(pe => pe.program.course?.subjectId)
+          .map(pe => pe.program.classRoomId)
           .filter((id): id is string => Boolean(id))
       ),
     ];
@@ -1527,7 +1520,7 @@ export class LmsService {
         academicYearId: item.academicYearId,
       })) ?? [];
 
-    if (!enrollmentPairs.length && !academyCourseIds.length && !academySubjectIds.length) {
+    if (!enrollmentPairs.length && !academyClassRoomIds.length) {
       return {
         student: {
           id: student?.id ?? actor.sub,
@@ -1551,13 +1544,10 @@ export class LmsService {
         })),
       });
     }
-    if (academyCourseIds.length) {
-      orBlocks.push({ id: { in: academyCourseIds } });
-    }
-    if (academySubjectIds.length) {
+    if (academyClassRoomIds.length) {
       orBlocks.push({
         tenantId,
-        subjectId: { in: academySubjectIds },
+        classRoomId: { in: academyClassRoomIds },
       });
     }
 
@@ -2074,7 +2064,7 @@ export class LmsService {
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         program: {
-          courseId,
+          classRoomId,
         },
       },
       select: {
@@ -2346,7 +2336,12 @@ export class LmsService {
       fileAsset: lesson.fileAsset
         ? {
             id: lesson.fileAsset.id,
-            secureUrl: lesson.fileAsset.secureUrl,
+            // Protect on either signal (declared lesson type or actual file mimeType) so a
+            // PDF stays protected even if one of the two wasn't captured correctly.
+            secureUrl:
+              lesson.contentType === 'PDF' || isProtectedPdfAsset(lesson.fileAsset.mimeType)
+                ? null
+                : lesson.fileAsset.secureUrl,
             originalName: lesson.fileAsset.originalName,
             format: lesson.fileAsset.format,
             mimeType: lesson.fileAsset.mimeType,
@@ -2407,7 +2402,9 @@ export class LmsService {
       attachmentAsset: assignment.attachmentAsset
         ? {
             id: assignment.attachmentAsset.id,
-            secureUrl: assignment.attachmentAsset.secureUrl,
+            secureUrl: isProtectedPdfAsset(assignment.attachmentAsset.mimeType)
+              ? null
+              : assignment.attachmentAsset.secureUrl,
             originalName: assignment.attachmentAsset.originalName,
             format: assignment.attachmentAsset.format,
             mimeType: assignment.attachmentAsset.mimeType,
@@ -2597,13 +2594,13 @@ export class LmsService {
     };
   }
 
-  private async assertCourseInTenant(tenantId: string, courseId: string) {
-    const course = await prisma.course.findFirst({
-      where: { id: courseId, tenantId, isActive: true },
+  private async assertClassRoomInTenant(tenantId: string, classRoomId: string) {
+    const classRoom = await prisma.classRoom.findFirst({
+      where: { id: classRoomId, tenantId, isActive: true },
       select: { id: true },
     });
-    if (!course) {
-      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found for this school');
+    if (!classRoom) {
+      throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found for this school');
     }
   }
 
@@ -2618,10 +2615,10 @@ export class LmsService {
     durationDays: number;
     isActive: boolean;
     listedInPublicCatalog: boolean;
-    courseId: string | null;
+    classRoomId: string | null;
     createdAt: Date;
     updatedAt: Date;
-    course?: { id: string; title: string } | null;
+    classRoom?: { id: string; name: string; gradeLevel: { id: string; name: string } } | null;
   }) {
     return {
       id: p.id,
@@ -2634,10 +2631,12 @@ export class LmsService {
       durationDays: p.durationDays,
       isActive: p.isActive,
       listedInPublicCatalog: p.listedInPublicCatalog,
-      courseId: p.courseId,
+      classRoomId: p.classRoomId,
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),
-      linkedCourse: p.course ? { id: p.course.id, title: p.course.title } : null,
+      linkedClassRoom: p.classRoom
+        ? { id: p.classRoom.id, name: p.classRoom.name, gradeLevelName: p.classRoom.gradeLevel.name }
+        : null,
     };
   }
 
@@ -2646,7 +2645,7 @@ export class LmsService {
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
       include: {
-        course: { select: { id: true, title: true } },
+        classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } },
       },
     });
     return items.map(row => this.mapAcademyProgram(row));
@@ -2658,8 +2657,8 @@ export class LmsService {
     actor: JwtUser,
     context: RequestAuditContext
   ) {
-    if (input.courseId) {
-      await this.assertCourseInTenant(tenantId, input.courseId);
+    if (input.classRoomId) {
+      await this.assertClassRoomInTenant(tenantId, input.classRoomId);
     }
 
     try {
@@ -2674,9 +2673,9 @@ export class LmsService {
           durationDays: input.durationDays,
           isActive: input.isActive ?? true,
           listedInPublicCatalog: input.listedInPublicCatalog ?? true,
-          courseId: input.courseId ?? null,
+          classRoomId: input.classRoomId ?? null,
         },
-        include: { course: { select: { id: true, title: true } } },
+        include: { classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } } },
       });
 
       await this.auditService.log({
@@ -2712,8 +2711,8 @@ export class LmsService {
       throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
     }
 
-    if (input.courseId !== undefined && input.courseId) {
-      await this.assertCourseInTenant(tenantId, input.courseId);
+    if (input.classRoomId !== undefined && input.classRoomId) {
+      await this.assertClassRoomInTenant(tenantId, input.classRoomId);
     }
 
     const data: Prisma.ProgramUpdateInput = {};
@@ -2747,11 +2746,11 @@ export class LmsService {
     if (input.listedInPublicCatalog !== undefined) {
       data.listedInPublicCatalog = input.listedInPublicCatalog;
     }
-    if (input.courseId !== undefined) {
-      if (input.courseId === null) {
-        data.course = { disconnect: true };
+    if (input.classRoomId !== undefined) {
+      if (input.classRoomId === null) {
+        data.classRoom = { disconnect: true };
       } else {
-        data.course = { connect: { id: input.courseId } };
+        data.classRoom = { connect: { id: input.classRoomId } };
       }
     }
 
@@ -2763,7 +2762,7 @@ export class LmsService {
       const updated = await prisma.program.update({
         where: { id: programId },
         data,
-        include: { course: { select: { id: true, title: true } } },
+        include: { classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } } },
       });
 
       await this.auditService.log({

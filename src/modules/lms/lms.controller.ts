@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 
+import { resolveAcademicYearId } from '../../common/utils/academic-year-scope';
 import { sendSuccess } from '../../common/utils/response';
 import { LmsService } from './lms.service';
 import {
@@ -62,6 +63,7 @@ export class LmsController {
 
   async listCourses(req: Request, res: Response): Promise<Response> {
     const query = listCoursesQuerySchema.parse(req.query);
+    query.academicYearId = await resolveAcademicYearId(req, query.academicYearId);
     const result = await lmsService.listCourses(req.tenantId!, query, req.user!);
 
     return sendSuccess(req, res, result);
@@ -178,6 +180,7 @@ export class LmsController {
 
   async listAssignments(req: Request, res: Response): Promise<Response> {
     const query = listAssignmentsQuerySchema.parse(req.query);
+    query.academicYearId = await resolveAcademicYearId(req, query.academicYearId);
     const result = await lmsService.listAssignments(req.tenantId!, query, req.user!);
 
     return sendSuccess(req, res, result);

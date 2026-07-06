@@ -5,13 +5,14 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import {
   academyPlanCheckoutSchema,
   academyProgramSelectionSchema,
-  academySubjectSelectionSchema,
+  academyClassSelectionSchema,
 } from './public-academy.schemas';
 
 const router = Router();
 
 // Public routes
 router.get('/programs', PublicAcademyController.getPrograms);
+router.get('/catalog/tree', PublicAcademyController.getCatalogTree);
 router.get('/programs/:id', PublicAcademyController.getProgramById);
 router.head('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.get('/webhook/paypack', PublicAcademyController.webhookProbe);
@@ -32,10 +33,10 @@ router.post(
   PublicAcademyController.selectProgram
 );
 router.post(
-  '/subscription/subjects/select',
+  '/subscription/classes/select',
   authenticate,
-  validateBody(academySubjectSelectionSchema),
-  PublicAcademyController.selectSubject
+  validateBody(academyClassSelectionSchema),
+  PublicAcademyController.selectClass
 );
 router.delete(
   '/subscription/programs/:programId',
@@ -43,12 +44,13 @@ router.delete(
   PublicAcademyController.removeProgram
 );
 router.delete(
-  '/subscription/subjects/:subjectId',
+  '/subscription/classes/:classRoomId',
   authenticate,
-  PublicAcademyController.removeSubject
+  PublicAcademyController.removeClass
 );
 router.post('/purchase', authenticate, PublicAcademyController.purchaseProgram);
 router.get('/my-enrollments', authenticate, PublicAcademyController.getMyEnrollments);
 router.get('/programs/:id/content', authenticate, PublicAcademyController.getProgramContent);
+router.get('/classes/:classRoomId/content', authenticate, PublicAcademyController.getClassContent);
 
 export { router as publicAcademyRouter };

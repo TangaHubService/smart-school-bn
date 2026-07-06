@@ -21,7 +21,11 @@ export const updateLessonPlanSchema = z.object({
   assessment: z.string().trim().max(5000).nullable().optional(),
   weekNumber: z.number().int().min(1).max(52).nullable().optional(),
   durationMinutes: z.number().int().min(1).max(600).nullable().optional(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+}).strict();
+
+export const reviewLessonPlanSchema = z.object({
+  decision: z.enum(['APPROVED', 'REJECTED']),
+  note: z.string().trim().max(5000).optional(),
 }).strict();
 
 export const lessonPlanFeedbackSchema = z.object({
@@ -33,12 +37,13 @@ export const listLessonPlansQuerySchema = z.object({
   classRoomId: z.string().uuid().optional(),
   subjectId: z.string().uuid().optional(),
   teacherUserId: z.string().uuid().optional(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+  status: z.enum(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED', 'ARCHIVED']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 export type CreateLessonPlanInput = z.infer<typeof createLessonPlanSchema>;
 export type UpdateLessonPlanInput = z.infer<typeof updateLessonPlanSchema>;
+export type ReviewLessonPlanInput = z.infer<typeof reviewLessonPlanSchema>;
 export type LessonPlanFeedbackInput = z.infer<typeof lessonPlanFeedbackSchema>;
 export type ListLessonPlansQueryInput = z.infer<typeof listLessonPlansQuerySchema>;

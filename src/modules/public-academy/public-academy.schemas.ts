@@ -9,10 +9,10 @@ export const academyProgramSelectionSchema = z.object({
   programId: z.string().uuid(),
 });
 
-export const academySubjectSelectionSchema = z.object({
-  subjectId: z.string().uuid(),
+export const academyClassSelectionSchema = z.object({
+  classRoomId: z.string().uuid(),
 });
 
 export type AcademyPlanCheckoutInput = z.infer<typeof academyPlanCheckoutSchema>;
 export type AcademyProgramSelectionInput = z.infer<typeof academyProgramSelectionSchema>;
-export type AcademySubjectSelectionInput = z.infer<typeof academySubjectSelectionSchema>;
+export type AcademyClassSelectionInput = z.infer<typeof academyClassSelectionSchema>;

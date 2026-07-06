@@ -62,4 +62,29 @@ export class FilesService {
       mimeType: asset.mimeType,
     };
   }
+
+  /**
+   * Fetches the file bytes server-side so the underlying storage URL (Cloudinary)
+   * is never sent to the browser. Used to protect PDF learning resources from
+   * being copied straight out of API responses.
+   */
+  async streamFile(tenantId: string, assetId: string) {
+    const asset = await prisma.fileAsset.findFirst({
+      where: { id: assetId, tenantId },
+    });
+    if (!asset) {
+      throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
+    }
+
+    const upstream = await fetch(asset.secureUrl);
+    if (!upstream.ok || !upstream.body) {
+      throw new AppError(502, 'FILE_FETCH_FAILED', 'Could not retrieve the file for streaming');
+    }
+
+    return {
+      body: upstream.body,
+      mimeType: asset.mimeType ?? 'application/octet-stream',
+      originalName: asset.originalName,
+    };
+  }
 }

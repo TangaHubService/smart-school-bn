@@ -223,8 +223,8 @@ export class SubscriptionsService {
           price: number;
           durationDays: number;
           listedInPublicCatalog: boolean;
-          courseId: string | null;
-          courseTitle: string | null;
+          classRoomId: string | null;
+          className: string | null;
         }>,
       };
     }
@@ -236,7 +236,7 @@ export class SubscriptionsService {
       },
       orderBy: [{ title: 'asc' }],
       include: {
-        course: { select: { id: true, title: true } },
+        classRoom: { select: { id: true, name: true } },
       },
     });
 
@@ -249,8 +249,8 @@ export class SubscriptionsService {
         price: p.price,
         durationDays: p.durationDays,
         listedInPublicCatalog: p.listedInPublicCatalog,
-        courseId: p.courseId,
-        courseTitle: p.course?.title ?? null,
+        classRoomId: p.classRoomId,
+        className: p.classRoom?.name ?? null,
       })),
     };
   }

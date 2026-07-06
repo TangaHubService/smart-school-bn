@@ -215,7 +215,7 @@ export const createAcademyProgramSchema = z
     durationDays: z.coerce.number().int().min(1).max(3650).default(30),
     isActive: z.boolean().optional().default(true),
     listedInPublicCatalog: z.boolean().optional().default(true),
-    courseId: z.string().uuid().nullable().optional(),
+    classRoomId: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -232,7 +232,7 @@ export const updateAcademyProgramSchema = z
     durationDays: z.coerce.number().int().min(1).max(3650).optional(),
     isActive: z.boolean().optional(),
     listedInPublicCatalog: z.boolean().optional(),
-    courseId: z.string().uuid().nullable().optional(),
+    classRoomId: z.string().uuid().nullable().optional(),
   })
   .strict();
 

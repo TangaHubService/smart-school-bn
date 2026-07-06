@@ -5,6 +5,7 @@ import { sendSuccess } from '../../common/utils/response';
 import {
   createAnnouncementSchema,
   listAnnouncementsQuerySchema,
+  listMyAnnouncementsQuerySchema,
   updateAnnouncementSchema,
 } from './announcements.schemas';
 import { AnnouncementsService } from './announcements.service';
@@ -18,18 +19,19 @@ export class AnnouncementsController {
     return sendSuccess(req, res, result);
   }
 
-  async listForStudent(req: Request, res: Response): Promise<Response> {
-    const student = await this.getStudentForUser(req);
-    const query = {
-      page: Number(req.query.page) || 1,
-      pageSize: Number(req.query.pageSize) || 20,
-    };
-    const result = await service.listForStudent(req.tenantId!, student.id, query);
+  async listForViewer(req: Request, res: Response): Promise<Response> {
+    const query = listMyAnnouncementsQuerySchema.parse(req.query);
+    const result = await service.listForViewer(req.tenantId!, req.user!, query);
+    return sendSuccess(req, res, result);
+  }
+
+  async markRead(req: Request, res: Response): Promise<Response> {
+    const result = await service.markRead(req.tenantId!, req.params.id, req.user!);
     return sendSuccess(req, res, result);
   }
 
   async getById(req: Request, res: Response): Promise<Response> {
-    const result = await service.getById(req.tenantId!, req.params.id);
+    const result = await service.getById(req.tenantId!, req.params.id, req.user ?? undefined);
     return sendSuccess(req, res, result);
   }
 
@@ -64,21 +66,5 @@ export class AnnouncementsController {
       buildRequestAuditContext(req)
     );
     return sendSuccess(req, res, result);
-  }
-
-  private async getStudentForUser(req: Request) {
-    const { prisma } = await import('../../db/prisma');
-    const student = await prisma.student.findFirst({
-      where: {
-        tenantId: req.tenantId!,
-        userId: req.user!.sub,
-        deletedAt: null,
-      },
-    });
-    if (!student) {
-      const { AppError } = await import('../../common/errors/app-error');
-      throw new AppError(403, 'STUDENT_NOT_FOUND', 'Student profile not found');
-    }
-    return student;
   }
 }

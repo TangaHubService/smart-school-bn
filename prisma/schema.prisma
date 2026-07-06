@@ -185,6 +185,14 @@ enum AcademicAuditModule {
   CONTINUOUS_ASSESSMENTS
   MARKS
   TIMETABLE
+  // Freeform categories: no auto-fetched summary data, auditor enters findings directly.
+  FINANCE
+  TEACHERS
+  STUDENT_RECORDS
+  INFRASTRUCTURE
+  ICT
+  SAFETY
+  COMPLIANCE
 }
 
 enum AcademicAuditStatus {
@@ -254,12 +262,16 @@ model Tenant {
   programEnrollments ProgramEnrollment[]
   timetableSlots  TimetableSlot[]
   announcements   Announcement[]
+  announcementAttachments AnnouncementAttachment[]
+  announcementReads AnnouncementRead[]
   passwordResetTokens PasswordResetToken[]
   schoolSubscription SchoolSubscription?
   studentLessonProgress StudentLessonProgress[]
   audits        Audit[]
   academicAudits AcademicAudit[]
+  academicAuditAttachments AcademicAuditAttachment[]
   lessonPlans    TeacherLessonPlan[]
+  lessonPlanRevisions TeacherLessonPlanRevision[]
   chatGroups     StudentGroupChat[]
   chatMessages   GroupChatMessage[]
   academicYearPreferences UserAcademicYearPreference[]
@@ -332,6 +344,7 @@ model User {
   taughtCourses            Course[]            @relation("CourseTeacher")
   managedExams             Exam[]              @relation("ExamTeacher")
   authoredAnnouncements    Announcement[]      @relation("AnnouncementAuthor")
+  readAnnouncements        AnnouncementRead[]
   createdGradingSchemes    GradingScheme[]     @relation("GradingSchemeCreatedBy")
   updatedGradingSchemes    GradingScheme[]     @relation("GradingSchemeUpdatedBy")
   createdExams             Exam[]              @relation("ExamCreatedBy")
@@ -373,6 +386,7 @@ model User {
   academicAudits         AcademicAudit[] @relation("AcademicAuditByUser")
   reviewedAudits        AcademicAudit[] @relation("AcademicAuditReviewedBy")
   lessonPlans           TeacherLessonPlan[]
+  lessonPlanRevisions   TeacherLessonPlanRevision[]
   sentChatMessages      GroupChatMessage[]
   academicYearPreference UserAcademicYearPreference?
 
@@ -544,6 +558,7 @@ model ClassRoom {
   timetableSlots TimetableSlot[]
   lessonPlans        TeacherLessonPlan[]
   studentGroupChats  StudentGroupChat[]
+  programs           Program[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gradeLevelId, name])
@@ -849,19 +864,21 @@ model AcademicAudit {
   module         AcademicAuditModule
   subType        String
   score          Int
-  comment        String
-  recommendation String
+  comment        String?
+  recommendation String?
   status         AcademicAuditStatus @default(DRAFT)
+  reviewNote     String?
   submittedAt    DateTime?
   reviewedAt     DateTime?
   reviewedById   String?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
-  auditor     User     @relation("AcademicAuditByUser", fields: [auditorId], references: [id], onDelete: Restrict)
-  school      School   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  reviewedBy  User?    @relation("AcademicAuditReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  auditor     User                     @relation("AcademicAuditByUser", fields: [auditorId], references: [id], onDelete: Restrict)
+  school      School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  tenant      Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  reviewedBy  User?                    @relation("AcademicAuditReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  attachments AcademicAuditAttachment[]
   tenantId    String
 
   @@index([auditorId, createdAt])
@@ -870,6 +887,20 @@ model AcademicAudit {
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
   @@index([reviewedById])
+}
+
+model AcademicAuditAttachment {
+  id          String   @id @default(uuid())
+  tenantId    String
+  auditId     String
+  fileAssetId String
+  createdAt   DateTime @default(now())
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  audit     AcademicAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset     @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, auditId])
 }
 
 model StudentEnrollment {
@@ -960,7 +991,6 @@ model Course {
   lessons      Lesson[]
   assignments  Assignment[]
   assessments  Assessment[]
-  programs     Program[]
   timetableSlots TimetableSlot[]
 
   @@unique([tenantId, academicYearId, classRoomId, teacherUserId, title])
@@ -1251,6 +1281,8 @@ model FileAsset {
   lessonFiles       Lesson[]      @relation("LessonFileAsset")
   assignmentFiles   Assignment[]  @relation("AssignmentAttachmentAsset")
   submissionFiles   Submission[]  @relation("SubmissionFileAsset")
+  announcementAttachments AnnouncementAttachment[]
+  academicAuditAttachments AcademicAuditAttachment[]
 
   @@unique([tenantId, publicId])
   @@index([tenantId, uploadedByUserId, createdAt])
@@ -1551,18 +1583,19 @@ model Program {
   durationDays           Int      @default(30)
   isActive               Boolean  @default(true)
   listedInPublicCatalog  Boolean  @default(true)
-  courseId               String?
+  classRoomId            String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  course           Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  classRoom        ClassRoom? @relation(fields: [classRoomId], references: [id], onDelete: SetNull)
   payments         Payment[]
   enrollments      ProgramEnrollment[]
 
   @@unique([tenantId, title])
   @@index([tenantId, isActive])
   @@index([tenantId, listedInPublicCatalog])
+  @@index([tenantId, classRoomId])
 }
 
 model Payment {
@@ -1598,7 +1631,7 @@ model AcademySubscription {
   planCode    AcademyPlanCode
   status      AcademySubscriptionStatus
   isTrial     Boolean                   @default(false)
-  courseLimit Int                       @default(3)
+  classLimit  Int                       @default(3)
   expiresAt   DateTime?
   createdAt   DateTime                  @default(now())
   updatedAt   DateTime                  @updatedAt
@@ -1663,13 +1696,33 @@ enum AnnouncementAudience {
   ALL
   CLASS_ROOM
   GRADE_LEVEL
+  SUBJECT
   SPECIFIC_ROLES
+  INDIVIDUAL_USERS
+}
+
+enum AnnouncementPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }
 
 enum LessonPlanStatus {
   DRAFT
-  PUBLISHED
+  SUBMITTED
+  APPROVED
+  REJECTED
   ARCHIVED
+}
+
+enum LessonPlanRevisionAction {
+  CREATED
+  UPDATED
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RECOMMENDATION
 }
 
 model TimetableSlot {
@@ -1707,19 +1760,54 @@ model Announcement {
   body              String
   authorUserId      String
   audience          AnnouncementAudience @default(ALL)
+  priority          AnnouncementPriority @default(NORMAL)
   targetClassRoomIds String[]           @default([]) // when audience=CLASS_ROOM
   targetGradeLevelIds String[]          @default([]) // when audience=GRADE_LEVEL
+  targetSubjectIds  String[]            @default([]) // when audience=SUBJECT
   targetRoleNames   String[]            @default([]) // when audience=SPECIFIC_ROLES
+  targetUserIds     String[]            @default([]) // when audience=INDIVIDUAL_USERS
+  emailNotify       Boolean             @default(false)
   publishedAt       DateTime?
   expiresAt         DateTime?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  author User   @relation("AnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  author      User                      @relation("AnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  attachments AnnouncementAttachment[]
+  reads       AnnouncementRead[]
 
   @@index([tenantId, publishedAt])
   @@index([tenantId, audience])
+}
+
+model AnnouncementAttachment {
+  id             String   @id @default(uuid())
+  tenantId       String
+  announcementId String
+  fileAssetId    String
+  createdAt      DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  fileAsset    FileAsset    @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, announcementId])
+}
+
+model AnnouncementRead {
+  id             String   @id @default(uuid())
+  tenantId       String
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([tenantId, userId])
 }
 model PasswordResetToken {
   id        String   @id @default(uuid())
@@ -1849,10 +1937,28 @@ model TeacherLessonPlan {
   academicYear AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   classRoom    ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
   subject      Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  revisions    TeacherLessonPlanRevision[]
 
   @@unique([tenantId, teacherUserId, classRoomId, subjectId, weekNumber])
   @@index([tenantId, teacherUserId, academicYearId])
   @@index([tenantId, classRoomId, subjectId])
+}
+
+model TeacherLessonPlanRevision {
+  id          String                    @id @default(uuid())
+  tenantId    String
+  planId      String
+  actorUserId String
+  action      LessonPlanRevisionAction
+  note        String?
+  snapshot    Json
+  createdAt   DateTime                  @default(now())
+
+  tenant Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  plan   TeacherLessonPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  actor  User              @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, planId, createdAt])
 }
 
 model StudentGroupChat {

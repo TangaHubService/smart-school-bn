@@ -1,7 +1,15 @@
 import { z } from 'zod';
 
 export const signUploadSchema = z.object({
-  purpose: z.enum(['lesson', 'assignment', 'submission', 'logo', 'assessment-question']),
+  purpose: z.enum([
+    'lesson',
+    'assignment',
+    'submission',
+    'logo',
+    'assessment-question',
+    'announcement',
+    'audit-evidence',
+  ]),
   fileName: z.string().trim().min(1).max(255),
 });
 

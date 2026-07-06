@@ -26,7 +26,18 @@ announcementsRoutes.get(
     PERMISSIONS.ANNOUNCEMENTS_MY_READ,
   ]),
   enforceTenant,
-  asyncHandler((req, res) => controller.listForStudent(req, res))
+  asyncHandler((req, res) => controller.listForViewer(req, res))
+);
+
+announcementsRoutes.post(
+  '/announcements/:id/read',
+  requireAnyPermissions([
+    PERMISSIONS.ANNOUNCEMENTS_READ,
+    PERMISSIONS.ANNOUNCEMENTS_MANAGE,
+    PERMISSIONS.ANNOUNCEMENTS_MY_READ,
+  ]),
+  enforceTenant,
+  asyncHandler((req, res) => controller.markRead(req, res))
 );
 
 announcementsRoutes.get(

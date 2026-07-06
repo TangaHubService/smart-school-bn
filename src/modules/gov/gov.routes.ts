@@ -86,3 +86,38 @@ govRoutes.get(
   requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_READ]),
   asyncHandler((req, res) => controller.getAudit(req, res))
 );
+
+govRoutes.patch(
+  '/gov/audits/:id',
+  authenticate,
+  requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_SUBMIT]),
+  asyncHandler((req, res) => controller.updateAudit(req, res))
+);
+
+govRoutes.post(
+  '/gov/audits/:id/submit',
+  authenticate,
+  requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_SUBMIT]),
+  asyncHandler((req, res) => controller.submitDraftAudit(req, res))
+);
+
+govRoutes.post(
+  '/gov/audits/:id/review',
+  authenticate,
+  requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_REVIEW]),
+  asyncHandler((req, res) => controller.reviewAudit(req, res))
+);
+
+govRoutes.post(
+  '/gov/audits/:id/reopen',
+  authenticate,
+  requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_REVIEW]),
+  asyncHandler((req, res) => controller.reopenAudit(req, res))
+);
+
+govRoutes.get(
+  '/gov/audits/:id/pdf',
+  authenticate,
+  requirePermissions([PERMISSIONS.ACADEMIC_AUDIT_READ]),
+  asyncHandler((req, res) => controller.downloadAuditPdf(req, res))
+);

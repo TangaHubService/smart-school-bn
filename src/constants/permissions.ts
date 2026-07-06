@@ -56,6 +56,7 @@ export const PERMISSIONS = {
   ACADEMIC_AUDIT_READ: 'academic_audit.read',
   ACADEMIC_AUDIT_SUBMIT: 'academic_audit.submit',
   ACADEMIC_AUDIT_LIST: 'academic_audit.list',
+  ACADEMIC_AUDIT_REVIEW: 'academic_audit.review',
   TIMETABLE_READ: 'timetable.read',
   TIMETABLE_MANAGE: 'timetable.manage',
   ANNOUNCEMENTS_READ: 'announcements.read',
@@ -77,6 +78,7 @@ export const SUPER_ADMIN_PERMISSIONS = [
   PERMISSIONS.GOV_SCOPES_MANAGE,
   PERMISSIONS.ACADEMIC_AUDIT_READ,
   PERMISSIONS.ACADEMIC_AUDIT_LIST,
+  PERMISSIONS.ACADEMIC_AUDIT_REVIEW,
 ];
 
 export const SCHOOL_ADMIN_PERMISSIONS = [
@@ -122,6 +124,9 @@ export const SCHOOL_ADMIN_PERMISSIONS = [
   PERMISSIONS.ANNOUNCEMENTS_MANAGE,
   PERMISSIONS.ACADEMIC_AUDIT_READ,
   PERMISSIONS.ACADEMIC_AUDIT_LIST,
+  // Deliberately no ACADEMIC_AUDIT_REVIEW: school admins are the audited party and must not
+  // be able to approve/reject/reopen audits about their own school (see gov.service.ts
+  // getHierarchicalAccess).
 ];
 
 export const GOV_AUDITOR_PERMISSIONS = [
@@ -136,7 +141,9 @@ export const GOV_AUDITOR_PERMISSIONS = [
   PERMISSIONS.ACADEMIC_AUDIT_READ,
   PERMISSIONS.ACADEMIC_AUDIT_SUBMIT,
   PERMISSIONS.ACADEMIC_AUDIT_LIST,
+  PERMISSIONS.ACADEMIC_AUDIT_REVIEW,
   PERMISSIONS.REPORT_CARDS_READ,
+  PERMISSIONS.FILES_UPLOAD,
 ];
 
 export interface DefaultRoleDefinition {

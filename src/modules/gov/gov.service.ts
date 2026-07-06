@@ -4,11 +4,23 @@ import { z } from 'zod';
 import { JwtUser } from '../../common/types/auth.types';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../common/errors/app-error';
+import { isProtectedPdfAsset } from '../../common/utils/protected-attachment';
 import { getDistricts } from '../../utils/rwanda-locations';
-import { submitAcademicAuditSchema, academicAuditQuerySchema } from './gov.schemas';
+import { buildAuditReportPdfBuffer } from './audit-report-pdf';
+import {
+  submitAcademicAuditSchema,
+  academicAuditQuerySchema,
+  updateAcademicAuditSchema,
+  reviewAcademicAuditSchema,
+  reopenAcademicAuditSchema,
+  AcademicAuditAttachmentUploadInput,
+} from './gov.schemas';
 
 type SubmitAcademicAuditInput = z.infer<typeof submitAcademicAuditSchema>;
 type AcademicAuditQueryInput = z.infer<typeof academicAuditQuerySchema>;
+type UpdateAcademicAuditInput = z.infer<typeof updateAcademicAuditSchema>;
+type ReviewAcademicAuditInput = z.infer<typeof reviewAcademicAuditSchema>;
+type ReopenAcademicAuditInput = z.infer<typeof reopenAcademicAuditSchema>;
 
 type AuditorScope = {
   level: 'NATIONAL' | 'PROVINCE' | 'DISTRICT' | 'SECTOR';
@@ -175,8 +187,10 @@ export class GovService {
     const isDirector = roles.includes('DIRECTOR');
 
     if (isSuperAdmin) {
-      const allSchools = await prisma.school.findMany({ select: { id: true } });
-      const allAuditors = await prisma.auditor.findMany({ select: { userId: true } });
+      const [allSchools, allAuditors] = await Promise.all([
+        prisma.school.findMany({ select: { id: true } }),
+        prisma.auditor.findMany({ select: { userId: true } }),
+      ]);
 
       return {
         canView: true,
@@ -188,11 +202,15 @@ export class GovService {
     }
 
     if (isDirector || isSchoolAdmin || isTenantAdmin) {
+      // School/tenant-side roles are the audited party: they may view audits about their own
+      // school, but must not review/approve/reopen them — that stays with independent
+      // government auditors (PROVINCE/NATIONAL scope) and SUPER_ADMIN, to avoid the audited
+      // school being able to dismiss or bounce back findings about itself.
       const accessibleSchoolIds = await this.getSchoolsForTenant(user.tenantId);
       return {
         canView: true,
-        canReview: true,
-        canApprove: isDirector,
+        canReview: false,
+        canApprove: false,
         accessibleSchoolIds,
         subordinateAuditorIds: [],
       };
@@ -200,8 +218,10 @@ export class GovService {
 
     if (isGovAuditor) {
       const scope = await this.getAuditorScope(user);
-      const accessibleSchoolIds = await this.getSchoolIdsInScope(scope);
-      const subordinateAuditors = await this.getSubordinateAuditors(scope);
+      const [accessibleSchoolIds, subordinateAuditors] = await Promise.all([
+        this.getSchoolIdsInScope(scope),
+        this.getSubordinateAuditors(scope),
+      ]);
 
       return {
         canView: true,
@@ -693,6 +713,14 @@ export class GovService {
   async submitAcademicAudit(user: JwtUser, input: SubmitAcademicAuditInput) {
     const school = await this.getSchoolInAssignedScope(user, input.schoolId);
 
+    const attachmentAssetIds = await this.upsertAuditAttachmentAssets(
+      school.tenantId,
+      input.attachments,
+      user.sub
+    );
+
+    const asDraft = input.asDraft;
+
     const audit = await prisma.academicAudit.create({
       data: {
         auditorId: user.sub,
@@ -702,15 +730,235 @@ export class GovService {
         subType: input.module,
         score: input.score,
         comment: input.comment,
-        recommendation: input.recommendation || '',
-        status: 'SUBMITTED',
-        submittedAt: new Date(),
+        recommendation: input.recommendation || null,
+        status: asDraft ? 'DRAFT' : 'SUBMITTED',
+        submittedAt: asDraft ? null : new Date(),
+        attachments: attachmentAssetIds.length
+          ? { create: attachmentAssetIds.map(fileAssetId => ({ tenantId: school.tenantId, fileAssetId })) }
+          : undefined,
+      },
+      include: { attachments: { include: { fileAsset: true } } },
+    });
+
+    if (!asDraft) {
+      await this.notifySchoolAdmin(school, input.module, audit.id);
+    }
+
+    return this.mapAuditAttachments(audit);
+  }
+
+  async updateAcademicAudit(user: JwtUser, auditId: string, input: UpdateAcademicAuditInput) {
+    const audit = await prisma.academicAudit.findFirst({ where: { id: auditId } });
+    if (!audit) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+    if (audit.auditorId !== user.sub) {
+      throw new AppError(403, 'AUDIT_ACCESS_DENIED', 'You can only edit your own audit reports');
+    }
+    if (audit.status !== 'DRAFT' && audit.status !== 'NEEDS_REVISION') {
+      throw new AppError(
+        409,
+        'AUDIT_NOT_EDITABLE',
+        'Only draft or returned-for-revision audits can be edited'
+      );
+    }
+
+    const attachmentAssetIds =
+      input.attachments !== undefined
+        ? await this.upsertAuditAttachmentAssets(audit.tenantId, input.attachments, user.sub)
+        : undefined;
+
+    return prisma.academicAudit.update({
+      where: { id: auditId },
+      data: {
+        ...(input.score !== undefined && { score: input.score }),
+        ...(input.comment !== undefined && { comment: input.comment }),
+        ...(input.recommendation !== undefined && { recommendation: input.recommendation }),
+        ...(attachmentAssetIds !== undefined && {
+          attachments: {
+            deleteMany: {},
+            create: attachmentAssetIds.map(fileAssetId => ({ tenantId: audit.tenantId, fileAssetId })),
+          },
+        }),
+      },
+      include: { attachments: { include: { fileAsset: true } } },
+    }).then(updated => this.mapAuditAttachments(updated));
+  }
+
+  private mapAuditAttachments<T extends { attachments: Array<{ fileAsset: { id: string; originalName: string; mimeType: string | null; bytes: number | null; secureUrl: string } }> }>(
+    audit: T
+  ) {
+    return {
+      ...audit,
+      attachments: audit.attachments.map(a => ({
+        id: a.fileAsset.id,
+        originalName: a.fileAsset.originalName,
+        mimeType: a.fileAsset.mimeType,
+        bytes: a.fileAsset.bytes,
+        secureUrl: isProtectedPdfAsset(a.fileAsset.mimeType) ? null : a.fileAsset.secureUrl,
+      })),
+    };
+  }
+
+  async submitDraftAudit(user: JwtUser, auditId: string) {
+    const audit = await prisma.academicAudit.findFirst({
+      where: { id: auditId },
+      include: { school: { select: { id: true, displayName: true, tenantId: true } } },
+    });
+    if (!audit) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+    if (audit.auditorId !== user.sub) {
+      throw new AppError(403, 'AUDIT_ACCESS_DENIED', 'You can only submit your own audit reports');
+    }
+    if (audit.status !== 'DRAFT' && audit.status !== 'NEEDS_REVISION') {
+      throw new AppError(409, 'AUDIT_NOT_SUBMITTABLE', 'Only draft or returned audits can be submitted');
+    }
+    if (!audit.comment) {
+      throw new AppError(400, 'AUDIT_COMMENT_REQUIRED', 'Add findings before submitting');
+    }
+
+    const updated = await prisma.academicAudit.update({
+      where: { id: auditId },
+      data: { status: 'SUBMITTED', submittedAt: new Date() },
+    });
+
+    await this.notifySchoolAdmin(audit.school, audit.module, audit.id);
+
+    return updated;
+  }
+
+  async reviewAcademicAudit(user: JwtUser, auditId: string, input: ReviewAcademicAuditInput) {
+    const access = await this.getHierarchicalAccess(user);
+    const audit = await prisma.academicAudit.findFirst({ where: { id: auditId } });
+    if (!audit || !access.accessibleSchoolIds.includes(audit.schoolId)) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+    if (audit.status !== 'SUBMITTED' && audit.status !== 'UNDER_REVIEW') {
+      throw new AppError(409, 'AUDIT_NOT_UNDER_REVIEW', 'This audit is not awaiting review');
+    }
+
+    if (input.decision === 'APPROVED' && !access.canApprove) {
+      throw new AppError(403, 'AUDIT_APPROVAL_DENIED', 'You are not authorized to approve audits');
+    }
+    if (input.decision !== 'APPROVED' && !access.canReview) {
+      throw new AppError(403, 'AUDIT_REVIEW_DENIED', 'You are not authorized to review audits');
+    }
+
+    return prisma.academicAudit.update({
+      where: { id: auditId },
+      data: {
+        status: input.decision,
+        reviewNote: input.reviewNote ?? null,
+        reviewedAt: new Date(),
+        reviewedById: user.sub,
+      },
+    });
+  }
+
+  /** Authorized administrator override: send an already-decided audit back to the auditor for edits. */
+  async reopenAcademicAudit(user: JwtUser, auditId: string, input: ReopenAcademicAuditInput) {
+    const access = await this.getHierarchicalAccess(user);
+    if (!access.canApprove) {
+      throw new AppError(403, 'AUDIT_REOPEN_DENIED', 'Only an authorized administrator can reopen audits');
+    }
+
+    const audit = await prisma.academicAudit.findFirst({ where: { id: auditId } });
+    if (!audit || !access.accessibleSchoolIds.includes(audit.schoolId)) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+    if (audit.status !== 'APPROVED' && audit.status !== 'REJECTED') {
+      throw new AppError(409, 'AUDIT_NOT_REOPENABLE', 'Only approved or rejected audits can be reopened');
+    }
+
+    return prisma.academicAudit.update({
+      where: { id: auditId },
+      data: {
+        status: 'NEEDS_REVISION',
+        reviewNote: input.reviewNote ?? audit.reviewNote,
+        reviewedAt: new Date(),
+        reviewedById: user.sub,
+      },
+    });
+  }
+
+  async getAuditReportPdf(user: JwtUser, auditId: string) {
+    const canView = await this.canAccessAudit(user, auditId);
+    if (!canView) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
+
+    const audit = await prisma.academicAudit.findUnique({
+      where: { id: auditId },
+      include: {
+        school: { select: { displayName: true, province: true, district: true, sector: true } },
+        auditor: { select: { firstName: true, lastName: true, email: true } },
+        reviewedBy: { select: { firstName: true, lastName: true } },
+        attachments: { include: { fileAsset: { select: { originalName: true } } } },
       },
     });
 
-    await this.notifySchoolAdmin(school, input.module, audit.id);
+    if (!audit) {
+      throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
+    }
 
-    return audit;
+    const buffer = await buildAuditReportPdfBuffer({
+      id: audit.id,
+      module: audit.module,
+      status: audit.status,
+      score: audit.score,
+      comment: audit.comment,
+      recommendation: audit.recommendation,
+      reviewNote: audit.reviewNote,
+      school: audit.school,
+      auditor: audit.auditor,
+      reviewedBy: audit.reviewedBy,
+      submittedAt: audit.submittedAt?.toISOString() ?? null,
+      reviewedAt: audit.reviewedAt?.toISOString() ?? null,
+      createdAt: audit.createdAt.toISOString(),
+      attachments: audit.attachments.map(a => ({ originalName: a.fileAsset.originalName })),
+    });
+
+    return { buffer, fileName: `audit-report-${audit.id}.pdf` };
+  }
+
+  private async upsertAuditAttachmentAssets(
+    tenantId: string,
+    uploads: AcademicAuditAttachmentUploadInput[],
+    uploadedByUserId: string
+  ): Promise<string[]> {
+    if (!uploads.length) {
+      return [];
+    }
+
+    const assets = await Promise.all(
+      uploads.map(asset =>
+        prisma.fileAsset.upsert({
+          where: { tenantId_publicId: { tenantId, publicId: asset.publicId } },
+          update: {
+            secureUrl: asset.secureUrl,
+            originalName: asset.originalName,
+            bytes: asset.bytes,
+            format: asset.format,
+            mimeType: asset.mimeType,
+            resourceType: asset.resourceType,
+          },
+          create: {
+            tenantId,
+            uploadedByUserId,
+            publicId: asset.publicId,
+            secureUrl: asset.secureUrl,
+            originalName: asset.originalName,
+            bytes: asset.bytes,
+            format: asset.format,
+            mimeType: asset.mimeType,
+            resourceType: asset.resourceType,
+          },
+        })
+      )
+    );
+
+    return assets.map(a => a.id);
   }
 
   private async notifySchoolAdmin(school: { id: string; displayName: string; tenantId: string }, module: string, auditId: string) {
@@ -821,6 +1069,7 @@ export class GovService {
             email: true,
           },
         },
+        attachments: { include: { fileAsset: true } },
       },
     });
 
@@ -828,7 +1077,7 @@ export class GovService {
       throw new AppError(404, 'AUDIT_NOT_FOUND', 'Audit not found');
     }
 
-    return audit;
+    return this.mapAuditAttachments(audit);
   }
 
   async getAuditorDashboard(user: JwtUser) {
@@ -836,38 +1085,54 @@ export class GovService {
     const schoolIdList = await this.getSchoolIdsInScope(scope);
     const totalSchoolsInScope = schoolIdList.length;
 
-    const [completedAudits, recentAudits] = await Promise.all([
-      prisma.academicAudit.count({
-        where: {
-          auditorId: user.sub,
-          schoolId: { in: schoolIdList },
-        },
-      }),
-      prisma.academicAudit.findMany({
-        where: {
-          auditorId: user.sub,
-          schoolId: { in: schoolIdList },
-        },
-        include: {
-          school: {
-            select: {
-              displayName: true,
+    const submittedStatuses: Prisma.AcademicAuditWhereInput['status'] = {
+      in: ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_REVISION'],
+    };
+
+    const [draftAudits, completedAudits, pendingReview, scoreAgg, submittedReports, schoolsWithAudits] =
+      await Promise.all([
+        prisma.academicAudit.count({
+          where: { auditorId: user.sub, schoolId: { in: schoolIdList }, status: 'DRAFT' },
+        }),
+        prisma.academicAudit.count({
+          where: { auditorId: user.sub, schoolId: { in: schoolIdList }, status: submittedStatuses },
+        }),
+        prisma.academicAudit.count({
+          where: {
+            schoolId: { in: schoolIdList },
+            status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+          },
+        }),
+        prisma.academicAudit.aggregate({
+          where: { auditorId: user.sub, schoolId: { in: schoolIdList }, status: submittedStatuses },
+          _avg: { score: true },
+        }),
+        prisma.academicAudit.findMany({
+          where: {
+            auditorId: user.sub,
+            schoolId: { in: schoolIdList },
+            status: submittedStatuses,
+          },
+          include: {
+            school: {
+              select: {
+                displayName: true,
+              },
             },
           },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-      }),
-    ]);
-
-    const schoolsWithAudits = await prisma.academicAudit.findMany({
-      where: {
-        auditorId: user.sub,
-        schoolId: { in: schoolIdList },
-      },
-      select: { schoolId: true },
-      distinct: ['schoolId'],
-    });
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        }),
+        prisma.academicAudit.findMany({
+          where: {
+            auditorId: user.sub,
+            schoolId: { in: schoolIdList },
+            status: submittedStatuses,
+          },
+          select: { schoolId: true },
+          distinct: ['schoolId'],
+        }),
+      ]);
 
     const auditedSchoolIds = new Set(schoolsWithAudits.map(a => a.schoolId));
     const pendingSchools = totalSchoolsInScope - auditedSchoolIds.size;
@@ -877,9 +1142,12 @@ export class GovService {
       stats: {
         totalSchoolsInScope,
         completedAudits,
+        draftAudits,
         pendingSchools,
+        pendingReview,
+        averageComplianceScore: scoreAgg._avg.score !== null ? Math.round(scoreAgg._avg.score) : null,
       },
-      recentAudits: recentAudits.map((a) => ({
+      recentAudits: submittedReports.map((a) => ({
         id: a.id,
         school: a.school.displayName,
         module: a.module,

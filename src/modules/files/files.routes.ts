@@ -27,3 +27,9 @@ filesRoutes.get(
   requirePermissions([PERMISSIONS.COURSES_READ]),
   asyncHandler((req, res) => filesController.getFileViewUrl(req, res))
 );
+
+filesRoutes.get(
+  '/files/:assetId/stream',
+  requirePermissions([PERMISSIONS.COURSES_READ]),
+  asyncHandler((req, res) => filesController.streamFile(req, res))
+);

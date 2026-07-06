@@ -2,7 +2,13 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import { GovService } from './gov.service';
-import { submitAcademicAuditSchema, academicAuditQuerySchema } from './gov.schemas';
+import {
+  submitAcademicAuditSchema,
+  academicAuditQuerySchema,
+  updateAcademicAuditSchema,
+  reviewAcademicAuditSchema,
+  reopenAcademicAuditSchema,
+} from './gov.schemas';
 
 const govService = new GovService();
 
@@ -69,5 +75,35 @@ export class GovController {
     const { id } = req.params;
     const result = await govService.getAuditById(req.user!, id);
     return sendSuccess(req, res, result);
+  }
+
+  async updateAudit(req: Request, res: Response) {
+    const input = updateAcademicAuditSchema.parse(req.body);
+    const result = await govService.updateAcademicAudit(req.user!, req.params.id, input);
+    return sendSuccess(req, res, result);
+  }
+
+  async submitDraftAudit(req: Request, res: Response) {
+    const result = await govService.submitDraftAudit(req.user!, req.params.id);
+    return sendSuccess(req, res, result);
+  }
+
+  async reviewAudit(req: Request, res: Response) {
+    const input = reviewAcademicAuditSchema.parse(req.body);
+    const result = await govService.reviewAcademicAudit(req.user!, req.params.id, input);
+    return sendSuccess(req, res, result);
+  }
+
+  async reopenAudit(req: Request, res: Response) {
+    const input = reopenAcademicAuditSchema.parse(req.body);
+    const result = await govService.reopenAcademicAudit(req.user!, req.params.id, input);
+    return sendSuccess(req, res, result);
+  }
+
+  async downloadAuditPdf(req: Request, res: Response) {
+    const result = await govService.getAuditReportPdf(req.user!, req.params.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
+    return res.status(200).send(result.buffer);
   }
 }

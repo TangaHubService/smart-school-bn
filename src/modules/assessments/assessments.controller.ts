@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 
+import { resolveAcademicYearId } from '../../common/utils/academic-year-scope';
 import { sendSuccess } from '../../common/utils/response';
 import { AssessmentsService } from './assessments.service';
 import {
@@ -36,6 +37,7 @@ export class AssessmentsController {
 
   async listAssessments(req: Request, res: Response): Promise<Response> {
     const query = listAssessmentsQuerySchema.parse(req.query);
+    query.academicYearId = await resolveAcademicYearId(req, query.academicYearId);
     const result = await assessmentsService.listAssessments(req.tenantId!, query, req.user!);
 
     return sendSuccess(req, res, result, 200, result.pagination);

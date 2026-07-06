@@ -1170,9 +1170,10 @@ export class DashboardService {
             },
           })
         : Promise.resolve([]),
-      this.announcementsService.listForStudent(tenantId, student.id, {
+      this.announcementsService.listForViewer(tenantId, actor, {
         page: 1,
         pageSize: 3,
+        unreadOnly: false,
       }),
     ]);
 

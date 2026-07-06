@@ -846,11 +846,7 @@ export class AssessmentsService {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
-    if (
-      !accessScope.enrollmentPairs.length &&
-      !accessScope.academyCourseIds.length &&
-      !accessScope.academySubjectIds.length
-    ) {
+    if (!accessScope.enrollmentPairs.length && !accessScope.academyClassRoomIds.length) {
       return {
         student: this.mapStudentProfile(student),
         items: [],
@@ -939,11 +935,7 @@ export class AssessmentsService {
     const student = await this.getStudentProfile(tenantId, actor.sub);
     const accessScope = await this.getStudentAssessmentAccessScope(tenantId, actor.sub, student);
 
-    if (
-      !accessScope.enrollmentPairs.length &&
-      !accessScope.academyCourseIds.length &&
-      !accessScope.academySubjectIds.length
-    ) {
+    if (!accessScope.enrollmentPairs.length && !accessScope.academyClassRoomIds.length) {
       throw new AppError(
         403,
         'ASSESSMENT_ACCESS_DENIED',
@@ -2014,32 +2006,23 @@ export class AssessmentsService {
       include: {
         program: {
           select: {
-            courseId: true,
-            course: {
-              select: {
-                subjectId: true,
-              },
-            },
+            classRoomId: true,
           },
         },
       },
     });
 
-    const academyCourseIds = programEnrollments
-      .map(item => item.program.courseId)
-      .filter((id): id is string => Boolean(id));
-    const academySubjectIds = [
+    const academyClassRoomIds = [
       ...new Set(
         programEnrollments
-          .map(item => item.program.course?.subjectId)
+          .map(item => item.program.classRoomId)
           .filter((id): id is string => Boolean(id))
       ),
     ];
 
     return {
       enrollmentPairs,
-      academyCourseIds,
-      academySubjectIds,
+      academyClassRoomIds,
     };
   }
 
@@ -2047,8 +2030,7 @@ export class AssessmentsService {
     tenantId: string,
     accessScope: {
       enrollmentPairs: Array<{ classRoomId: string; academicYearId: string }>;
-      academyCourseIds: string[];
-      academySubjectIds: string[];
+      academyClassRoomIds: string[];
     }
   ): Prisma.AssessmentWhereInput[] {
     const filters: Prisma.AssessmentWhereInput[] = [];
@@ -2064,20 +2046,12 @@ export class AssessmentsService {
       );
     }
 
-    if (accessScope.academyCourseIds.length) {
-      filters.push({
-        courseId: {
-          in: accessScope.academyCourseIds,
-        },
-      });
-    }
-
-    if (accessScope.academySubjectIds.length) {
+    if (accessScope.academyClassRoomIds.length) {
       filters.push({
         course: {
           tenantId,
-          subjectId: {
-            in: accessScope.academySubjectIds,
+          classRoomId: {
+            in: accessScope.academyClassRoomIds,
           },
         },
       });
@@ -2089,8 +2063,7 @@ export class AssessmentsService {
   private ensureStudentCanAccessAssessmentCourse(
     accessScope: {
       enrollmentPairs: Array<{ classRoomId: string; academicYearId: string }>;
-      academyCourseIds: string[];
-      academySubjectIds: string[];
+      academyClassRoomIds: string[];
     },
     course: {
       id: string;
@@ -2107,11 +2080,9 @@ export class AssessmentsService {
         enrollment.academicYearId === course.academicYearId
     );
 
-    const academyCourseAccess = accessScope.academyCourseIds.includes(course.id);
-    const academySubjectAccess =
-      Boolean(course.subject?.id) && accessScope.academySubjectIds.includes(course.subject!.id);
+    const academyClassAccess = accessScope.academyClassRoomIds.includes(course.classRoomId);
 
-    if (!assigned && !academyCourseAccess && !academySubjectAccess) {
+    if (!assigned && !academyClassAccess) {
       throw new AppError(403, 'ASSESSMENT_ACCESS_DENIED', 'Student is not assigned to this course');
     }
   }

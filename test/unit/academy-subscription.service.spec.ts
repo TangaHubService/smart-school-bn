@@ -88,10 +88,10 @@ describe('AcademySubscriptionService', () => {
       planCode: AcademyPlanCode.TRIAL,
       status: AcademySubscriptionStatus.TRIAL,
       isTrial: true,
-      courseLimit: 3,
-      expiresAt: new Date('2026-04-09T00:00:00.000Z'),
-      createdAt: new Date('2026-04-08T00:00:00.000Z'),
-      updatedAt: new Date('2026-04-08T00:00:00.000Z'),
+      classLimit: 3,
+      expiresAt: new Date('2027-04-09T00:00:00.000Z'),
+      createdAt: new Date('2027-04-08T00:00:00.000Z'),
+      updatedAt: new Date('2027-04-08T00:00:00.000Z'),
     });
 
     const result = await service.ensureTrialSubscription('user-1', 'academy-tenant');
@@ -101,15 +101,15 @@ describe('AcademySubscriptionService', () => {
         data: expect.objectContaining({
           planCode: AcademyPlanCode.TRIAL,
           status: AcademySubscriptionStatus.TRIAL,
-          courseLimit: 3,
+          classLimit: 3,
           isTrial: true,
         }),
       })
     );
-    expect(result.courseLimit).toBe(3);
+    expect(result.classLimit).toBe(3);
   });
 
-  it('blocks selecting a fourth academy subject under the same subscription', async () => {
+  it('blocks selecting a fourth academy class under the same subscription', async () => {
     mockedPrisma.academySubscription.findUnique.mockResolvedValue({
       id: 'sub-1',
       tenantId: 'academy-tenant',
@@ -117,31 +117,24 @@ describe('AcademySubscriptionService', () => {
       planCode: AcademyPlanCode.MONTHLY,
       status: AcademySubscriptionStatus.ACTIVE,
       isTrial: false,
-      courseLimit: 3,
-      expiresAt: new Date('2026-05-08T00:00:00.000Z'),
-      createdAt: new Date('2026-04-08T00:00:00.000Z'),
-      updatedAt: new Date('2026-04-08T00:00:00.000Z'),
+      classLimit: 3,
+      expiresAt: new Date('2027-05-08T00:00:00.000Z'),
+      createdAt: new Date('2027-04-08T00:00:00.000Z'),
+      updatedAt: new Date('2027-04-08T00:00:00.000Z'),
     });
-    mockedPrisma.program.findMany.mockResolvedValue([
-      {
-        id: 'program-4',
-        tenantId: 'academy-tenant',
-        title: 'Program 4',
-        courseId: 'course-4',
-        isActive: true,
-        listedInPublicCatalog: true,
-        course: {
-          id: 'course-4',
-          subjectId: 'subject-4',
-          subject: {
-            id: 'subject-4',
-            code: 'SCI',
-            name: 'Science',
-            description: 'Science subject',
-          },
-        },
+    mockedPrisma.program.findFirst.mockResolvedValue({
+      id: 'program-4',
+      tenantId: 'academy-tenant',
+      title: 'Program 4',
+      classRoomId: 'classroom-4',
+      isActive: true,
+      listedInPublicCatalog: true,
+      classRoom: {
+        id: 'classroom-4',
+        name: 'Class 4',
+        gradeLevel: { id: 'grade-4', name: 'Grade 4' },
       },
-    ]);
+    });
     mockedPrisma.programEnrollment.findMany.mockResolvedValueOnce([
       {
         id: 'enrollment-1',
@@ -149,13 +142,10 @@ describe('AcademySubscriptionService', () => {
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
-        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        expiresAt: new Date('2027-05-08T00:00:00.000Z'),
         program: {
-          courseId: 'course-1',
-          course: {
-            subjectId: 'subject-1',
-            subject: { id: 'subject-1', code: 'MATH', name: 'Mathematics', description: null },
-          },
+          classRoomId: 'classroom-1',
+          classRoom: { id: 'classroom-1', name: 'Class 1', gradeLevel: { name: 'Grade 1' } },
         },
       },
       {
@@ -164,13 +154,10 @@ describe('AcademySubscriptionService', () => {
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
-        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        expiresAt: new Date('2027-05-08T00:00:00.000Z'),
         program: {
-          courseId: 'course-2',
-          course: {
-            subjectId: 'subject-2',
-            subject: { id: 'subject-2', code: 'ENG', name: 'English', description: null },
-          },
+          classRoomId: 'classroom-2',
+          classRoom: { id: 'classroom-2', name: 'Class 2', gradeLevel: { name: 'Grade 2' } },
         },
       },
       {
@@ -179,19 +166,16 @@ describe('AcademySubscriptionService', () => {
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
-        expiresAt: new Date('2026-05-08T00:00:00.000Z'),
+        expiresAt: new Date('2027-05-08T00:00:00.000Z'),
         program: {
-          courseId: 'course-3',
-          course: {
-            subjectId: 'subject-3',
-            subject: { id: 'subject-3', code: 'HIST', name: 'History', description: null },
-          },
+          classRoomId: 'classroom-3',
+          classRoom: { id: 'classroom-3', name: 'Class 3', gradeLevel: { name: 'Grade 3' } },
         },
       },
     ]);
 
     await expect(
-      service.selectSubject('user-1', 'academy-tenant', 'subject-4')
+      service.selectClass('user-1', 'academy-tenant', 'classroom-4')
     ).rejects.toMatchObject({
       code: 'ACADEMY_SELECTION_LIMIT_REACHED',
       statusCode: 409,
@@ -206,10 +190,10 @@ describe('AcademySubscriptionService', () => {
       planCode: AcademyPlanCode.TRIAL,
       status: AcademySubscriptionStatus.TRIAL,
       isTrial: true,
-      courseLimit: 3,
-      expiresAt: new Date('2026-04-09T00:00:00.000Z'),
-      createdAt: new Date('2026-04-08T00:00:00.000Z'),
-      updatedAt: new Date('2026-04-08T00:00:00.000Z'),
+      classLimit: 3,
+      expiresAt: new Date('2027-04-09T00:00:00.000Z'),
+      createdAt: new Date('2027-04-08T00:00:00.000Z'),
+      updatedAt: new Date('2027-04-08T00:00:00.000Z'),
     });
     mockedPrisma.academySubscriptionPayment.create.mockResolvedValue({ id: 'pay-1' });
     mockedPrisma.academySubscriptionPayment.update.mockResolvedValue({

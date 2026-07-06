@@ -12,8 +12,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
 import { resolveAcademyCatalogTenantId } from './academy-catalog';
 
-export const ACADEMY_SUBJECT_LIMIT = 3;
-export const ACADEMY_COURSE_LIMIT = ACADEMY_SUBJECT_LIMIT;
+export const ACADEMY_CLASS_LIMIT = 3;
 
 export const ACADEMY_CHECKOUT_PLANS = {
   test: {
@@ -49,9 +48,9 @@ type AcademyEnrollmentRow = Prisma.ProgramEnrollmentGetPayload<{
   include: {
     program: {
       include: {
-        course: {
+        classRoom: {
           include: {
-            subject: true;
+            gradeLevel: true;
           };
         };
       };
@@ -169,7 +168,7 @@ export class AcademySubscriptionService {
       throw new AppError(
         403,
         'ACADEMY_SUBSCRIPTION_REQUIRED',
-        'Activate a plan or trial before selecting subjects.'
+        'Activate a plan or trial before selecting classes.'
       );
     }
 
@@ -177,38 +176,34 @@ export class AcademySubscriptionService {
       throw new AppError(
         403,
         'ACADEMY_SUBSCRIPTION_EXPIRED',
-        'Your academy plan has expired. Renew to manage subject access.'
+        'Your academy plan has expired. Renew to manage class access.'
       );
     }
 
     return current;
   }
 
-  private collectSubjectIds(rows: AcademyEnrollmentRow[]) {
-    const subjectIds = new Set<string>();
+  private collectClassRoomIds(rows: AcademyEnrollmentRow[]) {
+    const classRoomIds = new Set<string>();
     for (const row of rows) {
-      const subjectId = row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null;
-      if (subjectId) {
-        subjectIds.add(subjectId);
+      const classRoomId = row.program.classRoom?.id ?? row.program.classRoomId ?? null;
+      if (classRoomId) {
+        classRoomIds.add(classRoomId);
       }
     }
-    return subjectIds;
+    return classRoomIds;
   }
 
-  private buildSubjectSelections(rows: AcademyEnrollmentRow[], currentSubscriptionId: string) {
+  private buildClassSelections(rows: AcademyEnrollmentRow[], currentSubscriptionId: string) {
     const map = new Map<
       string,
       {
-        subjectId: string;
-        subjectName: string;
-        subjectCode: string;
-        subjectDescription: string | null;
+        classRoomId: string;
+        className: string;
+        gradeLevelName: string;
         thumbnail: string | null;
-        courseCount: number;
-        programCount: number;
-        courseIds: string[];
-        programIds: string[];
-        programTitles: string[];
+        programId: string;
+        programTitle: string;
         expiresAt: string | null;
         isTrial: boolean;
         isLegacy: boolean;
@@ -216,22 +211,18 @@ export class AcademySubscriptionService {
     >();
 
     for (const row of rows) {
-      const subject = row.program.course?.subject;
-      if (!subject) {
+      const classRoom = row.program.classRoom;
+      if (!classRoom) {
         continue;
       }
 
-      const current = map.get(subject.id) ?? {
-        subjectId: subject.id,
-        subjectName: subject.name,
-        subjectCode: subject.code,
-        subjectDescription: subject.description,
+      const current = map.get(classRoom.id) ?? {
+        classRoomId: classRoom.id,
+        className: classRoom.name,
+        gradeLevelName: classRoom.gradeLevel.name,
         thumbnail: row.program.thumbnail,
-        courseCount: 0,
-        programCount: 0,
-        courseIds: [],
-        programIds: [],
-        programTitles: [],
+        programId: row.programId,
+        programTitle: row.program.title,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         isTrial: row.isTrial,
         isLegacy: row.academySubscriptionId !== currentSubscriptionId,
@@ -239,17 +230,6 @@ export class AcademySubscriptionService {
 
       if (!current.thumbnail && row.program.thumbnail) {
         current.thumbnail = row.program.thumbnail;
-      }
-      if (row.program.courseId && !current.courseIds.includes(row.program.courseId)) {
-        current.courseIds.push(row.program.courseId);
-        current.courseCount = current.courseIds.length;
-      }
-      if (!current.programIds.includes(row.programId)) {
-        current.programIds.push(row.programId);
-        current.programCount = current.programIds.length;
-      }
-      if (row.program.title && !current.programTitles.includes(row.program.title)) {
-        current.programTitles.push(row.program.title);
       }
       if (
         row.expiresAt &&
@@ -261,13 +241,13 @@ export class AcademySubscriptionService {
       current.isTrial = current.isTrial || row.isTrial;
       current.isLegacy = current.isLegacy && row.academySubscriptionId !== currentSubscriptionId;
 
-      map.set(subject.id, current);
+      map.set(classRoom.id, current);
     }
 
-    return [...map.values()].sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+    return [...map.values()].sort((a, b) => a.className.localeCompare(b.className));
   }
 
-  private async getCurrentSubjectSelections(userId: string, subscriptionId: string) {
+  private async getCurrentClassSelections(userId: string, subscriptionId: string) {
     const rows = await prisma.programEnrollment.findMany({
       where: {
         userId,
@@ -277,9 +257,9 @@ export class AcademySubscriptionService {
       include: {
         program: {
           include: {
-            course: {
+            classRoom: {
               include: {
-                subject: true,
+                gradeLevel: true,
               },
             },
           },
@@ -290,7 +270,7 @@ export class AcademySubscriptionService {
 
     return {
       rows,
-      subjectIds: this.collectSubjectIds(rows),
+      classRoomIds: this.collectClassRoomIds(rows),
     };
   }
 
@@ -312,9 +292,9 @@ export class AcademySubscriptionService {
         listedInPublicCatalog: true,
       },
       include: {
-        course: {
+        classRoom: {
           include: {
-            subject: true,
+            gradeLevel: true,
           },
         },
       },
@@ -327,7 +307,7 @@ export class AcademySubscriptionService {
     return program;
   }
 
-  private async getCatalogProgramsForSubject(subjectId: string) {
+  private async getCatalogProgramForClass(classRoomId: string) {
     const catalogTenantId = await resolveAcademyCatalogTenantId();
     if (!catalogTenantId) {
       throw new AppError(
@@ -337,33 +317,28 @@ export class AcademySubscriptionService {
       );
     }
 
-    const programs = await prisma.program.findMany({
+    const program = await prisma.program.findFirst({
       where: {
         tenantId: catalogTenantId,
         isActive: true,
         listedInPublicCatalog: true,
-        course: {
-          is: {
-            isActive: true,
-            subjectId,
-          },
-        },
+        classRoomId,
       },
       include: {
-        course: {
+        classRoom: {
           include: {
-            subject: true,
+            gradeLevel: true,
           },
         },
       },
       orderBy: [{ createdAt: 'desc' }],
     });
 
-    if (!programs.length) {
-      throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found in academy catalog.');
+    if (!program) {
+      throw new AppError(404, 'CLASS_NOT_FOUND', 'Class not found in academy catalog.');
     }
 
-    return programs;
+    return program;
   }
 
   async ensureTrialSubscription(
@@ -393,7 +368,7 @@ export class AcademySubscriptionService {
         planCode: AcademyPlanCode.TRIAL,
         status: AcademySubscriptionStatus.TRIAL,
         isTrial: true,
-        courseLimit: ACADEMY_SUBJECT_LIMIT,
+        classLimit: ACADEMY_CLASS_LIMIT,
         expiresAt: createTrialExpiry(),
       },
     });
@@ -412,9 +387,9 @@ export class AcademySubscriptionService {
         include: {
           program: {
             include: {
-              course: {
+              classRoom: {
                 include: {
-                  subject: true,
+                  gradeLevel: true,
                 },
               },
             },
@@ -431,9 +406,9 @@ export class AcademySubscriptionService {
         include: {
           program: {
             include: {
-              course: {
+              classRoom: {
                 include: {
-                  subject: true,
+                  gradeLevel: true,
                 },
               },
             },
@@ -451,9 +426,9 @@ export class AcademySubscriptionService {
       }),
     ]);
 
-    const selectedSubjects = this.buildSubjectSelections(selectedRows, current.id);
-    const accessibleSubjects = this.buildSubjectSelections(accessibleRows, current.id);
-    const remainingSubjectSlots = Math.max(0, current.courseLimit - selectedSubjects.length);
+    const selectedClasses = this.buildClassSelections(selectedRows, current.id);
+    const accessibleClasses = this.buildClassSelections(accessibleRows, current.id);
+    const remainingClassSlots = Math.max(0, current.classLimit - selectedClasses.length);
 
     const selectedPrograms = selectedRows.map(row => ({
       enrollmentId: row.id,
@@ -461,9 +436,8 @@ export class AcademySubscriptionService {
       title: row.program.title,
       description: row.program.description,
       thumbnail: row.program.thumbnail,
-      courseId: row.program.courseId,
-      subjectId: row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null,
-      subjectName: row.program.course?.subject?.name ?? null,
+      classRoomId: row.program.classRoom?.id ?? row.program.classRoomId ?? null,
+      className: row.program.classRoom?.name ?? null,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       isTrial: row.isTrial,
     }));
@@ -475,13 +449,11 @@ export class AcademySubscriptionService {
         status: academyStatusToApi(current.status),
         isTrial: current.isTrial,
         expiresAt: current.expiresAt?.toISOString() ?? null,
-        subjectLimit: current.courseLimit,
-        remainingSubjectSlots,
-        courseLimit: current.courseLimit,
-        remainingSlots: remainingSubjectSlots,
+        classLimit: current.classLimit,
+        remainingClassSlots,
       },
-      selectedSubjects,
-      accessibleSubjects,
+      selectedClasses,
+      accessibleClasses,
       selectedPrograms,
       accessiblePrograms: accessibleRows.map(row => ({
         enrollmentId: row.id,
@@ -489,9 +461,8 @@ export class AcademySubscriptionService {
         title: row.program.title,
         description: row.program.description,
         thumbnail: row.program.thumbnail,
-        courseId: row.program.courseId,
-        subjectId: row.program.course?.subject?.id ?? row.program.course?.subjectId ?? null,
-        subjectName: row.program.course?.subject?.name ?? null,
+        classRoomId: row.program.classRoom?.id ?? row.program.classRoomId ?? null,
+        className: row.program.classRoom?.name ?? null,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         isTrial: row.isTrial,
         isLegacy: row.academySubscriptionId !== current.id,
@@ -564,86 +535,72 @@ export class AcademySubscriptionService {
 
   async selectProgram(userId: string, tenantId: string, programId: string) {
     const program = await this.getCatalogProgram(programId);
-    if (!program.courseId) {
+    if (!program.classRoomId) {
       throw new AppError(
         400,
-        'PROGRAM_COURSE_NOT_READY',
-        'This program is not linked to a course yet.'
+        'PROGRAM_CLASS_NOT_READY',
+        'This program is not linked to a class yet.'
       );
     }
 
-    const subjectId = program.course?.subject?.id ?? program.course?.subjectId ?? null;
-    if (!subjectId) {
-      throw new AppError(
-        400,
-        'PROGRAM_SUBJECT_NOT_READY',
-        'This program is not linked to a subject yet.'
-      );
-    }
-
-    return this.selectSubject(userId, tenantId, subjectId);
+    return this.selectClass(userId, tenantId, program.classRoomId);
   }
 
-  async selectSubject(userId: string, tenantId: string, subjectId: string) {
+  async selectClass(userId: string, tenantId: string, classRoomId: string) {
     const current = await this.ensureSelectableSubscription(userId, tenantId);
-    const programs = await this.getCatalogProgramsForSubject(subjectId);
-    const { subjectIds } = await this.getCurrentSubjectSelections(userId, current.id);
+    const program = await this.getCatalogProgramForClass(classRoomId);
+    const { classRoomIds } = await this.getCurrentClassSelections(userId, current.id);
 
-    if (!subjectIds.has(subjectId) && subjectIds.size >= current.courseLimit) {
+    if (!classRoomIds.has(classRoomId) && classRoomIds.size >= current.classLimit) {
       throw new AppError(
         409,
         'ACADEMY_SELECTION_LIMIT_REACHED',
-        `You can only keep ${current.courseLimit} academy subjects active at a time.`
+        `You can only keep ${current.classLimit} academy classes active at a time.`
       );
     }
 
-    await prisma.$transaction(
-      programs.map(program =>
-        prisma.programEnrollment.upsert({
-          where: {
-            userId_programId: {
-              userId,
-              programId: program.id,
-            },
-          },
-          update: {
-            tenantId,
-            academySubscriptionId: current.id,
-            expiresAt: current.expiresAt,
-            isActive: true,
-            isTrial: current.isTrial,
-          },
-          create: {
-            tenantId,
-            userId,
-            programId: program.id,
-            academySubscriptionId: current.id,
-            expiresAt: current.expiresAt,
-            isActive: true,
-            isTrial: current.isTrial,
-          },
-        })
-      )
-    );
+    await prisma.programEnrollment.upsert({
+      where: {
+        userId_programId: {
+          userId,
+          programId: program.id,
+        },
+      },
+      update: {
+        tenantId,
+        academySubscriptionId: current.id,
+        expiresAt: current.expiresAt,
+        isActive: true,
+        isTrial: current.isTrial,
+      },
+      create: {
+        tenantId,
+        userId,
+        programId: program.id,
+        academySubscriptionId: current.id,
+        expiresAt: current.expiresAt,
+        isActive: true,
+        isTrial: current.isTrial,
+      },
+    });
 
     return this.buildSummary(current, userId);
   }
 
   async removeProgram(userId: string, tenantId: string, programId: string) {
     const program = await this.getCatalogProgram(programId);
-    const subjectId = program.course?.subject?.id ?? program.course?.subjectId ?? null;
-    if (!subjectId) {
+    if (!program.classRoomId) {
       throw new AppError(
         400,
-        'PROGRAM_SUBJECT_NOT_READY',
-        'This program is not linked to a subject yet.'
+        'PROGRAM_CLASS_NOT_READY',
+        'This program is not linked to a class yet.'
       );
     }
 
-    return this.removeSubject(userId, tenantId, subjectId);
+    return this.removeClass(userId, tenantId, program.classRoomId);
   }
 
-  async removeSubject(userId: string, tenantId: string, subjectId: string) {
+  async removeClass(userId: string, tenantId: string, classRoomId: string) {
     const subscription = await this.ensureTrialSubscription(userId, tenantId);
     const current = await this.syncSubscriptionStatus(subscription);
 
@@ -653,18 +610,14 @@ export class AcademySubscriptionService {
         academySubscriptionId: current.id,
         isActive: true,
         program: {
-          course: {
-            is: {
-              subjectId,
-            },
-          },
+          classRoomId,
         },
       },
       select: { id: true },
     });
 
     if (!selectedRows.length) {
-      throw new AppError(404, 'SUBJECT_NOT_SELECTED', 'This subject is not selected on your plan.');
+      throw new AppError(404, 'CLASS_NOT_SELECTED', 'This class is not selected on your plan.');
     }
 
     await prisma.programEnrollment.updateMany({
@@ -728,7 +681,7 @@ export class AcademySubscriptionService {
                 planCode: payment.planCode,
                 status: AcademySubscriptionStatus.ACTIVE,
                 isTrial: false,
-                courseLimit: ACADEMY_SUBJECT_LIMIT,
+                classLimit: ACADEMY_CLASS_LIMIT,
                 expiresAt,
               },
             })
@@ -739,7 +692,7 @@ export class AcademySubscriptionService {
                 planCode: payment.planCode,
                 status: AcademySubscriptionStatus.ACTIVE,
                 isTrial: false,
-                courseLimit: ACADEMY_SUBJECT_LIMIT,
+                classLimit: ACADEMY_CLASS_LIMIT,
                 expiresAt,
               },
             });

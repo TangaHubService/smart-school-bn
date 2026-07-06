@@ -15,7 +15,7 @@ import {
 import type {
   AcademyPlanCheckoutInput,
   AcademyProgramSelectionInput,
-  AcademySubjectSelectionInput,
+  AcademyClassSelectionInput,
 } from './public-academy.schemas';
 
 const PLAN_DURATION_MAP: Record<string, number> = {
@@ -31,9 +31,9 @@ const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' })
 
 type CatalogProgramRow = Prisma.ProgramGetPayload<{
   include: {
-    course: {
+    classRoom: {
       include: {
-        subject: true;
+        gradeLevel: true;
       };
     };
   };
@@ -43,20 +43,18 @@ type CatalogProgramResult =
   | { ok: true; program: CatalogProgramRow; catalogTenantId: string }
   | { ok: false; reason: 'no_catalog' | 'not_found' };
 
-function buildCatalogSubjectStats(programs: CatalogProgramRow[]) {
-  const subjectIds = [
-    ...new Set(programs.map(program => program.course?.subjectId).filter(Boolean)),
+function buildCatalogClassStats(programs: CatalogProgramRow[]) {
+  const classRoomIds = [
+    ...new Set(programs.map(program => program.classRoomId).filter(Boolean)),
   ];
   return prisma.course.findMany({
     where: {
       tenantId: programs[0]?.tenantId ?? '',
       isActive: true,
-      subjectId: { in: subjectIds as string[] },
+      classRoomId: { in: classRoomIds as string[] },
     },
-    select: {
-      id: true,
-      title: true,
-      subjectId: true,
+    include: {
+      subject: { select: { id: true, name: true } },
     },
     orderBy: [{ title: 'asc' }],
   });
@@ -64,25 +62,26 @@ function buildCatalogSubjectStats(programs: CatalogProgramRow[]) {
 
 function mapCatalogProgram(
   program: CatalogProgramRow,
-  subjectStats: Map<string, { count: number; titles: string[] }>
+  classStats: Map<string, { subjectCount: number; courseCount: number; titles: string[] }>
 ) {
-  const subject = program.course?.subject ?? null;
-  const stats = subject ? subjectStats.get(subject.id) : null;
+  const classRoom = program.classRoom ?? null;
+  const stats = classRoom ? classStats.get(classRoom.id) : null;
 
   return {
     id: program.id,
     title: program.title,
     description: program.description,
     thumbnail: program.thumbnail,
+    section: program.section,
     price: program.price,
     durationDays: program.durationDays,
-    courseId: program.courseId,
-    subjectId: subject?.id ?? null,
-    subjectName: subject?.name ?? null,
-    subjectCode: subject?.code ?? null,
-    subjectDescription: subject?.description ?? null,
-    subjectCourseCount: stats?.count ?? (program.courseId ? 1 : 0),
-    subjectCourseTitles: stats?.titles ?? [],
+    classRoomId: program.classRoomId,
+    className: classRoom?.name ?? null,
+    gradeLevelId: classRoom?.gradeLevel?.id ?? null,
+    gradeLevelName: classRoom?.gradeLevel?.name ?? null,
+    classSubjectCount: stats?.subjectCount ?? 0,
+    classCourseCount: stats?.courseCount ?? 0,
+    classCourseTitles: stats?.titles ?? [],
   };
 }
 
@@ -99,9 +98,9 @@ async function assertCatalogProgram(programId: string): Promise<CatalogProgramRe
       listedInPublicCatalog: true,
     },
     include: {
-      course: {
+      classRoom: {
         include: {
-          subject: true,
+          gradeLevel: true,
         },
       },
     },
@@ -110,6 +109,19 @@ async function assertCatalogProgram(programId: string): Promise<CatalogProgramRe
     return { ok: false, reason: 'not_found' };
   }
   return { ok: true, program, catalogTenantId };
+}
+
+async function hasActiveClassAccess(userId: string, classRoomId: string) {
+  const enrollment = await prisma.programEnrollment.findFirst({
+    where: {
+      userId,
+      isActive: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      program: { classRoomId },
+    },
+    select: { id: true },
+  });
+  return Boolean(enrollment);
 }
 
 export class PublicAcademyController {
@@ -140,33 +152,47 @@ export class PublicAcademyController {
           listedInPublicCatalog: true,
         },
         include: {
-          course: {
+          classRoom: {
             include: {
-              subject: true,
+              gradeLevel: true,
             },
           },
         },
         orderBy: { createdAt: 'desc' },
       });
-      const subjectStats = new Map<string, { count: number; titles: string[] }>();
+      const classStats = new Map<
+        string,
+        { subjectCount: number; courseCount: number; titles: string[] }
+      >();
       if (programs.length) {
-        const subjectCourses = await buildCatalogSubjectStats(programs);
-        for (const course of subjectCourses) {
-          if (!course.subjectId) {
+        const classCourses = await buildCatalogClassStats(programs);
+        for (const course of classCourses) {
+          if (!course.classRoomId) {
             continue;
           }
-          const current = subjectStats.get(course.subjectId) ?? { count: 0, titles: [] };
-          current.count += 1;
+          const current = classStats.get(course.classRoomId) ?? {
+            subjectCount: 0,
+            courseCount: 0,
+            titles: [],
+          };
+          current.courseCount += 1;
+          if (course.subjectId) {
+            current.subjectCount = new Set([
+              ...classCourses
+                .filter(c => c.classRoomId === course.classRoomId && c.subjectId)
+                .map(c => c.subjectId),
+            ]).size;
+          }
           if (current.titles.length < 6) {
             current.titles.push(course.title);
           }
-          subjectStats.set(course.subjectId, current);
+          classStats.set(course.classRoomId, current);
         }
       }
       return sendSuccess(
         req,
         res,
-        programs.map(program => mapCatalogProgram(program, subjectStats)),
+        programs.map(program => mapCatalogProgram(program, classStats)),
         200,
         null,
         {
@@ -176,6 +202,150 @@ export class PublicAcademyController {
           },
         }
       );
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getCatalogTree(req: Request, res: Response, next: NextFunction) {
+    try {
+      const catalogTenantId = await resolveAcademyCatalogTenantId();
+      if (!catalogTenantId) {
+        return sendSuccess(req, res, { academicYears: [] }, 200, null, {
+          academyCatalog: { resolved: false, publicProgramCount: 0 },
+        });
+      }
+
+      const programs = await prisma.program.findMany({
+        where: {
+          tenantId: catalogTenantId,
+          isActive: true,
+          listedInPublicCatalog: true,
+          classRoomId: { not: null },
+        },
+        include: {
+          classRoom: { include: { gradeLevel: true } },
+        },
+      });
+
+      const classRoomIds = programs.map(p => p.classRoomId).filter((id): id is string => !!id);
+      const programByClassRoomId = new Map(programs.map(p => [p.classRoomId as string, p]));
+
+      const courses = classRoomIds.length
+        ? await prisma.course.findMany({
+            where: {
+              tenantId: catalogTenantId,
+              isActive: true,
+              classRoomId: { in: classRoomIds },
+            },
+            include: {
+              subject: { select: { id: true, name: true, code: true } },
+              academicYear: { select: { id: true, name: true, isCurrent: true } },
+            },
+            orderBy: [{ title: 'asc' }],
+          })
+        : [];
+
+      type YearNode = {
+        id: string;
+        name: string;
+        isCurrent: boolean;
+        gradeLevels: Map<
+          string,
+          {
+            id: string;
+            name: string;
+            rank: number;
+            classRooms: Map<
+              string,
+              {
+                id: string;
+                name: string;
+                programId: string;
+                price: number;
+                thumbnail: string | null;
+                subjects: Map<string, { id: string; name: string; courseCount: number }>;
+              }
+            >;
+          }
+        >;
+      };
+
+      const years = new Map<string, YearNode>();
+
+      for (const course of courses) {
+        if (!course.classRoomId) continue;
+        const program = programByClassRoomId.get(course.classRoomId);
+        if (!program || !program.classRoom) continue;
+
+        const year =
+          years.get(course.academicYear.id) ??
+          ({
+            id: course.academicYear.id,
+            name: course.academicYear.name,
+            isCurrent: course.academicYear.isCurrent,
+            gradeLevels: new Map(),
+          } as YearNode);
+        years.set(course.academicYear.id, year);
+
+        const gradeLevel = program.classRoom.gradeLevel;
+        const gradeNode = year.gradeLevels.get(gradeLevel.id) ?? {
+          id: gradeLevel.id,
+          name: gradeLevel.name,
+          rank: gradeLevel.rank,
+          classRooms: new Map(),
+        };
+        year.gradeLevels.set(gradeLevel.id, gradeNode);
+
+        const classNode = gradeNode.classRooms.get(program.classRoom.id) ?? {
+          id: program.classRoom.id,
+          name: program.classRoom.name,
+          programId: program.id,
+          price: program.price,
+          thumbnail: program.thumbnail,
+          subjects: new Map(),
+        };
+        gradeNode.classRooms.set(program.classRoom.id, classNode);
+
+        if (course.subject) {
+          const subjectNode = classNode.subjects.get(course.subject.id) ?? {
+            id: course.subject.id,
+            name: course.subject.name,
+            courseCount: 0,
+          };
+          subjectNode.courseCount += 1;
+          classNode.subjects.set(course.subject.id, subjectNode);
+        }
+      }
+
+      const academicYears = [...years.values()]
+        .map(year => ({
+          id: year.id,
+          name: year.name,
+          isCurrent: year.isCurrent,
+          gradeLevels: [...year.gradeLevels.values()]
+            .map(grade => ({
+              id: grade.id,
+              name: grade.name,
+              rank: grade.rank,
+              classRooms: [...grade.classRooms.values()]
+                .map(classRoom => ({
+                  id: classRoom.id,
+                  name: classRoom.name,
+                  programId: classRoom.programId,
+                  price: classRoom.price,
+                  thumbnail: classRoom.thumbnail,
+                  subjects: [...classRoom.subjects.values()].sort((a, b) =>
+                    a.name.localeCompare(b.name)
+                  ),
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name)),
+            }))
+            .sort((a, b) => a.rank - b.rank),
+        }))
+        .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
+
+      return sendSuccess(req, res, { academicYears });
     } catch (error) {
       next(error);
     }
@@ -197,16 +367,19 @@ export class PublicAcademyController {
         }
         return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
       }
-      const subjectStats = new Map<string, { count: number; titles: string[] }>();
-      const subjectId = result.program.course?.subject?.id ?? null;
-      if (subjectId) {
-        const subjectCourses = await buildCatalogSubjectStats([result.program]);
-        subjectStats.set(subjectId, {
-          count: subjectCourses.length,
-          titles: subjectCourses.slice(0, 6).map(course => course.title),
+      const classStats = new Map<
+        string,
+        { subjectCount: number; courseCount: number; titles: string[] }
+      >();
+      if (result.program.classRoomId) {
+        const classCourses = await buildCatalogClassStats([result.program]);
+        classStats.set(result.program.classRoomId, {
+          subjectCount: new Set(classCourses.map(c => c.subjectId).filter(Boolean)).size,
+          courseCount: classCourses.length,
+          titles: classCourses.slice(0, 6).map(course => course.title),
         });
       }
-      return sendSuccess(req, res, mapCatalogProgram(result.program, subjectStats));
+      return sendSuccess(req, res, mapCatalogProgram(result.program, classStats));
     } catch (error) {
       next(error);
     }
@@ -265,7 +438,7 @@ export class PublicAcademyController {
     }
   }
 
-  static async selectSubject(req: Request, res: Response, next: NextFunction) {
+  static async selectClass(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.sub;
       const tenantId = req.user?.tenantId;
@@ -274,8 +447,8 @@ export class PublicAcademyController {
         return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
       }
 
-      const { subjectId } = req.body as AcademySubjectSelectionInput;
-      const result = await academySubscriptionService.selectSubject(userId, tenantId, subjectId);
+      const { classRoomId } = req.body as AcademyClassSelectionInput;
+      const result = await academySubscriptionService.selectClass(userId, tenantId, classRoomId);
       return sendSuccess(req, res, result);
     } catch (error) {
       next(error);
@@ -302,7 +475,7 @@ export class PublicAcademyController {
     }
   }
 
-  static async removeSubject(req: Request, res: Response, next: NextFunction) {
+  static async removeClass(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.sub;
       const tenantId = req.user?.tenantId;
@@ -311,10 +484,10 @@ export class PublicAcademyController {
         return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
       }
 
-      const result = await academySubscriptionService.removeSubject(
+      const result = await academySubscriptionService.removeClass(
         userId,
         tenantId,
-        req.params.subjectId
+        req.params.classRoomId
       );
       return sendSuccess(req, res, result);
     } catch (error) {
@@ -573,6 +746,7 @@ export class PublicAcademyController {
             programId: id,
           },
         },
+        include: { program: true },
       });
 
       if (!enrollment || !enrollment.isActive) {
@@ -583,31 +757,62 @@ export class PublicAcademyController {
         return sendError(req, res, 403, 'ENROLLMENT_EXPIRED', 'Enrollment has expired');
       }
 
-      const program = await prisma.program.findUnique({
-        where: { id },
-        include: {
-          course: {
-            include: {
-              lessons: {
-                where: { isPublished: true },
-                orderBy: { sequence: 'asc' },
-              },
-              assessments: {
-                where: { isPublished: true },
-              },
-            },
-          },
-        },
-      });
-
-      if (!program || !program.course) {
+      if (!enrollment.program.classRoomId) {
         return sendError(req, res, 404, 'CONTENT_NOT_FOUND', 'Program content not linked or found');
       }
 
+      req.params.classRoomId = enrollment.program.classRoomId;
+      return PublicAcademyController.getClassContent(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Purchasing a class unlocks every subject, course, lesson, and assessment within it. */
+  static async getClassContent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { classRoomId } = req.params;
+      const userId = req.user?.sub;
+
+      if (!userId) return sendError(req, res, 401, 'UNAUTHORIZED', 'Unauthorized');
+
+      const hasAccess = await hasActiveClassAccess(userId, classRoomId);
+      if (!hasAccess) {
+        return sendError(req, res, 403, 'ENROLLMENT_REQUIRED', 'Active class enrollment required');
+      }
+
+      const classRoom = await prisma.classRoom.findUnique({
+        where: { id: classRoomId },
+        include: { gradeLevel: true },
+      });
+
+      if (!classRoom) {
+        return sendError(req, res, 404, 'CLASS_NOT_FOUND', 'Class not found');
+      }
+
+      const courses = await prisma.course.findMany({
+        where: { classRoomId, isActive: true },
+        include: {
+          subject: true,
+          lessons: {
+            where: { isPublished: true },
+            orderBy: { sequence: 'asc' },
+          },
+          assessments: {
+            where: { isPublished: true },
+          },
+          assignments: {
+            where: { isPublished: true },
+          },
+        },
+        orderBy: [{ title: 'asc' }],
+      });
+
       return sendSuccess(req, res, {
-        programId: program.id,
-        programTitle: program.title,
-        course: program.course,
+        classRoomId: classRoom.id,
+        className: classRoom.name,
+        gradeLevelName: classRoom.gradeLevel.name,
+        courses,
       });
     } catch (error) {
       next(error);
