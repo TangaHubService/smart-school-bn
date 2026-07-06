@@ -660,14 +660,14 @@ async function main() {
 
   const schoolAdminUser = await prisma.user.upsert({
     where: {
-      tenantId_email: {
+      tenantId_username: {
         tenantId: schoolTenant.id,
-        email: 'nniyonkurubertin+schooladmin@gmail.com',
+        username: 'school_admin',
       },
     },
     update: {
+      email: 'nniyonkurubertin+schooladmin@gmail.com',
       passwordHash: schoolAdminHash,
-      username: 'school_admin',
     },
     create: {
       tenantId: schoolTenant.id,
@@ -681,14 +681,14 @@ async function main() {
 
   const teacherUser = await prisma.user.upsert({
     where: {
-      tenantId_email: {
+      tenantId_username: {
         tenantId: schoolTenant.id,
-        email: 'nniyonkurubertin+teacher@gmail.com',
+        username: 'school_teacher',
       },
     },
     update: {
+      email: 'nniyonkurubertin+teacher@gmail.com',
       passwordHash: teacherHash,
-      username: 'school_teacher',
     },
     create: {
       tenantId: schoolTenant.id,
@@ -1995,11 +1995,11 @@ async function main() {
 
   const nyangeAdminUser = await prisma.user.upsert({
     where: {
-      tenantId_email: { tenantId: nyangeTenant.id, email: 'nniyonkurubertin+nyangeadmin@gmail.com' },
+      tenantId_username: { tenantId: nyangeTenant.id, username: 'nyange_admin' },
     },
     update: {
+      email: 'nniyonkurubertin+nyangeadmin@gmail.com',
       passwordHash: schoolAdminHash,
-      username: 'nyange_admin',
     },
     create: {
       tenantId: nyangeTenant.id,
@@ -2013,11 +2013,11 @@ async function main() {
 
   const nyangeTeacherUser = await prisma.user.upsert({
     where: {
-      tenantId_email: { tenantId: nyangeTenant.id, email: 'nniyonkurubertin+nyangeteacher@gmail.com' },
+      tenantId_username: { tenantId: nyangeTenant.id, username: 'nyange_teacher' },
     },
     update: {
+      email: 'nniyonkurubertin+nyangeteacher@gmail.com',
       passwordHash: teacherHash,
-      username: 'nyange_teacher',
     },
     create: {
       tenantId: nyangeTenant.id,
