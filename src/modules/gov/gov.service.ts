@@ -5,6 +5,7 @@ import { JwtUser } from '../../common/types/auth.types';
 import { prisma } from '../../db/prisma';
 import { AppError } from '../../common/errors/app-error';
 import { isProtectedPdfAsset } from '../../common/utils/protected-attachment';
+import { upsertFileAssetIds } from '../../common/services/file-asset-upsert.service';
 import { getDistricts } from '../../utils/rwanda-locations';
 import { buildAuditReportPdfBuffer } from './audit-report-pdf';
 import {
@@ -927,38 +928,7 @@ export class GovService {
     uploads: AcademicAuditAttachmentUploadInput[],
     uploadedByUserId: string
   ): Promise<string[]> {
-    if (!uploads.length) {
-      return [];
-    }
-
-    const assets = await Promise.all(
-      uploads.map(asset =>
-        prisma.fileAsset.upsert({
-          where: { tenantId_publicId: { tenantId, publicId: asset.publicId } },
-          update: {
-            secureUrl: asset.secureUrl,
-            originalName: asset.originalName,
-            bytes: asset.bytes,
-            format: asset.format,
-            mimeType: asset.mimeType,
-            resourceType: asset.resourceType,
-          },
-          create: {
-            tenantId,
-            uploadedByUserId,
-            publicId: asset.publicId,
-            secureUrl: asset.secureUrl,
-            originalName: asset.originalName,
-            bytes: asset.bytes,
-            format: asset.format,
-            mimeType: asset.mimeType,
-            resourceType: asset.resourceType,
-          },
-        })
-      )
-    );
-
-    return assets.map(a => a.id);
+    return upsertFileAssetIds(tenantId, uploads, uploadedByUserId);
   }
 
   private async notifySchoolAdmin(school: { id: string; displayName: string; tenantId: string }, module: string, auditId: string) {

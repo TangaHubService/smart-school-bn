@@ -274,6 +274,8 @@ model Tenant {
   lessonPlanRevisions TeacherLessonPlanRevision[]
   chatGroups     StudentGroupChat[]
   chatMessages   GroupChatMessage[]
+  chatReactions  GroupChatReaction[]
+  chatReads      StudentGroupChatRead[]
   academicYearPreferences UserAcademicYearPreference[]
 
   @@index([isActive])
@@ -387,7 +389,11 @@ model User {
   reviewedAudits        AcademicAudit[] @relation("AcademicAuditReviewedBy")
   lessonPlans           TeacherLessonPlan[]
   lessonPlanRevisions   TeacherLessonPlanRevision[]
-  sentChatMessages      GroupChatMessage[]
+  sentChatMessages      GroupChatMessage[]  @relation("GroupChatMessageSender")
+  pinnedChatMessages    GroupChatMessage[]  @relation("GroupChatMessagePinnedBy")
+  deletedChatMessages   GroupChatMessage[]  @relation("GroupChatMessageDeletedBy")
+  chatReactions         GroupChatReaction[]
+  chatReads             StudentGroupChatRead[]
   academicYearPreference UserAcademicYearPreference?
 
   @@unique([tenantId, email])
@@ -481,6 +487,7 @@ model AcademicYear {
   timetableSlots TimetableSlot[]
   userAcademicYearPreferences UserAcademicYearPreference[]
   lessonPlans                  TeacherLessonPlan[]
+  studentGroupChats             StudentGroupChat[]
 
   @@unique([tenantId, name])
   @@index([tenantId, isCurrent, isActive])
@@ -1283,6 +1290,7 @@ model FileAsset {
   submissionFiles   Submission[]  @relation("SubmissionFileAsset")
   announcementAttachments AnnouncementAttachment[]
   academicAuditAttachments AcademicAuditAttachment[]
+  groupChatMessages GroupChatMessage[]
 
   @@unique([tenantId, publicId])
   @@index([tenantId, uploadedByUserId, createdAt])
@@ -1962,35 +1970,85 @@ model TeacherLessonPlanRevision {
 }
 
 model StudentGroupChat {
-  id          String   @id @default(uuid())
-  tenantId    String
-  classRoomId String
-  title       String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(uuid())
+  tenantId       String
+  classRoomId    String
+  academicYearId String
+  title          String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  classRoom ClassRoom    @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
-  messages  GroupChatMessage[]
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom              @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear           @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  messages     GroupChatMessage[]
+  reads        StudentGroupChatRead[]
 
-  @@unique([tenantId, classRoomId])
+  // One conversation per class per academic year — a new cohort in the same physical
+  // classroom does not see a previous year's messages.
+  @@unique([tenantId, classRoomId, academicYearId])
   @@index([tenantId, classRoomId])
 }
 
 model GroupChatMessage {
-  id        String   @id @default(uuid())
-  chatId    String
-  senderId  String
-  tenantId  String
-  content   String
-  fileUrl   String?
-  readAt    DateTime?
-  createdAt DateTime @default(now())
+  id                String    @id @default(uuid())
+  chatId            String
+  senderId          String
+  tenantId          String
+  content           String
+  fileAssetId       String?
+  replyToId         String?
+  mentionedUserIds  String[]  @default([])
+  isAnnouncement    Boolean   @default(false)
+  isPinned          Boolean   @default(false)
+  pinnedAt          DateTime?
+  pinnedByUserId    String?
+  deletedAt         DateTime?
+  deletedByUserId   String?
+  createdAt         DateTime  @default(now())
 
-  chat   StudentGroupChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender User            @relation(fields: [senderId], references: [id], onDelete: Restrict)
-  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  chat          StudentGroupChat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender        User                @relation("GroupChatMessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  fileAsset     FileAsset?          @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+  replyTo       GroupChatMessage?   @relation("GroupChatMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       GroupChatMessage[]  @relation("GroupChatMessageReplies")
+  pinnedBy      User?               @relation("GroupChatMessagePinnedBy", fields: [pinnedByUserId], references: [id], onDelete: SetNull)
+  deletedBy     User?               @relation("GroupChatMessageDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+  reactions     GroupChatReaction[]
 
   @@index([chatId, createdAt])
+  @@index([chatId, isPinned])
+}
+
+model GroupChatReaction {
+  id        String   @id @default(uuid())
+  tenantId  String
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  message GroupChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model StudentGroupChatRead {
+  id         String   @id @default(uuid())
+  tenantId   String
+  chatId     String
+  userId     String
+  lastReadAt DateTime @default(now())
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  chat   StudentGroupChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([tenantId, userId])
 }

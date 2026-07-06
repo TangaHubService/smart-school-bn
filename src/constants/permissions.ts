@@ -62,6 +62,10 @@ export const PERMISSIONS = {
   ANNOUNCEMENTS_READ: 'announcements.read',
   ANNOUNCEMENTS_MANAGE: 'announcements.manage',
   ANNOUNCEMENTS_MY_READ: 'announcements.my_read',
+  CHAT_READ: 'chat.read',
+  CHAT_SEND: 'chat.send',
+  CHAT_MODERATE: 'chat.moderate',
+  CHAT_PIN: 'chat.pin',
 } as const;
 
 export const SUPER_ADMIN_PERMISSIONS = [
@@ -127,6 +131,8 @@ export const SCHOOL_ADMIN_PERMISSIONS = [
   // Deliberately no ACADEMIC_AUDIT_REVIEW: school admins are the audited party and must not
   // be able to approve/reject/reopen audits about their own school (see gov.service.ts
   // getHierarchicalAccess).
+  PERMISSIONS.CHAT_READ,
+  PERMISSIONS.CHAT_MODERATE,
 ];
 
 export const GOV_AUDITOR_PERMISSIONS = [
@@ -190,6 +196,10 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
         PERMISSIONS.TIMETABLE_READ,
         PERMISSIONS.TIMETABLE_MANAGE,
         PERMISSIONS.ANNOUNCEMENTS_READ,
+        PERMISSIONS.CHAT_READ,
+        PERMISSIONS.CHAT_SEND,
+        PERMISSIONS.CHAT_MODERATE,
+        PERMISSIONS.CHAT_PIN,
       ],
     },
     {
@@ -204,6 +214,8 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
         PERMISSIONS.CONDUCT_MY_READ,
         PERMISSIONS.ANNOUNCEMENTS_MY_READ,
         PERMISSIONS.FILES_UPLOAD,
+        PERMISSIONS.CHAT_READ,
+        PERMISSIONS.CHAT_SEND,
       ],
     },
     {

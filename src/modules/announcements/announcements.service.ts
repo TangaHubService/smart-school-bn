@@ -6,6 +6,7 @@ import { JwtUser } from '../../common/types/auth.types';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { buildPagination } from '../../common/utils/pagination';
 import { isProtectedPdfAsset } from '../../common/utils/protected-attachment';
+import { upsertFileAssetIds } from '../../common/services/file-asset-upsert.service';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../notifications/email.service';
@@ -341,38 +342,7 @@ export class AnnouncementsService {
     uploads: AnnouncementAttachmentUploadInput[],
     uploadedByUserId: string
   ): Promise<string[]> {
-    if (!uploads.length) {
-      return [];
-    }
-
-    const assets = await Promise.all(
-      uploads.map(asset =>
-        prisma.fileAsset.upsert({
-          where: { tenantId_publicId: { tenantId, publicId: asset.publicId } },
-          update: {
-            secureUrl: asset.secureUrl,
-            originalName: asset.originalName,
-            bytes: asset.bytes,
-            format: asset.format,
-            mimeType: asset.mimeType,
-            resourceType: asset.resourceType,
-          },
-          create: {
-            tenantId,
-            uploadedByUserId,
-            publicId: asset.publicId,
-            secureUrl: asset.secureUrl,
-            originalName: asset.originalName,
-            bytes: asset.bytes,
-            format: asset.format,
-            mimeType: asset.mimeType,
-            resourceType: asset.resourceType,
-          },
-        })
-      )
-    );
-
-    return assets.map(a => a.id);
+    return upsertFileAssetIds(tenantId, uploads, uploadedByUserId);
   }
 
   /**
