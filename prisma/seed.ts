@@ -439,7 +439,7 @@ async function main() {
     where: {
       tenantId_email: {
         tenantId: platformTenant.id,
-        email: 'auditor@smartschool.rw',
+        email: 'nniyonkurubertin+auditor@gmail.com',
       },
     },
     update: {
@@ -449,7 +449,7 @@ async function main() {
     },
     create: {
       tenantId: platformTenant.id,
-      email: 'auditor@smartschool.rw',
+      email: 'nniyonkurubertin+auditor@gmail.com',
       passwordHash: auditorPasswordHash,
       firstName: 'Auditor',
       lastName: 'Government',
@@ -480,7 +480,7 @@ async function main() {
   const envSuperAdminEmails = process.env.SUPER_ADMIN_EMAILS;
   const platformSuperAdminEmails = envSuperAdminEmails
     ? envSuperAdminEmails.split(',').map(e => e.trim())
-    : ['smartschoolrwanda@gmail.com', 'sibomanadamascene1999@gmail.com'];
+    : ['smartschoolrwanda@gmail.com', 'sibomanadamascene1999@gmail.com', 'nniyonkurubertin@gmail.com'];
 
   for (const email of platformSuperAdminEmails) {
     const superAdminUser = await prisma.user.upsert({
@@ -662,7 +662,7 @@ async function main() {
     where: {
       tenantId_email: {
         tenantId: schoolTenant.id,
-        email: 'admin@school.rw',
+        email: 'nniyonkurubertin+schooladmin@gmail.com',
       },
     },
     update: {
@@ -671,7 +671,7 @@ async function main() {
     },
     create: {
       tenantId: schoolTenant.id,
-      email: 'admin@school.rw',
+      email: 'nniyonkurubertin+schooladmin@gmail.com',
       username: 'school_admin',
       passwordHash: schoolAdminHash,
       firstName: 'System',
@@ -683,7 +683,7 @@ async function main() {
     where: {
       tenantId_email: {
         tenantId: schoolTenant.id,
-        email: 'teacher@school.rw',
+        email: 'nniyonkurubertin+teacher@gmail.com',
       },
     },
     update: {
@@ -692,7 +692,7 @@ async function main() {
     },
     create: {
       tenantId: schoolTenant.id,
-      email: 'teacher@school.rw',
+      email: 'nniyonkurubertin+teacher@gmail.com',
       username: 'school_teacher',
       passwordHash: teacherHash,
       firstName: 'Daily',
@@ -1995,7 +1995,7 @@ async function main() {
 
   const nyangeAdminUser = await prisma.user.upsert({
     where: {
-      tenantId_email: { tenantId: nyangeTenant.id, email: 'admin@nyange-secondary.rw' },
+      tenantId_email: { tenantId: nyangeTenant.id, email: 'nniyonkurubertin+nyangeadmin@gmail.com' },
     },
     update: {
       passwordHash: schoolAdminHash,
@@ -2003,7 +2003,7 @@ async function main() {
     },
     create: {
       tenantId: nyangeTenant.id,
-      email: 'admin@nyange-secondary.rw',
+      email: 'nniyonkurubertin+nyangeadmin@gmail.com',
       username: 'nyange_admin',
       passwordHash: schoolAdminHash,
       firstName: 'School',
@@ -2013,7 +2013,7 @@ async function main() {
 
   const nyangeTeacherUser = await prisma.user.upsert({
     where: {
-      tenantId_email: { tenantId: nyangeTenant.id, email: 'teacher@nyange-secondary.rw' },
+      tenantId_email: { tenantId: nyangeTenant.id, email: 'nniyonkurubertin+nyangeteacher@gmail.com' },
     },
     update: {
       passwordHash: teacherHash,
@@ -2021,7 +2021,7 @@ async function main() {
     },
     create: {
       tenantId: nyangeTenant.id,
-      email: 'teacher@nyange-secondary.rw',
+      email: 'nniyonkurubertin+nyangeteacher@gmail.com',
       username: 'nyange_teacher',
       passwordHash: teacherHash,
       firstName: 'Marie',
@@ -3026,12 +3026,14 @@ async function main() {
           superAdmin: [
             { identifier: 'smartschoolrwanda@gmail.com', password: 'Kigali2019@2022' },
             { identifier: 'sibomanadamascene1999@gmail.com', password: 'Kigali2019@2022' },
+            { identifier: 'nniyonkurubertin@gmail.com', password: 'Kigali2019@2022' },
           ],
+          govAuditor: { identifier: 'nniyonkurubertin+auditor@gmail.com', password: 'Auditor2024@' },
           schoolTenant: {
             tenantCode: 'gs-rwanda',
-            schoolAdmin: { identifier: 'admin@school.rw', password: 'Admin@12345' },
+            schoolAdmin: { identifier: 'nniyonkurubertin+schooladmin@gmail.com', password: 'Admin@12345' },
             schoolAdminUsername: { identifier: 'school_admin', password: 'Admin@12345' },
-            teacher: { identifier: 'teacher@school.rw', password: 'Teacher@12345' },
+            teacher: { identifier: 'nniyonkurubertin+teacher@gmail.com', password: 'Teacher@12345' },
             teacherUsername: { identifier: 'school_teacher', password: 'Teacher@12345' },
             student: { identifier: 'student@school.rw', password: 'Student@12345' },
             studentUsername: { identifier: 'stu_alice', password: 'Student@12345' },
@@ -3040,9 +3042,9 @@ async function main() {
           },
           nyangeSecondarySchool: {
             tenantCode: 'nyange-ss',
-            admin: { identifier: 'admin@nyange-secondary.rw', password: 'Admin@12345' },
+            admin: { identifier: 'nniyonkurubertin+nyangeadmin@gmail.com', password: 'Admin@12345' },
             adminUsername: { identifier: 'nyange_admin', password: 'Admin@12345' },
-            teacher: { identifier: 'teacher@nyange-secondary.rw', password: 'Teacher@12345' },
+            teacher: { identifier: 'nniyonkurubertin+nyangeteacher@gmail.com', password: 'Teacher@12345' },
             teacherUsername: { identifier: 'nyange_teacher', password: 'Teacher@12345' },
             seniorTwoStudent: {
               identifier: 'student.s2@nyange-secondary.rw',

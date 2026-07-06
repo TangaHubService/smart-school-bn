@@ -31,7 +31,11 @@ async function main() {
   const envSuperAdminEmails = process.env.SUPER_ADMIN_EMAILS;
   const superAdminEmails = envSuperAdminEmails
     ? envSuperAdminEmails.split(',').map(e => e.trim())
-    : ['niyonkurubertin50@gmail.com', 'admin2@smartschool.rw', 'admin3@smartschool.rw'];
+    : [
+        'nniyonkurubertin@gmail.com',
+        'nniyonkurubertin+admin2@gmail.com',
+        'nniyonkurubertin+admin3@gmail.com',
+      ];
 
   for (const email of superAdminEmails) {
     const user = await prisma.user.upsert({
