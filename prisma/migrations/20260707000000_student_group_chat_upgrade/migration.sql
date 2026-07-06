@@ -1,49 +1,65 @@
--- Scope class chats per academic year (a new cohort in the same physical classroom no
--- longer sees a previous year's messages), and add reactions, replies, mentions, pinning,
+-- Class chats scoped per academic year (a new cohort in the same physical classroom no
+-- longer sees a previous year's messages), with reactions, replies, mentions, pinning,
 -- moderation (soft delete), and read receipts.
+--
+-- StudentGroupChat/GroupChatMessage were never shipped in a prior migration (they only
+-- existed via `prisma db push` in development), so this migration creates them from
+-- scratch with their final shape instead of altering pre-existing tables.
 
-ALTER TABLE "StudentGroupChat" ADD COLUMN "academicYearId" TEXT;
+CREATE TABLE "StudentGroupChat" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "classRoomId" TEXT NOT NULL,
+    "academicYearId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
--- Backfill existing chats to each tenant's current academic year (dev/catalog data — no
--- production usage yet), falling back to the most recent year if none is marked current.
-UPDATE "StudentGroupChat" sgc
-SET "academicYearId" = (
-  SELECT ay.id FROM "AcademicYear" ay WHERE ay."tenantId" = sgc."tenantId" AND ay."isCurrent" = true LIMIT 1
+    CONSTRAINT "StudentGroupChat_pkey" PRIMARY KEY ("id")
 );
-UPDATE "StudentGroupChat" sgc
-SET "academicYearId" = (
-  SELECT ay.id FROM "AcademicYear" ay WHERE ay."tenantId" = sgc."tenantId" ORDER BY ay."startDate" DESC LIMIT 1
-)
-WHERE sgc."academicYearId" IS NULL;
 
-ALTER TABLE "StudentGroupChat" ALTER COLUMN "academicYearId" SET NOT NULL;
+-- One conversation per class per academic year — a new cohort in the same physical
+-- classroom does not see a previous year's messages.
+CREATE UNIQUE INDEX "StudentGroupChat_tenantId_classRoomId_academicYearId_key" ON "StudentGroupChat"("tenantId", "classRoomId", "academicYearId");
+CREATE INDEX "StudentGroupChat_tenantId_classRoomId_idx" ON "StudentGroupChat"("tenantId", "classRoomId");
+
+ALTER TABLE "StudentGroupChat" ADD CONSTRAINT "StudentGroupChat_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "StudentGroupChat" ADD CONSTRAINT "StudentGroupChat_classRoomId_fkey" FOREIGN KEY ("classRoomId") REFERENCES "ClassRoom"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "StudentGroupChat" ADD CONSTRAINT "StudentGroupChat_academicYearId_fkey" FOREIGN KEY ("academicYearId") REFERENCES "AcademicYear"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-DROP INDEX IF EXISTS "StudentGroupChat_tenantId_classRoomId_key";
-CREATE UNIQUE INDEX "StudentGroupChat_tenantId_classRoomId_academicYearId_key" ON "StudentGroupChat"("tenantId", "classRoomId", "academicYearId");
+-- GroupChatMessage: FileAsset attachment (consistent with lessons/assignments/announcements/
+-- audits), replies, mentions, pinning, and moderation.
+CREATE TABLE "GroupChatMessage" (
+    "id" TEXT NOT NULL,
+    "chatId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "fileAssetId" TEXT,
+    "replyToId" TEXT,
+    "mentionedUserIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    "isAnnouncement" BOOLEAN NOT NULL DEFAULT false,
+    "isPinned" BOOLEAN NOT NULL DEFAULT false,
+    "pinnedAt" TIMESTAMP(3),
+    "pinnedByUserId" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedByUserId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
--- GroupChatMessage: replace the bare fileUrl string with a proper FileAsset attachment
--- (consistent with lessons/assignments/announcements/audits), add replies, mentions,
--- pinning, and moderation.
-ALTER TABLE "GroupChatMessage" DROP COLUMN "fileUrl";
-ALTER TABLE "GroupChatMessage" DROP COLUMN "readAt";
-ALTER TABLE "GroupChatMessage"
-  ADD COLUMN "fileAssetId" TEXT,
-  ADD COLUMN "replyToId" TEXT,
-  ADD COLUMN "mentionedUserIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
-  ADD COLUMN "isAnnouncement" BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN "isPinned" BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN "pinnedAt" TIMESTAMP(3),
-  ADD COLUMN "pinnedByUserId" TEXT,
-  ADD COLUMN "deletedAt" TIMESTAMP(3),
-  ADD COLUMN "deletedByUserId" TEXT;
+    CONSTRAINT "GroupChatMessage_pkey" PRIMARY KEY ("id")
+);
 
+CREATE INDEX "GroupChatMessage_chatId_createdAt_idx" ON "GroupChatMessage"("chatId", "createdAt");
+CREATE INDEX "GroupChatMessage_chatId_isPinned_idx" ON "GroupChatMessage"("chatId", "isPinned");
+
+ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_chatId_fkey" FOREIGN KEY ("chatId") REFERENCES "StudentGroupChat"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_fileAssetId_fkey" FOREIGN KEY ("fileAssetId") REFERENCES "FileAsset"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_replyToId_fkey" FOREIGN KEY ("replyToId") REFERENCES "GroupChatMessage"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_pinnedByUserId_fkey" FOREIGN KEY ("pinnedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "GroupChatMessage" ADD CONSTRAINT "GroupChatMessage_deletedByUserId_fkey" FOREIGN KEY ("deletedByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
-CREATE INDEX "GroupChatMessage_chatId_isPinned_idx" ON "GroupChatMessage"("chatId", "isPinned");
 
 CREATE TABLE "GroupChatReaction" (
     "id" TEXT NOT NULL,
