@@ -41,6 +41,24 @@ async function main() {
     console.log('- courseId already nullable or error (may be ok)');
   }
 
+  try {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "hasDisability" BOOLEAN NOT NULL DEFAULT false;
+    `);
+    console.log('✓ Added hasDisability column to Student');
+  } catch {
+    console.log('- hasDisability column already exists or error (may be ok)');
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "Student" ADD COLUMN IF NOT EXISTS "disabilityType" TEXT;
+    `);
+    console.log('✓ Added disabilityType column to Student');
+  } catch {
+    console.log('- disabilityType column already exists or error (may be ok)');
+  }
+
   console.log('\nDone!');
 }
 
