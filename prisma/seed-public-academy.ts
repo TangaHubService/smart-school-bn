@@ -39,14 +39,14 @@ async function main() {
       },
     },
     update: {
-      permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload'],
+        permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload', 'chat.read', 'chat.send'],
     },
     create: {
       tenantId: academyTenant.id,
       name: 'PUBLIC_LEARNER',
       description: 'Public Academy learner role',
       isSystem: true,
-      permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload'],
+      permissions: ['students.my_courses.read', 'assessments.submit', 'files.upload', 'chat.read', 'chat.send'],
     },
   });
 

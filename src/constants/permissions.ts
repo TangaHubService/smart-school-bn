@@ -238,6 +238,8 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
         PERMISSIONS.ASSIGNMENTS_SUBMIT,
         PERMISSIONS.ASSESSMENTS_SUBMIT,
         PERMISSIONS.FILES_UPLOAD,
+        PERMISSIONS.CHAT_READ,
+        PERMISSIONS.CHAT_SEND,
       ],
     },
   ];
