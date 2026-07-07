@@ -24,6 +24,8 @@ const PUBLIC_LEARNER_PERMISSIONS = [
   'assignments.submit',
   'assessments.submit',
   'files.upload',
+  'chat.read',
+  'chat.send',
 ];
 
 export class AuthService {
