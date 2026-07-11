@@ -53,6 +53,18 @@ export function createApp() {
           userId: r.user?.sub,
         };
       },
+      // Default pino-http req/res serializers dump every header (including the static
+      // CSP/HSTS/CORS boilerplate helmet sets on every response) on every log line. Keep
+      // only what's actually useful for tracing a request.
+      serializers: {
+        req: (req: IncomingMessage & { method?: string; url?: string }) => ({
+          method: req.method,
+          url: req.url,
+        }),
+        res: (res: { statusCode: number }) => ({
+          statusCode: res.statusCode,
+        }),
+      },
     })
   );
   app.use(helmet());

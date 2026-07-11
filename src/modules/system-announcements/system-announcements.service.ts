@@ -45,41 +45,51 @@ export class SystemAnnouncementsService {
 
   async listVisibleForViewer(tenantId: string, viewerRoleNames: string[]) {
     const now = new Date();
-    const rows = await prisma.systemAnnouncement.findMany({
-      where: {
-        status: SystemAnnouncementStatus.PUBLISHED,
-        publishedAt: { lte: now },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
-      include: {
-        author: {
-          select: { id: true, firstName: true, lastName: true },
+
+    try {
+      const rows = await prisma.systemAnnouncement.findMany({
+        where: {
+          status: SystemAnnouncementStatus.PUBLISHED,
+          publishedAt: { lte: now },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: 50,
-    });
+        include: {
+          author: {
+            select: { id: true, firstName: true, lastName: true },
+          },
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 50,
+      });
 
-    const items = rows.filter(row =>
-      isSystemAnnouncementVisible(
-        row.targetType,
-        row.targetTenantIds,
-        row.targetRoleNames,
-        tenantId,
-        viewerRoleNames
-      )
-    );
+      const items = rows.filter(row =>
+        isSystemAnnouncementVisible(
+          row.targetType,
+          row.targetTenantIds,
+          row.targetRoleNames,
+          tenantId,
+          viewerRoleNames
+        )
+      );
 
-    return items.map(a => ({
-      id: a.id,
-      title: a.title,
-      body: a.body,
-      source: 'system' as const,
-      targetType: a.targetType,
-      publishedAt: a.publishedAt?.toISOString() ?? null,
-      expiresAt: a.expiresAt?.toISOString() ?? null,
-      author: a.author,
-    }));
+      return items.map(a => ({
+        id: a.id,
+        title: a.title,
+        body: a.body,
+        source: 'system' as const,
+        targetType: a.targetType,
+        publishedAt: a.publishedAt?.toISOString() ?? null,
+        expiresAt: a.expiresAt?.toISOString() ?? null,
+        author: a.author,
+      }));
+    } catch (e) {
+      // Best-effort: system broadcasts are supplementary to a tenant's own announcements,
+      // so a Prisma failure here (e.g. missing table/column from a pending migration)
+      // must not break that listing.
+      // eslint-disable-next-line no-console
+      console.error('[SystemAnnouncements] Failed to load visible broadcasts', { tenantId, error: e });
+      return [];
+    }
   }
 
   async list(actor: JwtUser, query: ListQuery) {
