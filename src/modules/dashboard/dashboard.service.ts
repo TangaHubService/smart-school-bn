@@ -1277,6 +1277,14 @@ export class DashboardService {
       pendingClasses: number;
       totalClasses: number;
     };
+    todayClasses: Array<{
+      classRoomId: string;
+      className: string;
+      subjectNames: string[];
+      totalStudents: number;
+      markedStudents: number;
+      status: 'COMPLETE' | 'PARTIAL' | 'UNMARKED';
+    }>;
     upcomingExams: Array<{
       id: string;
       title: string;
@@ -1352,6 +1360,75 @@ export class DashboardService {
       }),
     ]);
 
+    const sessionsTodayRows = await prisma.attendanceSession.findMany({
+      where: { tenantId, classRoomId: { in: classIds }, sessionDate: todayDate },
+      select: { classRoomId: true },
+    });
+    const classesWithSessions = new Set(sessionsTodayRows.map(r => r.classRoomId));
+
+    const [taughtClasses, recordsByClass, studentsByClass] = await prisma.$transaction([
+      prisma.course.findMany({
+        where: { tenantId, teacherUserId: userId, isActive: true },
+        select: {
+          classRoom: { select: { id: true, code: true, name: true } },
+          subject: { select: { name: true } },
+        },
+      }),
+      prisma.attendanceRecord.groupBy({
+        by: ['classRoomId'],
+        where: { tenantId, classRoomId: { in: classIds }, attendanceDate: todayDate },
+        _count: { _all: true },
+        orderBy: { classRoomId: 'asc' },
+      }),
+      prisma.studentEnrollment.groupBy({
+        by: ['classRoomId'],
+        where: { tenantId, classRoomId: { in: classIds }, isActive: true },
+        _count: { _all: true },
+        orderBy: { classRoomId: 'asc' },
+      }),
+    ]);
+
+    const recordCounts = new Map(
+      recordsByClass.map(r => [r.classRoomId, Number((r as any)._count?._all ?? 0)])
+    );
+    const studentCounts = new Map(
+      studentsByClass.map(r => [r.classRoomId, Number((r as any)._count?._all ?? 0)])
+    );
+    const classMap = new Map<string, { className: string; subjectNames: string[] }>();
+
+    for (const c of taughtClasses) {
+      const roomId = c.classRoom.id;
+      const existing = classMap.get(roomId);
+      if (existing) {
+        if (c.subject?.name) existing.subjectNames.push(c.subject.name);
+      } else {
+        classMap.set(roomId, {
+          className: `${c.classRoom.code ?? ''}${c.classRoom.code ? ' · ' : ''}${c.classRoom.name ?? ''}`.trim(),
+          subjectNames: c.subject?.name ? [c.subject.name] : [],
+        });
+      }
+    }
+
+    const todayClasses = [...classMap.entries()].map(([classRoomId, info]) => {
+      const markedStudents = recordCounts.get(classRoomId) ?? 0;
+      const totalStudents = studentCounts.get(classRoomId) ?? 0;
+      const hasSession = classesWithSessions.has(classRoomId);
+      const status: 'COMPLETE' | 'PARTIAL' | 'UNMARKED' =
+        !hasSession || markedStudents === 0
+          ? 'UNMARKED'
+          : markedStudents >= totalStudents
+            ? 'COMPLETE'
+            : 'PARTIAL';
+      return {
+        classRoomId,
+        className: info.className,
+        subjectNames: info.subjectNames.slice(0, 3),
+        totalStudents,
+        markedStudents,
+        status,
+      };
+    });
+
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
       const diff = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -1377,6 +1454,7 @@ export class DashboardService {
         pendingClasses: Math.max(totalTeacherClasses - sessionsToday, 0),
         totalClasses: totalTeacherClasses,
       },
+      todayClasses,
       upcomingExams: upcomingExams.slice(0, 3).map(exam => {
         const examDate = exam.examDate ?? exam.createdAt;
         return {
