@@ -266,6 +266,8 @@ model Tenant {
   announcementReads AnnouncementRead[]
   passwordResetTokens PasswordResetToken[]
   schoolSubscription SchoolSubscription?
+  subscriptionInvoices SubscriptionInvoice[]
+  subscriptionInvoicePayments SubscriptionInvoicePayment[]
   studentLessonProgress StudentLessonProgress[]
   audits        Audit[]
   academicAudits AcademicAudit[]
@@ -1838,6 +1840,12 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+enum SubscriptionInvoiceStatus {
+  PENDING
+  PAID
+  VOID
+}
+
 enum SystemAnnouncementStatus {
   DRAFT
   PUBLISHED
@@ -1884,6 +1892,53 @@ model SchoolSubscription {
   @@index([planId])
   @@index([status])
   @@index([currentPeriodEnd])
+}
+
+model SubscriptionInvoice {
+  id             String                    @id @default(uuid())
+  tenantId       String
+  invoiceNumber  String                    @unique
+  yearLabel      String
+  title          String
+  description    String
+  amountDue      Float
+  currency       String                    @default("RWF")
+  status         SubscriptionInvoiceStatus @default(PENDING)
+  periodStart    DateTime
+  periodEnd      DateTime
+  dueDate        DateTime
+  issuedAt       DateTime                  @default(now())
+  paidAt         DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  tenant   Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments SubscriptionInvoicePayment[]
+
+  @@unique([tenantId, yearLabel, periodStart])
+  @@index([tenantId, status])
+  @@index([status, periodEnd])
+}
+
+model SubscriptionInvoicePayment {
+  id          String        @id @default(uuid())
+  tenantId    String
+  invoiceId   String
+  amount      Float
+  currency    String        @default("RWF")
+  status      PaymentStatus @default(PENDING)
+  provider    String        @default("paypack")
+  providerRef String        @unique
+  phoneNumber String?
+  completedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice SubscriptionInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, status])
+  @@index([tenantId, createdAt])
 }
 
 model SystemAnnouncement {

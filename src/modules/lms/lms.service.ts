@@ -2809,6 +2809,7 @@ export class LmsService {
         title: true,
         classRoomId: true,
         academicYearId: true,
+        classRoom: { select: { id: true, name: true } },
         _count: {
           select: { lessons: { where: { tenantId, isPublished: true } } },
         },
@@ -2818,6 +2819,8 @@ export class LmsService {
     const items: Array<{
       courseId: string;
       courseTitle: string;
+      classRoomId: string | null;
+      classRoomName: string | null;
       enrolledStudents: number;
       publishedLessons: number;
       avgCompletionPercent: number | null;
@@ -2841,6 +2844,8 @@ export class LmsService {
         items.push({
           courseId: c.id,
           courseTitle: c.title,
+          classRoomId: c.classRoom?.id ?? null,
+          classRoomName: c.classRoom?.name ?? null,
           enrolledStudents: enrollments.length,
           publishedLessons: totalLessons,
           avgCompletionPercent: null,
@@ -2906,6 +2911,8 @@ export class LmsService {
       items.push({
         courseId: c.id,
         courseTitle: c.title,
+        classRoomId: c.classRoom?.id ?? null,
+        classRoomName: c.classRoom?.name ?? null,
         enrolledStudents: enrollments.length,
         publishedLessons: totalLessons,
         avgCompletionPercent: Math.round(sumPct / enrollments.length),

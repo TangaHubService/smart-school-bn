@@ -29,7 +29,7 @@ export class EmailService {
   private readonly mode: 'smtp' | 'log';
 
   constructor() {
-    if (env.SMTP_HOST && env.SMTP_PORT) {
+    if (!env.EMAIL_LOG_ONLY && env.SMTP_HOST && env.SMTP_PORT) {
       this.mode = 'smtp';
       this.transporter = nodemailer.createTransport({
         host: env.SMTP_HOST,
@@ -50,6 +50,29 @@ export class EmailService {
     this.transporter = nodemailer.createTransport({
       jsonTransport: true,
     });
+  }
+
+  private async deliver(
+    label: string,
+    message: { to: string; subject: string; text: string; html: string }
+  ): Promise<unknown> {
+    const result = await this.transporter.sendMail({
+      from: env.EMAIL_FROM,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+
+    if (this.mode === 'log') {
+      console.info(`[MAILER_LOG_MODE] ${label} (logged, not sent)`, {
+        to: message.to,
+        subject: message.subject,
+      });
+      console.info(`[MAILER_LOG_MODE] body >>>\n${message.text}\n<<<`);
+    }
+
+    return result;
   }
 
   async sendPasswordResetOtp(input: PasswordResetEmailInput): Promise<void> {
@@ -121,21 +144,12 @@ export class EmailService {
   </body>
 </html>`;
 
-    const result = await this.transporter.sendMail({
-      from: env.EMAIL_FROM,
+    await this.deliver('Password reset OTP', {
       to: input.toEmail,
       subject,
       text,
       html,
     });
-
-    if (this.mode === 'log') {
-      console.info('[MAILER_LOG_MODE] Password reset OTP generated with nodemailer', {
-        to: input.toEmail,
-        subject,
-        messageId: result.messageId,
-      });
-    }
   }
 
   async sendTwoFactorOtp(input: { toEmail: string; otp: string; expiresAt: Date }): Promise<void> {
@@ -212,21 +226,12 @@ export class EmailService {
   </body>
 </html>`;
 
-    const result = await this.transporter.sendMail({
-      from: env.EMAIL_FROM,
+    await this.deliver('2FA OTP', {
       to: input.toEmail,
       subject,
       text,
       html,
     });
-
-    if (this.mode === 'log') {
-      console.info('[MAILER_LOG_MODE] 2FA OTP email generated with nodemailer', {
-        to: input.toEmail,
-        subject,
-        messageId: result.messageId,
-      });
-    }
   }
 
   async sendStaffInvite(input: StaffInviteEmailInput): Promise<void> {
@@ -313,21 +318,12 @@ export class EmailService {
   </body>
 </html>`;
 
-    const result = await this.transporter.sendMail({
-      from: env.EMAIL_FROM,
+    await this.deliver('Staff invite', {
       to: input.toEmail,
       subject,
       text,
       html,
     });
-
-    if (this.mode === 'log') {
-      console.info('[MAILER_LOG_MODE] Invite email payload generated with nodemailer', {
-        to: input.toEmail,
-        subject,
-        messageId: result.messageId,
-      });
-    }
   }
 
   async sendAnnouncementNotification(input: AnnouncementEmailInput): Promise<void> {
@@ -389,21 +385,12 @@ export class EmailService {
   </body>
 </html>`;
 
-    const result = await this.transporter.sendMail({
-      from: env.EMAIL_FROM,
+    await this.deliver('Announcement notification', {
       to: input.toEmail,
       subject,
       text,
       html,
     });
-
-    if (this.mode === 'log') {
-      console.info('[MAILER_LOG_MODE] Announcement email generated with nodemailer', {
-        to: input.toEmail,
-        subject,
-        messageId: result.messageId,
-      });
-    }
   }
 }
 

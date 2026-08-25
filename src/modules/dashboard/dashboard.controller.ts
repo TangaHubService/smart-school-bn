@@ -24,7 +24,13 @@ export class DashboardController {
   }
 
   async getSchoolAdminDashboard(req: Request, res: Response): Promise<Response> {
-    const result = await dashboardService.getSchoolAdminDashboard(req.user!);
+    const filters = {
+      academicYear: typeof req.query.academicYear === 'string' ? req.query.academicYear : undefined,
+      term: typeof req.query.term === 'string' ? req.query.term : undefined,
+      class: typeof req.query.class === 'string' ? req.query.class : undefined,
+      find: typeof req.query.find === 'string' ? req.query.find : undefined,
+    };
+    const result = await dashboardService.getSchoolAdminDashboard(req.user!, filters);
     return sendSuccess(req, res, result);
   }
 

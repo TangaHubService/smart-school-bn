@@ -6,6 +6,7 @@ import {
   requirePermissions,
 } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -16,7 +17,7 @@ const controller = new TimetableController();
 
 export const timetableRoutes = Router();
 
-timetableRoutes.use(authenticate, enforceTenant);
+timetableRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 timetableRoutes.get(
   '/timetable',

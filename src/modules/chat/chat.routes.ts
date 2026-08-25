@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
@@ -11,7 +12,7 @@ import { sendMessageSchema, reactionSchema } from './chat.schemas';
 const controller = new ChatController();
 export const chatRoutes = Router();
 
-chatRoutes.use(authenticate, enforceTenant);
+chatRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 chatRoutes.get(
   '/chats/class/:classRoomId',

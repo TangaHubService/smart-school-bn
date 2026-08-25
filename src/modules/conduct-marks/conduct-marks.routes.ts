@@ -6,6 +6,7 @@ import {
   requirePermissions,
 } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -16,7 +17,7 @@ const controller = new ConductMarksController();
 
 export const conductMarksRoutes = Router();
 
-conductMarksRoutes.use(authenticate, enforceTenant);
+conductMarksRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 conductMarksRoutes.get(
   '/conduct-marks/term-settings',

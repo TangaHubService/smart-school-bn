@@ -6,6 +6,7 @@ import {
   requirePermissions,
 } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { ReportsController } from './reports.controller';
@@ -14,7 +15,7 @@ const reportsController = new ReportsController();
 
 export const reportsRoutes = Router();
 
-reportsRoutes.use(authenticate, enforceTenant);
+reportsRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 reportsRoutes.get(
   '/reports/academic/by-class',

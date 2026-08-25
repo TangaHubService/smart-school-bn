@@ -80,6 +80,8 @@ export interface SchoolAdminDashboardData {
     classes: number;
     classesChange: number;
     subjects: number;
+    attendanceToday: number | null;
+    examsConducted: number;
   };
   userOverview: {
     students: number;
@@ -125,6 +127,25 @@ export interface SchoolAdminDashboardData {
   activeUsers: {
     weeklyActive: number;
     monthlyActive: number;
+  };
+  overviewAnalytics: Array<{
+    label: string;
+    enrollments: number;
+    attendance: number | null;
+    assessments: number | null;
+  }>;
+  topClasses: Array<{
+    id: string;
+    name: string;
+    averageScore: number;
+    students: number;
+  }>;
+  quickInsights: {
+    averageScore: number | null;
+    passRate: number | null;
+    attendanceRate: number | null;
+    behaviorIndex: number | null;
+    engagementScore: number | null;
   };
 }
 
@@ -373,9 +394,10 @@ export class DashboardService {
         throw e;
       }
     }
-    const revenueChange = revenueLastMonth > 0
-      ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
-      : 0;
+    const revenueChange =
+      revenueLastMonth > 0
+        ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+        : 0;
 
     let enrollmentTrends: SuperAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
     try {
@@ -415,7 +437,8 @@ export class DashboardService {
       const completedEnrollments = await prisma.programEnrollment.count({
         where: { isActive: false },
       });
-      courseCompletionRate = totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : null;
+      courseCompletionRate =
+        totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : null;
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
         throw e;
@@ -426,15 +449,17 @@ export class DashboardService {
       const scoredAttempts = await prisma.assessmentAttempt.count({
         where: { autoScore: { not: null }, status: 'SUBMITTED' },
       });
-      assessmentCompletionRate = totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+      assessmentCompletionRate =
+        totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
         throw e;
       }
     }
-    const overallRate = courseCompletionRate !== null && assessmentCompletionRate !== null
-      ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
-      : (courseCompletionRate ?? assessmentCompletionRate);
+    const overallRate =
+      courseCompletionRate !== null && assessmentCompletionRate !== null
+        ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+        : (courseCompletionRate ?? assessmentCompletionRate);
 
     let weeklyActive = 0;
     let monthlyActive = 0;
@@ -676,7 +701,10 @@ export class DashboardService {
     };
   }
 
-  async getSchoolAdminDashboard(actor: JwtUser): Promise<SchoolAdminDashboardData> {
+  async getSchoolAdminDashboard(
+    actor: JwtUser,
+    filters?: { academicYear?: string; term?: string; class?: string; find?: string }
+  ): Promise<SchoolAdminDashboardData> {
     const tenantId = actor.tenantId!;
 
     const tenant = await prisma.tenant.findUnique({
@@ -691,82 +719,231 @@ export class DashboardService {
       );
     }
 
-    const weekAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const selectedAcademicYear = filters?.academicYear
+      ? await prisma.academicYear.findFirst({
+          where: { id: filters.academicYear, tenantId },
+          select: { id: true, name: true },
+        })
+      : ((await prisma.academicYear.findFirst({
+          where: { tenantId, isCurrent: true, isActive: true },
+          orderBy: { startDate: 'desc' },
+          select: { id: true, name: true },
+        })) ??
+        (await prisma.academicYear.findFirst({
+          where: { tenantId, isActive: true },
+          orderBy: { startDate: 'desc' },
+          select: { id: true, name: true },
+        })));
+    const academicYearId = selectedAcademicYear?.id;
+
+    const termSequenceByCode: Record<string, number> = { first: 1, second: 2, third: 3 };
+    const requestedTerm = filters?.term;
+    const requestedSequence = requestedTerm
+      ? (termSequenceByCode[requestedTerm] ?? Number(requestedTerm.replace(/^term-/, '')))
+      : undefined;
+    const selectedTerm = academicYearId
+      ? await prisma.term.findFirst({
+          where: {
+            tenantId,
+            academicYearId,
+            ...(requestedTerm && !Number.isNaN(requestedSequence)
+              ? { sequence: requestedSequence }
+              : requestedTerm
+                ? { OR: [{ id: requestedTerm }, { name: requestedTerm }] }
+                : { isActive: true }),
+          },
+          orderBy: { sequence: 'asc' },
+          select: { id: true, sequence: true, startDate: true, endDate: true },
+        })
+      : null;
+    const termId = selectedTerm?.id;
+
+    const selectedClass =
+      filters?.class && filters.class !== 'all'
+        ? await prisma.classRoom.findFirst({
+            where: { id: filters.class, tenantId },
+            select: { id: true },
+          })
+        : null;
+    const classRoomId = selectedClass?.id;
+    const selectedCourse =
+      filters?.find && filters.find !== 'all'
+        ? await prisma.course.findFirst({
+            where: { id: filters.find, tenantId },
+            select: { id: true, subjectId: true, classRoomId: true },
+          })
+        : null;
+    const effectiveClassRoomId = classRoomId ?? selectedCourse?.classRoomId;
+
+    const enrollmentWhere: Prisma.StudentEnrollmentWhereInput = {
+      tenantId,
+      isActive: true,
+      ...(academicYearId ? { academicYearId } : {}),
+      ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+    };
+    const courseWhere: Prisma.CourseWhereInput = {
+      tenantId,
+      ...(academicYearId ? { academicYearId } : {}),
+      ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+      ...(selectedCourse ? { id: selectedCourse.id } : {}),
+    };
+    const examWhere: Prisma.ExamWhereInput = {
+      tenantId,
+      ...(academicYearId ? { academicYearId } : {}),
+      ...(termId ? { termId } : {}),
+      ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+      ...(selectedCourse?.subjectId ? { subjectId: selectedCourse.subjectId } : {}),
+    };
+    const attendanceWhere: Prisma.AttendanceRecordWhereInput = {
+      tenantId,
+      ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+      ...(academicYearId ? { session: { academicYearId } } : {}),
+    };
+
+    const todayString = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Kigali',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+    const todayStart = /^\d{4}-\d{2}-\d{2}$/.test(todayString)
+      ? new Date(`${todayString}T00:00:00.000Z`)
+      : new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+    const sevenDaysAgo = new Date(todayStart);
+    sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
+
+    const school = await prisma.school.findUniqueOrThrow({
+      where: { tenantId },
+      select: { displayName: true, city: true, logoUrl: true },
+    });
+
+    const teacherCourses = await prisma.course.findMany({
+      where: courseWhere,
+      distinct: ['teacherUserId'],
+      select: { teacherUserId: true },
+    });
+    const subjectCourses = await prisma.course.findMany({
+      where: { ...courseWhere, subjectId: { not: null } },
+      distinct: ['subjectId'],
+      select: { subjectId: true },
+    });
 
     const [
-      school,
       studentsCount,
-      teachersCount,
       classesCount,
-      subjectsCount,
       parentsCount,
-      exams,
+      activeUserAccounts,
+      studentsChange,
+      teachersChange,
+      classesChange,
+      parentsChange,
+      upcomingExams,
+      examsConducted,
+      todayAttendanceTotal,
+      todayPresent,
       attendanceSessionsThisWeek,
       submissionsCount,
-      attendanceSessionsPrevWeek,
       conductIncidentsOpen,
+      weeklyActive,
+      monthlyActive,
     ] = await prisma.$transaction([
-      prisma.school.findUniqueOrThrow({
-        where: { tenantId },
-        select: { displayName: true, city: true, logoUrl: true },
+      prisma.studentEnrollment.count({ where: enrollmentWhere }),
+      prisma.classRoom.count({
+        where: {
+          tenantId,
+          isActive: true,
+          ...(effectiveClassRoomId
+            ? { id: effectiveClassRoomId }
+            : academicYearId
+              ? { enrollments: { some: { academicYearId, isActive: true } } }
+              : {}),
+        },
       }),
-      prisma.student.count({
-        where: { tenantId, deletedAt: null },
+      prisma.parent.count({ where: { tenantId, deletedAt: null, isActive: true } }),
+      prisma.user.count({ where: { tenantId, deletedAt: null, status: 'ACTIVE' } }),
+      prisma.studentEnrollment.count({
+        where: { ...enrollmentWhere, enrolledAt: { gte: currentMonthStart } },
       }),
       prisma.userRole.count({
         where: {
           tenantId,
           role: { name: 'TEACHER' },
           user: { deletedAt: null },
+          assignedAt: { gte: currentMonthStart },
         },
       }),
-      prisma.classRoom.count({ where: { tenantId } }),
-      prisma.subject.count({ where: { tenantId } }),
-      prisma.parent.count({ where: { tenantId, deletedAt: null } }),
+      prisma.classRoom.count({
+        where: {
+          tenantId,
+          createdAt: { gte: currentMonthStart },
+          ...(effectiveClassRoomId ? { id: effectiveClassRoomId } : {}),
+        },
+      }),
+      prisma.parent.count({
+        where: { tenantId, deletedAt: null, createdAt: { gte: currentMonthStart } },
+      }),
       prisma.exam.findMany({
-        where: { tenantId },
+        where: { ...examWhere, examDate: { gte: todayStart } },
         take: 5,
         orderBy: { examDate: 'asc' },
         include: { subject: true },
       }),
+      prisma.exam.count({ where: { ...examWhere, marks: { some: {} } } }),
+      prisma.attendanceRecord.count({
+        where: {
+          ...attendanceWhere,
+          attendanceDate: { gte: todayStart, lt: tomorrowStart },
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          ...attendanceWhere,
+          attendanceDate: { gte: todayStart, lt: tomorrowStart },
+          status: { in: ['PRESENT', 'LATE'] },
+        },
+      }),
       prisma.attendanceSession.count({
         where: {
-          classRoom: { tenantId },
-          createdAt: {
-            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-          },
+          tenantId,
+          sessionDate: { gte: sevenDaysAgo, lt: tomorrowStart },
+          ...(academicYearId ? { academicYearId } : {}),
+          ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
         },
       }),
       prisma.submission.count({
-        where: {
-          assignment: { tenantId },
-          status: 'SUBMITTED',
-        },
-      }),
-      prisma.attendanceSession.count({
-        where: {
-          classRoom: { tenantId },
-          createdAt: {
-            gte: weekAgo,
-            lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-          },
-        },
+        where: { assignment: { course: courseWhere }, status: { in: ['SUBMITTED', 'GRADED'] } },
       }),
       prisma.conductIncident.count({
         where: {
           tenantId,
           status: { in: ['OPEN', 'UNDER_REVIEW'] },
+          ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+        },
+      }),
+      prisma.user.count({
+        where: { tenantId, deletedAt: null, lastLoginAt: { gte: sevenDaysAgo } },
+      }),
+      prisma.user.count({
+        where: {
+          tenantId,
+          deletedAt: null,
+          lastLoginAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
         },
       }),
     ]);
 
-    const activeAccounts =
-      (await prisma.user.count({
-        where: { tenantId, deletedAt: null, status: 'ACTIVE' },
-      })) +
-      (await prisma.student.count({
-        where: { tenantId, deletedAt: null },
-      }));
+    const teachersCount = teacherCourses.length;
+    const subjectsCount = academicYearId
+      ? subjectCourses.length
+      : await prisma.subject.count({ where: { tenantId, isActive: true } });
+    const activeAccounts = activeUserAccounts + studentsCount;
+    const attendanceToday = todayAttendanceTotal
+      ? Number(((todayPresent / todayAttendanceTotal) * 100).toFixed(1))
+      : null;
 
     let totalRevenue = 0;
     let revenueThisMonth = 0;
@@ -803,48 +980,144 @@ export class DashboardService {
         throw e;
       }
     }
-    const revenueChange = revenueLastMonth > 0
-      ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
-      : 0;
+    const revenueChange =
+      revenueLastMonth > 0
+        ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+        : 0;
 
-    let enrollmentTrends: SchoolAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
-    try {
-      const enrollments = await prisma.studentEnrollment.findMany({
-        where: { tenantId },
-        select: { createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      });
-      const weekMap = new Map<string, number>();
-      const monthMap2 = new Map<string, number>();
-      for (const e of enrollments) {
-        const d = e.createdAt;
-        const weekStart = new Date(d);
-        weekStart.setDate(d.getDate() - d.getDay());
-        const weekKey = weekStart.toISOString().slice(0, 10);
-        weekMap.set(weekKey, (weekMap.get(weekKey) || 0) + 1);
-        const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        monthMap2.set(monthKey, (monthMap2.get(monthKey) || 0) + 1);
-      }
-      enrollmentTrends = {
-        weekly: Array.from(weekMap.entries())
-          .map(([label, count]) => ({ label, count }))
-          .slice(-7),
-        monthly: Array.from(monthMap2.entries())
-          .map(([label, count]) => ({ label, count }))
-          .slice(-12),
+    const monthStarts = Array.from({ length: 8 }, (_, index) => {
+      const monthsBack = 7 - index;
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1));
+    });
+    const seriesStart = monthStarts[0];
+    const seriesEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    const [
+      enrollmentsForSeries,
+      attendanceForSeries,
+      attemptsForSeries,
+      loginsForSeries,
+      submissionsForSeries,
+    ] = await prisma.$transaction([
+      prisma.studentEnrollment.findMany({
+        where: { ...enrollmentWhere, enrolledAt: { lt: seriesEnd } },
+        select: { enrolledAt: true },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: {
+          ...attendanceWhere,
+          attendanceDate: { gte: seriesStart, lt: seriesEnd },
+        },
+        select: { attendanceDate: true, status: true },
+      }),
+      prisma.assessmentAttempt.findMany({
+        where: {
+          tenantId,
+          status: 'SUBMITTED',
+          submittedAt: { gte: seriesStart, lt: seriesEnd },
+          assessment: { course: courseWhere },
+        },
+        select: { submittedAt: true, autoScore: true, manualScore: true, maxScore: true },
+      }),
+      prisma.user.findMany({
+        where: { tenantId, deletedAt: null, lastLoginAt: { gte: seriesStart, lt: seriesEnd } },
+        select: { lastLoginAt: true },
+      }),
+      prisma.submission.findMany({
+        where: {
+          status: { in: ['SUBMITTED', 'GRADED'] },
+          submittedAt: { gte: seriesStart, lt: seriesEnd },
+          assignment: { course: courseWhere },
+        },
+        select: { submittedAt: true },
+      }),
+    ]);
+
+    const monthKey = (date: Date) =>
+      `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    const overviewAnalytics = monthStarts.map(monthStart => {
+      const nextMonth = new Date(
+        Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1)
+      );
+      const attendanceRows = attendanceForSeries.filter(
+        row => monthKey(row.attendanceDate) === monthKey(monthStart)
+      );
+      const attended = attendanceRows.filter(
+        row => row.status === 'PRESENT' || row.status === 'LATE'
+      ).length;
+      const attempts = attemptsForSeries.filter(
+        row => row.submittedAt && monthKey(row.submittedAt) === monthKey(monthStart)
+      );
+      const scoredAttempts = attempts
+        .map(row => {
+          const score = row.manualScore ?? row.autoScore;
+          return score !== null && row.maxScore && row.maxScore > 0
+            ? (score / row.maxScore) * 100
+            : null;
+        })
+        .filter((score): score is number => score !== null);
+
+      return {
+        label: monthStart.toLocaleDateString('en-US', { month: 'short' }),
+        enrollments: enrollmentsForSeries.filter(row => row.enrolledAt < nextMonth).length,
+        attendance: attendanceRows.length
+          ? Number(((attended / attendanceRows.length) * 100).toFixed(1))
+          : null,
+        assessments: scoredAttempts.length
+          ? Number(
+              (
+                scoredAttempts.reduce((sum, score) => sum + score, 0) / scoredAttempts.length
+              ).toFixed(1)
+            )
+          : null,
       };
-    } catch (e) {
-      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
-        throw e;
-      }
-    }
+    });
+
+    const lastSevenDays = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(sevenDaysAgo);
+      date.setUTCDate(date.getUTCDate() + index);
+      return date;
+    });
+    const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+    const systemAnalyticsWeekly = lastSevenDays.map(date => ({
+      label: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      logins: loginsForSeries.filter(
+        row => row.lastLoginAt && dayKey(row.lastLoginAt) === dayKey(date)
+      ).length,
+      attendance: attendanceForSeries.filter(row => dayKey(row.attendanceDate) === dayKey(date))
+        .length,
+      assignments: submissionsForSeries.filter(row => dayKey(row.submittedAt) === dayKey(date))
+        .length,
+    }));
+    const systemAnalyticsMonthly = monthStarts.map((monthStart, index) => ({
+      label: overviewAnalytics[index].label,
+      logins: loginsForSeries.filter(
+        row => row.lastLoginAt && monthKey(row.lastLoginAt) === monthKey(monthStart)
+      ).length,
+      attendance: attendanceForSeries.filter(
+        row => monthKey(row.attendanceDate) === monthKey(monthStart)
+      ).length,
+      assignments: submissionsForSeries.filter(
+        row => monthKey(row.submittedAt) === monthKey(monthStart)
+      ).length,
+    }));
+    const enrollmentTrends: SchoolAdminDashboardData['enrollmentTrends'] = {
+      weekly: lastSevenDays.map(date => ({
+        label: dayKey(date),
+        count: enrollmentsForSeries.filter(row => dayKey(row.enrolledAt) === dayKey(date)).length,
+      })),
+      monthly: monthStarts.map((date, index) => ({
+        label: monthKey(date),
+        count: overviewAnalytics[index].enrollments,
+      })),
+    };
 
     let courseCompletionRate: number | null = null;
     let assessmentCompletionRate: number | null = null;
     try {
       const totalCourses = await prisma.course.count({ where: { tenantId } });
       const completedCourses = await prisma.course.count({ where: { tenantId, isActive: false } });
-      courseCompletionRate = totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : null;
+      courseCompletionRate =
+        totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : null;
     } catch {
       // best-effort
     }
@@ -855,26 +1128,148 @@ export class DashboardService {
       const scoredAttempts = await prisma.assessmentAttempt.count({
         where: { tenantId, autoScore: { not: null }, status: 'SUBMITTED' },
       });
-      assessmentCompletionRate = totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+      assessmentCompletionRate =
+        totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
     } catch {
       // best-effort
     }
-    const overallRate = courseCompletionRate !== null && assessmentCompletionRate !== null
-      ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
-      : (courseCompletionRate ?? assessmentCompletionRate);
+    const overallRate =
+      courseCompletionRate !== null && assessmentCompletionRate !== null
+        ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+        : (courseCompletionRate ?? assessmentCompletionRate);
 
-    let weeklyActive = 0;
-    let monthlyActive = 0;
-    try {
-      const sevenDays = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const thirtyDays = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      [weeklyActive, monthlyActive] = await Promise.all([
-        prisma.user.count({ where: { tenantId, updatedAt: { gte: sevenDays }, deletedAt: null } }),
-        prisma.user.count({ where: { tenantId, updatedAt: { gte: thirtyDays }, deletedAt: null } }),
-      ]);
-    } catch {
-      // best-effort
+    const [
+      examMarks,
+      passPolicies,
+      allAttendanceCount,
+      presentAttendanceCount,
+      lessonProgressTotal,
+      lessonProgressComplete,
+    ] = await prisma.$transaction([
+      prisma.examMark.findMany({
+        where: { tenantId, marksObtained: { not: null }, exam: examWhere },
+        select: {
+          studentId: true,
+          marksObtained: true,
+          exam: {
+            select: {
+              termId: true,
+              classRoomId: true,
+              subjectId: true,
+              totalMarks: true,
+              classRoom: { select: { id: true, code: true, name: true } },
+            },
+          },
+        },
+      }),
+      prisma.subjectAssessmentPolicy.findMany({
+        where: {
+          tenantId,
+          ...(academicYearId ? { academicYearId } : {}),
+          ...(termId ? { termId } : {}),
+          ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+          ...(selectedCourse?.subjectId ? { subjectId: selectedCourse.subjectId } : {}),
+        },
+        select: { termId: true, classRoomId: true, subjectId: true, passMark: true },
+      }),
+      prisma.attendanceRecord.count({
+        where: attendanceWhere,
+      }),
+      prisma.attendanceRecord.count({
+        where: { ...attendanceWhere, status: { in: ['PRESENT', 'LATE'] } },
+      }),
+      prisma.studentLessonProgress.count({
+        where: { tenantId, lesson: { course: courseWhere } },
+      }),
+      prisma.studentLessonProgress.count({
+        where: { tenantId, isCompleted: true, lesson: { course: courseWhere } },
+      }),
+    ]);
+
+    const policyMap = new Map(
+      passPolicies.map(policy => [
+        `${policy.termId}:${policy.classRoomId}:${policy.subjectId}`,
+        policy.passMark,
+      ])
+    );
+    const classScores = new Map<
+      string,
+      { name: string; scores: number[]; studentIds: Set<string> }
+    >();
+    const allScores: number[] = [];
+    let passEligible = 0;
+    let passed = 0;
+    for (const mark of examMarks) {
+      if (mark.marksObtained === null || mark.exam.totalMarks <= 0) continue;
+      const score = (mark.marksObtained / mark.exam.totalMarks) * 100;
+      allScores.push(score);
+      const room = mark.exam.classRoom;
+      const current = classScores.get(room.id) ?? {
+        name: `${room.code}${room.code && room.name ? ' · ' : ''}${room.name}`.trim(),
+        scores: [],
+        studentIds: new Set<string>(),
+      };
+      current.scores.push(score);
+      current.studentIds.add(mark.studentId);
+      classScores.set(room.id, current);
+
+      const passMark = policyMap.get(
+        `${mark.exam.termId}:${mark.exam.classRoomId}:${mark.exam.subjectId}`
+      );
+      if (passMark !== undefined) {
+        passEligible += 1;
+        if (score >= passMark) passed += 1;
+      }
     }
+    const topClasses = Array.from(classScores.entries())
+      .map(([id, value]) => ({
+        id,
+        name: value.name,
+        averageScore: Number(
+          (value.scores.reduce((sum, score) => sum + score, 0) / value.scores.length).toFixed(1)
+        ),
+        students: value.studentIds.size,
+      }))
+      .sort((a, b) => b.averageScore - a.averageScore)
+      .slice(0, 5);
+    const averageScore = allScores.length
+      ? Number((allScores.reduce((sum, score) => sum + score, 0) / allScores.length).toFixed(1))
+      : null;
+    const passRate = passEligible ? Number(((passed / passEligible) * 100).toFixed(1)) : null;
+    const attendanceRate = allAttendanceCount
+      ? Number(((presentAttendanceCount / allAttendanceCount) * 100).toFixed(1))
+      : null;
+
+    let behaviorIndex: number | null = null;
+    if (termId && studentsCount > 0) {
+      const [conductSetting, deductionAggregate] = await prisma.$transaction([
+        prisma.conductTermSetting.findUnique({
+          where: { tenantId_termId: { tenantId, termId } },
+          select: { totalMarks: true },
+        }),
+        prisma.conductDeduction.aggregate({
+          where: {
+            tenantId,
+            termId,
+            ...(effectiveClassRoomId ? { classRoomId: effectiveClassRoomId } : {}),
+          },
+          _sum: { pointsDeducted: true },
+        }),
+      ]);
+      if (conductSetting?.totalMarks) {
+        const averageDeduction = (deductionAggregate._sum.pointsDeducted ?? 0) / studentsCount;
+        behaviorIndex = Number(
+          (
+            (Math.max(0, conductSetting.totalMarks - averageDeduction) /
+              conductSetting.totalMarks) *
+            100
+          ).toFixed(1)
+        );
+      }
+    }
+    const engagementScore = lessonProgressTotal
+      ? Number(((lessonProgressComplete / lessonProgressTotal) * 100).toFixed(1))
+      : null;
 
     const formatRelativeDate = (date: Date): string => {
       const now = new Date();
@@ -885,8 +1280,6 @@ export class DashboardService {
       return date.toLocaleDateString();
     };
 
-    const attendanceDelta = attendanceSessionsThisWeek - attendanceSessionsPrevWeek;
-
     return {
       school: {
         displayName: school.displayName,
@@ -895,23 +1288,25 @@ export class DashboardService {
       },
       metrics: {
         totalStudents: studentsCount,
-        studentsChange: 0,
+        studentsChange,
         teachers: teachersCount,
-        teachersChange: 0,
+        teachersChange,
         classes: classesCount,
-        classesChange: 0,
+        classesChange,
         subjects: subjectsCount,
+        attendanceToday,
+        examsConducted,
       },
       userOverview: {
         students: studentsCount,
-        studentsChange: 0,
+        studentsChange,
         teachers: teachersCount,
-        teachersChange: 0,
+        teachersChange,
         parents: parentsCount,
-        parentsChange: 0,
+        parentsChange,
         activeAccounts,
       },
-      upcomingExams: exams.slice(0, 3).map(exam => {
+      upcomingExams: upcomingExams.slice(0, 3).map(exam => {
         const examDate = exam.examDate ?? exam.createdAt;
         return {
           id: exam.id,
@@ -946,12 +1341,8 @@ export class DashboardService {
         },
       ],
       systemAnalytics: {
-        weekly: this.getSchoolAnalyticsWeekly(
-          attendanceSessionsThisWeek,
-          submissionsCount,
-          attendanceDelta
-        ),
-        monthly: this.getSchoolAnalyticsMonthly(attendanceSessionsThisWeek, submissionsCount),
+        weekly: systemAnalyticsWeekly,
+        monthly: systemAnalyticsMonthly,
       },
       revenue: {
         totalRevenue,
@@ -969,34 +1360,16 @@ export class DashboardService {
         weeklyActive,
         monthlyActive,
       },
+      overviewAnalytics,
+      topClasses,
+      quickInsights: {
+        averageScore,
+        passRate,
+        attendanceRate,
+        behaviorIndex,
+        engagementScore,
+      },
     };
-  }
-
-  private getSchoolAnalyticsWeekly(
-    attendanceSessions: number,
-    submissions: number,
-    attendanceDelta: number
-  ) {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days.map((label, i) => ({
-      label,
-      logins: 55 + ((attendanceSessions + i * 3) % 40),
-      attendance: Math.max(
-        0,
-        Math.floor(attendanceSessions / 7) + (i % 4) + (attendanceDelta >= 0 ? 0 : -1)
-      ),
-      assignments: Math.max(0, Math.floor(submissions / 14) + (i % 5)),
-    }));
-  }
-
-  private getSchoolAnalyticsMonthly(attendanceSessions: number, submissions: number) {
-    const labels = ['W1', 'W2', 'W3', 'W4'];
-    return labels.map((label, i) => ({
-      label,
-      logins: 220 + attendanceSessions + i * 12,
-      attendance: Math.max(0, Math.floor(attendanceSessions / 2) + i * 3),
-      assignments: Math.max(0, Math.floor(submissions / 4) + i * 2),
-    }));
   }
 
   async getStudentDashboard(actor: JwtUser): Promise<{
@@ -1403,7 +1776,8 @@ export class DashboardService {
         if (c.subject?.name) existing.subjectNames.push(c.subject.name);
       } else {
         classMap.set(roomId, {
-          className: `${c.classRoom.code ?? ''}${c.classRoom.code ? ' · ' : ''}${c.classRoom.name ?? ''}`.trim(),
+          className:
+            `${c.classRoom.code ?? ''}${c.classRoom.code ? ' · ' : ''}${c.classRoom.name ?? ''}`.trim(),
           subjectNames: c.subject?.name ? [c.subject.name] : [],
         });
       }
@@ -1472,10 +1846,7 @@ export class DashboardService {
     };
   }
 
-  async getDemographics(
-    actor: JwtUser,
-    filters?: { academicYear?: string; term?: string }
-  ) {
+  async getDemographics(actor: JwtUser, filters?: { academicYear?: string; term?: string }) {
     const tenantId = actor.tenantId!;
 
     const studentsWhere: Prisma.StudentWhereInput = {
@@ -1556,10 +1927,21 @@ export class DashboardService {
       const gr = gradeMap.get(grade)!;
       const yr = yearMap.get(year)!;
 
-      if (s.gender === 'MALE') { se.boys += 1; gr.boys += 1; yr.boys += 1; }
-      else if (s.gender === 'FEMALE') { se.girls += 1; gr.girls += 1; yr.girls += 1; }
+      if (s.gender === 'MALE') {
+        se.boys += 1;
+        gr.boys += 1;
+        yr.boys += 1;
+      } else if (s.gender === 'FEMALE') {
+        se.girls += 1;
+        gr.girls += 1;
+        yr.girls += 1;
+      }
 
-      if (s.hasDisability) { se.disabilities += 1; gr.disabilities += 1; yr.disabilities += 1; }
+      if (s.hasDisability) {
+        se.disabilities += 1;
+        gr.disabilities += 1;
+        yr.disabilities += 1;
+      }
     }
 
     const bySector = Array.from(sectorMap.entries())

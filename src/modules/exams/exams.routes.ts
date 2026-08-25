@@ -6,6 +6,7 @@ import {
   requirePermissions,
 } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -34,7 +35,7 @@ examsRoutes.get(
   asyncHandler((req, res) => examsController.downloadPublicReportCardPdf(req, res))
 );
 
-examsRoutes.use(authenticate, enforceTenant);
+examsRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 examsRoutes.get(
   '/grading-schemes',

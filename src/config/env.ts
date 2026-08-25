@@ -23,6 +23,11 @@ const envSchema = z.object({
   BUILD_TIME: z.string().default(new Date().toISOString()),
   APP_WEB_URL: z.string().url().default('http://localhost:5173'),
   EMAIL_FROM: z.string().email().default('no-reply@smartschool.rw'),
+  /** Force emails to be logged instead of sent, even when SMTP is configured (testing). */
+  EMAIL_LOG_ONLY: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform(value => value === 'true'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),
@@ -57,6 +62,13 @@ const envSchema = z.object({
   PAYPACK_INITIATE_PATH: z.string().optional(),
   ACADEMY_CATALOG_TENANT_ID: z.string().uuid().optional(),
   ACADEMY_TRIAL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  /** Annual school subscription price in RWF (one invoice per school per year). */
+  BILLING_ANNUAL_AMOUNT_RWF: z.coerce.number().int().positive().default(250000),
+  /** Allows simulated instant payments for demos/tests. Never enable in production. */
+  BILLING_ALLOW_MOCK: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform(value => value === 'true'),
   /** Shown on /health/info for ops / demo (e.g. Kigali, RW). */
   DEPLOY_REGION: z.string().max(120).optional().default(''),
 });

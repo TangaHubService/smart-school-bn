@@ -6,6 +6,7 @@ import {
   requirePermissions,
 } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { DashboardController } from './dashboard.controller';
@@ -32,6 +33,7 @@ dashboardRoutes.get(
   '/dashboard/school-admin',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requireAnyPermissions([
     PERMISSIONS.SCHOOL_SETUP_MANAGE,
     PERMISSIONS.STUDENTS_READ,
@@ -44,6 +46,7 @@ dashboardRoutes.get(
   '/dashboard/student',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requireAnyPermissions([PERMISSIONS.STUDENT_MY_COURSES_READ]),
   asyncHandler((req, res) => dashboardController.getStudentDashboard(req, res))
 );
@@ -52,6 +55,7 @@ dashboardRoutes.get(
   '/dashboard/teacher',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requireAnyPermissions([PERMISSIONS.COURSES_READ, PERMISSIONS.ATTENDANCE_READ]),
   asyncHandler((req, res) => dashboardController.getTeacherDashboard(req, res))
 );
@@ -59,6 +63,7 @@ dashboardRoutes.get(
 dashboardRoutes.get(
   '/dashboard/demographics',
   authenticate,
-  requirePermissions([PERMISSIONS.TENANTS_READ, PERMISSIONS.STUDENTS_READ]),
+  enforceTenant,
+  requireAnyPermissions([PERMISSIONS.TENANTS_READ, PERMISSIONS.STUDENTS_READ]),
   asyncHandler((req, res) => dashboardController.getDemographics(req, res))
 );

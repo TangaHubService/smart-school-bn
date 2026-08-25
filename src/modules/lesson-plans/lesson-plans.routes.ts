@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
@@ -16,7 +17,7 @@ import {
 const controller = new LessonPlansController();
 export const lessonPlansRoutes = Router();
 
-lessonPlansRoutes.use(authenticate, enforceTenant);
+lessonPlansRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 lessonPlansRoutes.get('/lesson-plans', requirePermissions([PERMISSIONS.COURSES_READ]), asyncHandler((req, res) => controller.list(req, res)));
 lessonPlansRoutes.post('/lesson-plans', requirePermissions([PERMISSIONS.COURSES_MANAGE]), validateBody(createLessonPlanSchema), asyncHandler((req, res) => controller.create(req, res)));

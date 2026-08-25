@@ -66,6 +66,9 @@ export const PERMISSIONS = {
   CHAT_SEND: 'chat.send',
   CHAT_MODERATE: 'chat.moderate',
   CHAT_PIN: 'chat.pin',
+
+  BILLING_READ: 'billing.read',
+  BILLING_PAY: 'billing.pay',
 } as const;
 
 export const SUPER_ADMIN_PERMISSIONS = [
@@ -133,6 +136,8 @@ export const SCHOOL_ADMIN_PERMISSIONS = [
   // getHierarchicalAccess).
   PERMISSIONS.CHAT_READ,
   PERMISSIONS.CHAT_MODERATE,
+  PERMISSIONS.BILLING_READ,
+  PERMISSIONS.BILLING_PAY,
 ];
 
 export const GOV_AUDITOR_PERMISSIONS = [

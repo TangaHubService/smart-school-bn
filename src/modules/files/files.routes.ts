@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -13,7 +14,7 @@ const filesController = new FilesController();
 
 export const filesRoutes = Router();
 
-filesRoutes.use(authenticate, enforceTenant);
+filesRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 filesRoutes.post(
   '/files/sign-upload',
