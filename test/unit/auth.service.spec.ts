@@ -39,6 +39,17 @@ const mockedBcrypt = bcrypt as unknown as {
   compare: jest.Mock;
 };
 
+type LoginResult = Awaited<ReturnType<AuthService['login']>>;
+
+/** Narrows the login union so 2FA challenges fail the test with a clear message. */
+function expectLoginSuccess(
+  result: LoginResult
+): asserts result is Extract<LoginResult, { accessToken: string }> {
+  if (!('accessToken' in result)) {
+    throw new Error('Expected a full login result but received a two-factor challenge');
+  }
+}
+
 describe('AuthService', () => {
   const authService = new AuthService();
 
@@ -52,7 +63,7 @@ describe('AuthService', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('logs in staff with identifier (email) and returns access/refresh tokens', async () => {
+  it('challenges privileged staff roles with two-factor before issuing tokens', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -85,15 +96,59 @@ describe('AuthService', () => {
       }
     );
 
+    expect(result).toEqual({ requiresTwoFactor: true });
+    expect(mockedPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({ isTwoFactorVerified: false }),
+      })
+    );
+  });
+
+  it('logs in non-privileged staff by email and returns access/refresh tokens', async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([
+      {
+        id: 'user-2',
+        tenantId: 'tenant-1',
+        email: 'librarian@school.rw',
+        passwordHash: 'hash',
+        firstName: 'Library',
+        lastName: 'Staff',
+        userRoles: [
+          {
+            role: {
+              name: 'LIBRARIAN',
+              permissions: ['library.read'],
+            },
+          },
+        ],
+      },
+    ]);
+    mockedBcrypt.compare.mockResolvedValue(true);
+
+    const result = await authService.login(
+      {
+        identifier: 'librarian@school.rw',
+        password: 'Library@12345',
+      },
+      {
+        requestId: 'req-1',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+      }
+    );
+
+    expectLoginSuccess(result);
+
     expect(result.accessToken).toEqual(expect.any(String));
     expect(result.refreshToken).toEqual(expect.any(String));
-    expect(result.roles).toContain('SCHOOL_ADMIN');
+    expect(result.roles).toContain('LIBRARIAN');
 
     const decoded = jwt.verify(
       result.accessToken,
       process.env.JWT_ACCESS_SECRET!
     ) as jwt.JwtPayload;
-    expect(decoded.sub).toBe('user-1');
+    expect(decoded.sub).toBe('user-2');
     expect(decoded.tenantId).toBe('tenant-1');
   });
 
@@ -130,6 +185,8 @@ describe('AuthService', () => {
         userAgent: 'jest',
       }
     );
+
+    expectLoginSuccess(result);
 
     expect(result.accessToken).toEqual(expect.any(String));
     expect(result.refreshToken).toEqual(expect.any(String));

@@ -156,6 +156,21 @@ export class UsersService {
     return where;
   }
 
+  private buildListOrderBy(input: ListUsersQueryInput): Prisma.UserOrderByWithRelationInput[] {
+    const direction: Prisma.SortOrder = input.sortOrder ?? 'desc';
+    switch (input.sortBy) {
+      case 'name':
+        return [{ lastName: direction }, { firstName: direction }];
+      case 'email':
+        return [{ email: direction }];
+      case 'status':
+        return [{ status: direction }, { createdAt: 'desc' }];
+      case 'createdAt':
+      default:
+        return [{ createdAt: direction }];
+    }
+  }
+
   async listUsers(currentUser: JwtUser, input: ListUsersQueryInput) {
     const where = this.buildListWhere(currentUser, input);
     const page = input.page ?? 1;
@@ -174,9 +189,7 @@ export class UsersService {
               },
             },
           },
-          orderBy: {
-            createdAt: 'desc',
-          },
+          orderBy: this.buildListOrderBy(input),
           skip: (page - 1) * pageSize,
           take: pageSize,
         }),

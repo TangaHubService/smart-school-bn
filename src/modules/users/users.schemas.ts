@@ -7,6 +7,8 @@ export const listUsersQuerySchema = z.object({
   status: z.enum(['active', 'inactive', 'all']).default('all'),
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(50),
+  sortBy: z.enum(['name', 'email', 'status', 'createdAt']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
   createdFrom: z.string().trim().optional(),
   createdTo: z.string().trim().optional(),
 });

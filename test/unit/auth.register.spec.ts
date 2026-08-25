@@ -78,6 +78,8 @@ describe('AuthService register', () => {
       firstName: 'Lina',
       lastName: 'Mukamana',
     });
+    const txUserUpdate = jest.fn().mockResolvedValue({ id: 'user-1' });
+    const txRefreshTokenCreate = jest.fn().mockResolvedValue({ id: 'refresh-1' });
     const txStudentCreate = jest.fn().mockResolvedValue({ id: 'student-1' });
     const txUserRoleCreate = jest.fn().mockResolvedValue({ id: 'ur-1' });
     const txFindUniqueOrThrow = jest.fn().mockResolvedValue({
@@ -101,6 +103,7 @@ describe('AuthService register', () => {
         return arg({
           user: {
             create: txUserCreate,
+            update: txUserUpdate,
             findUniqueOrThrow: txFindUniqueOrThrow,
           },
           student: {
@@ -108,6 +111,9 @@ describe('AuthService register', () => {
           },
           userRole: {
             create: txUserRoleCreate,
+          },
+          refreshToken: {
+            create: txRefreshTokenCreate,
           },
         });
       }
@@ -134,6 +140,7 @@ describe('AuthService register', () => {
     expect(txUserCreate).toHaveBeenCalled();
     expect(txStudentCreate).toHaveBeenCalled();
     expect(txUserRoleCreate).toHaveBeenCalled();
+    expect(txRefreshTokenCreate).toHaveBeenCalled();
     expect(mockEnsureTrialSubscription).toHaveBeenCalledWith(
       'user-1',
       'academy-tenant',
