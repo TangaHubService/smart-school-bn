@@ -279,6 +279,8 @@ model Tenant {
   chatReactions  GroupChatReaction[]
   chatReads      StudentGroupChatRead[]
   academicYearPreferences UserAcademicYearPreference[]
+  supportTickets SupportTicket[]
+  ticketReplies TicketReply[]
 
   @@index([isActive])
 }
@@ -300,6 +302,11 @@ model School {
   village            String?
   country            String    @default("Rwanda")
   timezone           String    @default("Africa/Kigali")
+  adminCountryCode   String?
+  adminLevel1        String?
+  adminLevel2        String?
+  adminLevel3        String?
+  adminLevel4        String?
   logoUrl            String?
   setupCompletedAt   DateTime?
   createdAt          DateTime  @default(now())
@@ -311,6 +318,7 @@ model School {
 
   @@index([country])
   @@index([country, province, district, sector])
+  @@index([adminCountryCode, adminLevel1, adminLevel2])
 }
 
 model User {
@@ -322,6 +330,9 @@ model User {
   firstName    String
   lastName     String
   phone        String?
+  sex                 String?
+  hasDisability       Boolean @default(false)
+  disabilityType      String?
   status       UserStatus @default(ACTIVE)
   lastLoginAt  DateTime?
   deletedAt    DateTime?
@@ -397,6 +408,8 @@ model User {
   chatReactions         GroupChatReaction[]
   chatReads             StudentGroupChatRead[]
   academicYearPreference UserAcademicYearPreference?
+  supportTicketsCreated SupportTicket[] @relation("SupportTicketCreatedBy")
+  ticketRepliesAuthored TicketReply[]   @relation("TicketReplyAuthor")
 
   @@unique([tenantId, email])
   @@unique([tenantId, username])
@@ -1293,6 +1306,7 @@ model FileAsset {
   announcementAttachments AnnouncementAttachment[]
   academicAuditAttachments AcademicAuditAttachment[]
   groupChatMessages GroupChatMessage[]
+  ticketAttachments TicketAttachment[]
 
   @@unique([tenantId, publicId])
   @@index([tenantId, uploadedByUserId, createdAt])
@@ -1909,6 +1923,10 @@ model SubscriptionInvoice {
   dueDate        DateTime
   issuedAt       DateTime                  @default(now())
   paidAt         DateTime?
+  paymentMethod  String?
+  paymentDate    DateTime?
+  reference      String?
+  notes          String?
   createdAt      DateTime                  @default(now())
   updatedAt      DateTime                  @updatedAt
 
@@ -1928,6 +1946,8 @@ model SubscriptionInvoicePayment {
   currency    String        @default("RWF")
   status      PaymentStatus @default(PENDING)
   provider    String        @default("paypack")
+  paymentMethod String?
+  reference     String?
   providerRef String        @unique
   phoneNumber String?
   completedAt DateTime?
@@ -2106,4 +2126,82 @@ model StudentGroupChatRead {
 
   @@unique([chatId, userId])
   @@index([tenantId, userId])
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model SupportTicket {
+  id               String                @id @default(uuid())
+  ticketNumber     String                @unique
+  tenantId         String?
+  createdByUserId  String?
+  name             String?
+  email            String?
+  subject          String
+  message          String
+  status           SupportTicketStatus   @default(OPEN)
+  priority         SupportTicketPriority @default(NORMAL)
+  assignedToUserId String?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  tenant      Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdBy   User?         @relation("SupportTicketCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  replies     TicketReply[]
+  attachments TicketAttachment[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([createdByUserId, status])
+  @@index([status, priority, createdAt])
+}
+
+model TicketReply {
+  id             String   @id @default(uuid())
+  ticketId       String
+  tenantId       String?
+  authorUserId   String?
+  authorName     String?
+  body           String
+  isStaffReply   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tenant   Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  author   User?         @relation("TicketReplyAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  attachments TicketAttachment[]
+
+  @@index([ticketId, createdAt])
+}
+
+model TicketAttachment {
+  id           String   @id @default(uuid())
+  ticketId     String
+  replyId      String?
+  fileAssetId  String?
+  fileUrl      String?
+  originalName String
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime @default(now())
+
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  reply     TicketReply?  @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  fileAsset FileAsset?    @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
 }

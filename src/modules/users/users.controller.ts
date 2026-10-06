@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
-import { listUsersQuerySchema, updateUserStatusSchema } from './users.schemas';
+import { listUsersQuerySchema, updateUserProfileSchema, updateUserStatusSchema } from './users.schemas';
 import { UsersService } from './users.service';
 
 export class UsersController {
@@ -40,6 +40,12 @@ export class UsersController {
   async exportUsers(req: Request, res: Response): Promise<Response> {
     const query = listUsersQuerySchema.parse(req.query);
     const result = await this.usersService.exportUsers(req.user!, query);
+    return sendSuccess(req, res, result);
+  }
+
+  async updateOwnProfile(req: Request, res: Response): Promise<Response> {
+    const body = updateUserProfileSchema.parse(req.body);
+    const result = await this.usersService.updateOwnProfile(req.user!, body);
     return sendSuccess(req, res, result);
   }
 }

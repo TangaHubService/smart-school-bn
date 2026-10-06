@@ -3,6 +3,7 @@ import { AttendanceStatus, Prisma } from '@prisma/client';
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser } from '../../common/types/auth.types';
 import { prisma } from '../../db/prisma';
+import { computeSubjectScore } from '../exams/marks-calculation';
 import type {
   AcademicByClassQueryInput,
   AcademicClassQueryInput,
@@ -122,6 +123,7 @@ export class ReportsService {
     }> = [];
 
     for (const [, subjectExams] of bySubject) {
+      // OFFICIAL FORMULA (Rev #27): Total = CAT + EXAM raw-sum percentage.
       const examParts = subjectExams.map(e => {
         const mark = e.marks.find(m => m.studentId === studentId);
         const marksObtained = mark?.marksObtained ?? 0;
@@ -136,26 +138,14 @@ export class ReportsService {
           weight: e.weight,
         };
       });
-
-      const catExams = examParts.filter(e => e.examType === 'CAT');
-      const examExams = examParts.filter(e => e.examType === 'EXAM');
-      let weightedAverage: number;
-      if (catExams.length && examExams.length) {
-        const catAvg =
-          catExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
-          (catExams.reduce((s, e) => s + e.weight, 0) || 1);
-        const examAvg =
-          examExams.reduce((sum, e) => sum + e.percentage * e.weight, 0) /
-          (examExams.reduce((s, e) => s + e.weight, 0) || 1);
-        const catWeightTotal = catExams.reduce((s, e) => s + e.weight, 0);
-        const examWeightTotal = examExams.reduce((s, e) => s + e.weight, 0);
-        const totalWeight = catWeightTotal + examWeightTotal || 1;
-        weightedAverage = (catAvg * catWeightTotal + examAvg * examWeightTotal) / totalWeight;
-      } else {
-        const weightTotal = examParts.reduce((sum, exam) => sum + exam.weight, 0) || 1;
-        weightedAverage =
-          examParts.reduce((sum, exam) => sum + exam.percentage * exam.weight, 0) / weightTotal;
-      }
+      const catEntries = examParts
+        .filter(e => e.examType === 'CAT')
+        .map(e => ({ obtained: e.marksObtained, max: e.totalMarks, present: true as const }));
+      const examEntries = examParts
+        .filter(e => e.examType === 'EXAM')
+        .map(e => ({ obtained: e.marksObtained, max: e.totalMarks, present: true as const }));
+      const score = computeSubjectScore({ cat: catEntries, exam: examEntries });
+      const weightedAverage = score.total;
 
       const band = this.resolveBand(rules, weightedAverage);
       subjects.push({

@@ -7,7 +7,11 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { BillingController } from './billing.controller';
-import { paySubscriptionInvoiceSchema } from './billing.schemas';
+import {
+  createManualInvoiceSchema,
+  paySubscriptionInvoiceSchema,
+  recordManualPaymentSchema,
+} from './billing.schemas';
 
 const controller = new BillingController();
 
@@ -34,4 +38,25 @@ billingRoutes.post(
   requirePermissions([PERMISSIONS.BILLING_PAY]),
   validateBody(paySubscriptionInvoiceSchema),
   asyncHandler((req, res) => controller.payMyInvoice(req, res))
+);
+
+// Manual billing for schools not on online payment (Super Admin only, Rev #16–19).
+billingRoutes.get(
+  '/billing/invoices',
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  asyncHandler((req, res) => controller.listInvoices(req, res))
+);
+
+billingRoutes.post(
+  '/billing/invoices/manual',
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  validateBody(createManualInvoiceSchema),
+  asyncHandler((req, res) => controller.createManualInvoice(req, res))
+);
+
+billingRoutes.post(
+  '/billing/invoices/:id/payments/manual',
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  validateBody(recordManualPaymentSchema),
+  asyncHandler((req, res) => controller.recordManualPayment(req, res))
 );

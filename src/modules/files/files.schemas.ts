@@ -10,6 +10,7 @@ export const signUploadSchema = z.object({
     'announcement',
     'audit-evidence',
     'chat',
+    'support',
   ]),
   fileName: z.string().trim().min(1).max(255),
 });

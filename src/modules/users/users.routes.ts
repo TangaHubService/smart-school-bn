@@ -7,7 +7,7 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { UsersController } from './users.controller';
-import { updateUserStatusSchema } from './users.schemas';
+import { updateUserProfileSchema, updateUserStatusSchema } from './users.schemas';
 
 const usersController = new UsersController();
 
@@ -18,6 +18,14 @@ usersRoutes.get(
   authenticate,
   enforceTenant,
   asyncHandler((req, res) => usersController.getMe(req, res))
+);
+
+usersRoutes.patch(
+  '/me',
+  authenticate,
+  enforceTenant,
+  validateBody(updateUserProfileSchema),
+  asyncHandler((req, res) => usersController.updateOwnProfile(req, res))
 );
 
 usersRoutes.get(

@@ -43,7 +43,8 @@ export function resolveBand(rules: GradingBand[], percentage: number) {
 }
 
 /**
- * One subject in one term: weighted CAT/EXAM % (same rules as term report cards) plus raw CA/Exam sums.
+ * One subject in one term: CAT+EXAM raw-sum % (same rules as term report cards,
+ * Revision #27) plus raw CA/Exam sums.
  */
 export function computeSubjectTermPerformance(
   subjectExams: ExamForTermRollup[],
@@ -61,39 +62,32 @@ export function computeSubjectTermPerformance(
   const caExams = subjectExams.filter(e => e.examType === 'CAT');
   const termExams = subjectExams.filter(e => e.examType === 'EXAM');
 
-  const pctForStudent = (exam: ExamForTermRollup): number => {
-    const m = exam.marks.find(item => item.studentId === studentId);
-    if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
-      return 0;
+  // OFFICIAL FORMULA (Rev #27): raw sums, NOT weighted averages.
+  const sumPart = (examList: ExamForTermRollup[]) => {
+    let obtained = 0;
+    let max = 0;
+    for (const e of examList) {
+      const m = e.marks.find(item => item.studentId === studentId);
+      if (m && m.status === MarkStatus.PRESENT && m.marksObtained != null) {
+        obtained += m.marksObtained;
+        max += e.totalMarks;
+      } else if (m && m.status !== MarkStatus.PRESENT) {
+        max += e.totalMarks; // absent keeps max (scores 0)
+      }
     }
-    return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
+    return { obtained, max };
   };
-
-  const weightedPercent = (examList: ExamForTermRollup[]): number => {
-    if (!examList.length) {
-      return 0;
-    }
-    const weightTotal = examList.reduce((sum, e) => sum + e.weight, 0) || 1;
-    return examList.reduce((sum, e) => sum + pctForStudent(e) * e.weight, 0) / weightTotal;
-  };
-
-  const continuousAssessmentPercent = weightedPercent(caExams);
-  const examPercent = weightedPercent(termExams);
-  const cw = policy.continuousWeight;
-  const ew = policy.examWeight;
-  const wSum = cw + ew || 1;
-  const hasCa = caExams.length > 0;
-  const hasTerm = termExams.length > 0;
-  let finalPercent: number;
-  if (hasCa && hasTerm) {
-    finalPercent = (continuousAssessmentPercent * cw + examPercent * ew) / wSum;
-  } else if (hasTerm) {
-    finalPercent = examPercent;
-  } else if (hasCa) {
-    finalPercent = continuousAssessmentPercent;
-  } else {
-    finalPercent = 0;
-  }
+  const ca = sumPart(caExams);
+  const te = sumPart(termExams);
+  const continuousAssessmentPercent = ca.max > 0 ? (ca.obtained / ca.max) * 100 : 0;
+  const examPercent = te.max > 0 ? (te.obtained / te.max) * 100 : 0;
+  const rawTotal = ca.obtained + te.obtained;
+  const rawMax = ca.max + te.max;
+  const hasCa = ca.max > 0 || caExams.length > 0;
+  const hasTerm = te.max > 0 || termExams.length > 0;
+  let finalPercent = rawMax > 0 ? (rawTotal / rawMax) * 100 : 0;
+  if (!hasCa && !hasTerm) finalPercent = 0;
+  void policy; // policy weights intentionally unused for total (passMark only)
 
   let caObtained = 0;
   let caMax = 0;

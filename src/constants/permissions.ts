@@ -69,6 +69,9 @@ export const PERMISSIONS = {
 
   BILLING_READ: 'billing.read',
   BILLING_PAY: 'billing.pay',
+
+  SUPPORT_TICKETS_READ: 'support.tickets.read',
+  SUPPORT_TICKETS_MANAGE: 'support.tickets.manage',
 } as const;
 
 export const SUPER_ADMIN_PERMISSIONS = [
@@ -86,6 +89,8 @@ export const SUPER_ADMIN_PERMISSIONS = [
   PERMISSIONS.ACADEMIC_AUDIT_READ,
   PERMISSIONS.ACADEMIC_AUDIT_LIST,
   PERMISSIONS.ACADEMIC_AUDIT_REVIEW,
+  PERMISSIONS.SUPPORT_TICKETS_READ,
+  PERMISSIONS.SUPPORT_TICKETS_MANAGE,
 ];
 
 export const SCHOOL_ADMIN_PERMISSIONS = [
@@ -237,6 +242,21 @@ export function buildDefaultTenantRoles(): DefaultRoleDefinition[] {
     {
       name: 'PUBLIC_LEARNER',
       description: 'Public Academy learner role',
+      isSystem: true,
+      permissions: [
+        PERMISSIONS.STUDENT_MY_COURSES_READ,
+        PERMISSIONS.ASSIGNMENTS_SUBMIT,
+        PERMISSIONS.ASSESSMENTS_SUBMIT,
+        PERMISSIONS.FILES_UPLOAD,
+        PERMISSIONS.CHAT_READ,
+        PERMISSIONS.CHAT_SEND,
+      ],
+    },
+    {
+      // Revision #12: first-class LEARNER role for Public Academy students.
+      // Same learner-scoped permissions as PUBLIC_LEARNER — never admin.
+      name: 'LEARNER',
+      description: 'Academy learner role (Public Academy students)',
       isSystem: true,
       permissions: [
         PERMISSIONS.STUDENT_MY_COURSES_READ,

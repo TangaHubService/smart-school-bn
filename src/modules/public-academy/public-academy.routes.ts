@@ -11,8 +11,10 @@ import {
 const router = Router();
 
 // Public routes
+router.get('/plans', PublicAcademyController.getPlans);
 router.get('/programs', PublicAcademyController.getPrograms);
 router.get('/catalog/tree', PublicAcademyController.getCatalogTree);
+router.get('/stats', PublicAcademyController.getPublicStats);
 router.get('/programs/:id', PublicAcademyController.getProgramById);
 router.head('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.get('/webhook/paypack', PublicAcademyController.webhookProbe);

@@ -5,7 +5,12 @@ import { AppError } from '../../common/errors/app-error';
 import { env } from '../../config/env';
 import { sendSuccess } from '../../common/utils/response';
 import { BillingService } from './billing.service';
-import { paySubscriptionInvoiceSchema } from './billing.schemas';
+import {
+  createManualInvoiceSchema,
+  listInvoicesQuerySchema,
+  paySubscriptionInvoiceSchema,
+  recordManualPaymentSchema,
+} from './billing.schemas';
 
 const service = new BillingService();
 
@@ -27,6 +32,24 @@ export class BillingController {
     const body = paySubscriptionInvoiceSchema.parse(req.body);
     const result = await service.payInvoice(req.tenantId!, req.user!, body, buildContext(req));
     return sendSuccess(req, res, result);
+  }
+
+  async createManualInvoice(req: Request, res: Response): Promise<Response> {
+    const body = createManualInvoiceSchema.parse(req.body);
+    const result = await service.createManualInvoice(body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async recordManualPayment(req: Request, res: Response): Promise<Response> {
+    const body = recordManualPaymentSchema.parse(req.body);
+    const result = await service.recordManualPayment(req.params.id, body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async listInvoices(req: Request, res: Response): Promise<Response> {
+    const query = listInvoicesQuerySchema.parse(req.query);
+    const result = await service.listInvoices(query);
+    return sendSuccess(req, res, { items: result.items, pagination: result.pagination });
   }
 
   /**

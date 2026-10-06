@@ -28,9 +28,12 @@ import { usersRoutes } from '../modules/users/users.routes';
 import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
 import { govRoutes } from '../modules/gov/gov.routes';
 import { adminAuditorsRoutes } from '../modules/admin-auditors/admin-auditors.routes';
+import { locationsRoutes } from '../modules/locations/locations.routes';
 import { academicYearPreferenceRoutes } from '../modules/academic-year-preference/academic-year-preference.routes';
 import { lessonPlansRoutes } from '../modules/lesson-plans/lesson-plans.routes';
 import { chatRoutes } from '../modules/chat/chat.routes';
+import { supportRoutes } from '../modules/support/support.routes';
+import { activityLogsRouter } from '../modules/activity-logs/activity.routes';
 import { env } from '../config/env';
 
 export const apiRouter = Router();
@@ -39,6 +42,11 @@ apiRouter.use('/health', healthRoutes);
 apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/public-academy', publicAcademyRouter);
 apiRouter.use('/auth', authRoutes);
+// NOTE: supportRoutes is mounted before any `/`-mounted router that applies
+// global `authenticate` (e.g. billing/attendance/conduct-marks), otherwise
+// their router-level middleware would 401 the public contact endpoint
+// POST /support/tickets/public before it is ever reached.
+apiRouter.use('/', supportRoutes);
 apiRouter.use('/', usersRoutes);
 apiRouter.use('/', auditRoutes);
 apiRouter.use('/', subscriptionsRoutes);
@@ -46,6 +54,7 @@ apiRouter.use('/', billingRoutes);
 apiRouter.use('/', systemAnnouncementsRoutes);
 apiRouter.use('/tenants', tenantsRoutes);
 apiRouter.use('/schools', schoolsRoutes);
+apiRouter.use('/locations', locationsRoutes);
 apiRouter.use('/staff', staffRoutes);
 apiRouter.use('/', academicRoutes);
 apiRouter.use('/', attendanceRoutes);
@@ -67,4 +76,5 @@ apiRouter.use('/', adminAuditorsRoutes);
 apiRouter.use('/', academicYearPreferenceRoutes);
 apiRouter.use('/', lessonPlansRoutes);
 apiRouter.use('/', chatRoutes);
+apiRouter.use('/activity-logs', activityLogsRouter);
 apiRouter.use('/roles', rolesRoutes);

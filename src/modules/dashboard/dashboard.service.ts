@@ -60,6 +60,17 @@ export interface SuperAdminDashboardData {
     assessmentCompletionRate: number | null;
     overallRate: number | null;
   };
+  /**
+   * Student Success Rate (Rev #2): % of students with term average >= passMark,
+   * computed from published/locked ResultSnapshots. Null when no result data.
+   * Formula documented in marks-calculation.ts (computeSuccessRate).
+   */
+  studentSuccessRate: {
+    rate: number | null;
+    passed: number;
+    eligible: number;
+    passMark: number;
+  };
   activeUsers: {
     weeklyActive: number;
     monthlyActive: number;
@@ -308,7 +319,7 @@ export class DashboardService {
       }),
       prisma.conductIncident.count({ where: { tenant: tenantsWhere } }),
       prisma.exam.findMany({
-        where: { tenant: tenantsWhere },
+        where: { tenant: tenantsWhere, examDate: { gte: new Date() } },
         take: 5,
         orderBy: { examDate: 'asc' },
         include: {
@@ -488,7 +499,7 @@ export class DashboardService {
         totalUsers,
         activeSchools,
         ongoingExams: assessmentsCount,
-        supportTickets: 5,
+        supportTickets: await this.countOpenSupportTickets().catch(() => 0),
       },
       billing: {
         schoolSubscriptionsActive,
@@ -524,7 +535,12 @@ export class DashboardService {
         { id: 'teachers', name: 'Teachers Report', count: teachersCount, icon: 'user' },
         { id: 'admin', name: 'Admin Report', count: administratorsCount, icon: 'user' },
         { id: 'school', name: 'School Report', count: schoolCount, icon: 'school' },
-        { id: 'finance', name: 'Finance Report', count: 35, icon: 'document' },
+        {
+          id: 'finance',
+          name: 'Finance Report',
+          count: await this.countFinanceReports().catch(() => 0),
+          icon: 'document',
+        },
         { id: 'discipline', name: 'Discipline Report', count: conductCount, icon: 'message' },
       ],
       systemAnalytics: {
@@ -551,11 +567,81 @@ export class DashboardService {
         assessmentCompletionRate,
         overallRate,
       },
+      studentSuccessRate: await this.computeStudentSuccessRate().catch(() => ({
+        rate: null,
+        passed: 0,
+        eligible: 0,
+        passMark: 50,
+      })),
       activeUsers: {
         weeklyActive,
         monthlyActive,
       },
     };
+  }
+
+  /** Real open-ticket count (Rev #7). Returns 0 when table/data unavailable. */
+  private async countOpenSupportTickets(): Promise<number> {
+    try {
+      return await prisma.supportTicket.count({
+        where: { status: { in: ['OPEN', 'IN_PROGRESS'] } },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021') return 0;
+      throw e;
+    }
+  }
+
+  /** Real finance-report count = subscription invoices issued (Rev #9). */
+  private async countFinanceReports(): Promise<number> {
+    try {
+      return await prisma.subscriptionInvoice.count();
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021') return 0;
+      throw e;
+    }
+  }
+
+  /**
+   * Student Success Rate (Rev #2) from real academic data.
+   * rate = snapshots with totals.averagePercentage >= passMark / snapshots with totals * 100.
+   * Updates automatically as new marks are locked/published into ResultSnapshots.
+   */
+  private async computeStudentSuccessRate(passMark = 50): Promise<{
+    rate: number | null;
+    passed: number;
+    eligible: number;
+    passMark: number;
+  }> {
+    try {
+      const snapshots = await prisma.resultSnapshot.findMany({
+        where: { status: { in: [ResultSnapshotStatus.LOCKED, ResultSnapshotStatus.PUBLISHED] } },
+        select: { payload: true },
+        take: 5000,
+      });
+      let eligible = 0;
+      let passed = 0;
+      for (const s of snapshots) {
+        const payload = s.payload as unknown as {
+          totals?: { averagePercentage?: unknown };
+        } | null;
+        const avg = payload?.totals?.averagePercentage;
+        if (typeof avg !== 'number' || Number.isNaN(avg)) continue;
+        eligible += 1;
+        if (avg >= passMark) passed += 1;
+      }
+      return {
+        rate: eligible ? Number(((passed / eligible) * 100).toFixed(1)) : null,
+        passed,
+        eligible,
+        passMark,
+      };
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021') {
+        return { rate: null, passed: 0, eligible: 0, passMark };
+      }
+      throw e;
+    }
   }
 
   private buildSuperAdminAnalyticsSeries(

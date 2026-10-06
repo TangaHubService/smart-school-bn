@@ -71,6 +71,8 @@ const envSchema = z.object({
     .transform(value => value === 'true'),
   /** Shown on /health/info for ops / demo (e.g. Kigali, RW). */
   DEPLOY_REGION: z.string().max(120).optional().default(''),
+  /** Source for EAC administrative division reference data (country/province/district/... lookups). */
+  OPENADMINDATA_API_BASE_URL: z.string().url().default('https://api.openadmindata.org/api/v1'),
 });
 
 const parsed = envSchema.safeParse(process.env);

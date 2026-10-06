@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { schoolLocationFields } from '../../common/schemas/school-location.schema';
+
 const isoDate = z
   .string()
   .datetime({ offset: true })
@@ -22,6 +24,7 @@ export const schoolSetupSchema = z.object({
       village: z.string().trim().max(100).optional(),
       country: z.string().trim().max(100).default('Rwanda'),
       timezone: z.string().trim().max(80).default('Africa/Kigali'),
+      ...schoolLocationFields,
       logoUrl: z.string().trim().url().optional().or(z.literal('')),
     })
     .optional(),

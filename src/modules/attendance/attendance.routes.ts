@@ -53,3 +53,15 @@ attendanceRoutes.get(
   requirePermissions([PERMISSIONS.ATTENDANCE_READ]),
   asyncHandler((req, res) => attendanceController.getStudentAttendanceHistory(req, res))
 );
+
+attendanceRoutes.get(
+  '/attendance/report',
+  requirePermissions([PERMISSIONS.ATTENDANCE_READ]),
+  asyncHandler((req, res) => attendanceController.getAttendanceReport(req, res))
+);
+
+attendanceRoutes.get(
+  '/attendance/report/pdf',
+  requirePermissions([PERMISSIONS.ATTENDANCE_READ]),
+  asyncHandler((req, res) => attendanceController.downloadAttendanceReportPdf(req, res))
+);

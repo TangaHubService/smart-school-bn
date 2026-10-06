@@ -59,6 +59,11 @@ export class UsersService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      phone: (user as unknown as { phone?: string | null }).phone ?? null,
+      sex: (user as unknown as { sex?: string | null }).sex ?? null,
+      hasDisability: (user as unknown as { hasDisability?: boolean }).hasDisability ?? false,
+      disabilityType:
+        (user as unknown as { disabilityType?: string | null }).disabilityType ?? null,
       tenant: {
         id: user.tenant.id,
         name: user.tenant.name,
@@ -232,6 +237,11 @@ export class UsersService {
         firstName: user.firstName,
         lastName: user.lastName,
         phone: user.phone ?? null,
+        sex: (user as unknown as { sex?: string | null }).sex ?? null,
+        hasDisability:
+          (user as unknown as { hasDisability?: boolean }).hasDisability ?? false,
+        disabilityType:
+          (user as unknown as { disabilityType?: string | null }).disabilityType ?? null,
         status: user.status,
         createdAt: user.createdAt.toISOString(),
         tenant: user.tenant
@@ -285,6 +295,10 @@ export class UsersService {
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone ?? null,
+      sex: (user as unknown as { sex?: string | null }).sex ?? null,
+      hasDisability: (user as unknown as { hasDisability?: boolean }).hasDisability ?? false,
+      disabilityType:
+        (user as unknown as { disabilityType?: string | null }).disabilityType ?? null,
       status: user.status,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString(),
@@ -356,7 +370,7 @@ export class UsersService {
       take: 10000,
     });
 
-    const header = ['email', 'firstName', 'lastName', 'phone', 'school', 'roles', 'status'];
+    const header = ['email', 'firstName', 'lastName', 'phone', 'sex', 'hasDisability', 'disabilityType', 'school', 'roles', 'status'];
 
     const lines = users.map(user => {
       return [
@@ -364,6 +378,9 @@ export class UsersService {
         user.firstName ?? '',
         user.lastName ?? '',
         user.phone ?? '',
+        (user as unknown as { sex?: string | null }).sex ?? '',
+        (user as unknown as { hasDisability?: boolean }).hasDisability ? 'yes' : 'no',
+        (user as unknown as { disabilityType?: string | null }).disabilityType ?? '',
         user.tenant?.name ?? '',
         user.userRoles.map(ur => ur.role.name).join('; '),
         user.status,
@@ -380,6 +397,35 @@ export class UsersService {
       rowCount: users.length,
       csv,
     };
+  }
+
+  async updateOwnProfile(currentUser: JwtUser, input: Record<string, unknown>) {
+    const data: Record<string, unknown> = {};
+    if (typeof input.firstName === 'string' && input.firstName.trim()) {
+      data.firstName = input.firstName.trim();
+    }
+    if (typeof input.lastName === 'string' && input.lastName.trim()) {
+      data.lastName = input.lastName.trim();
+    }
+    if (input.phone !== undefined) data.phone = input.phone || null;
+    if (input.sex !== undefined) data.sex = input.sex || null;
+    if (typeof input.hasDisability === 'boolean') data.hasDisability = input.hasDisability;
+    if (input.disabilityType !== undefined) data.disabilityType = input.disabilityType || null;
+    if (!Object.keys(data).length) {
+      throw new AppError(400, 'NO_CHANGES', 'No profile changes provided');
+    }
+    const updated = await prisma.user.update({
+      where: { id: currentUser.sub },
+      data: data as never,
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+      },
+    });
+    return updated;
   }
 
   private escapeCsvValue(value: string): string {

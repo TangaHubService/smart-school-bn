@@ -18,3 +18,12 @@ export type ListUsersQueryInput = z.infer<typeof listUsersQuerySchema>;
 export const updateUserStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']),
 });
+
+export const updateUserProfileSchema = z.object({
+  firstName: z.string().trim().min(2).max(80).optional(),
+  lastName: z.string().trim().min(2).max(80).optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  sex: z.string().trim().max(20).nullable().optional(),
+  hasDisability: z.boolean().optional(),
+  disabilityType: z.string().trim().max(160).nullable().optional(),
+});

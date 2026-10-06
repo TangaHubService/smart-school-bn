@@ -10,6 +10,7 @@ const ROLE_PRIORITY = [
   'STUDENT',
   'PARENT',
   'PUBLIC_LEARNER',
+  'LEARNER',
 ] as const;
 
 const MODULE_PREFIXES: Array<[prefix: string, module: string]> = [

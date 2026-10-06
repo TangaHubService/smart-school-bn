@@ -329,6 +329,7 @@ export class AuthService {
       throw new AppError(409, 'AUTH_USERNAME_TAKEN', 'This username is already taken.');
     }
 
+    // Revision #12: ensure both PUBLIC_LEARNER (legacy) and LEARNER roles exist.
     const learnerRole = await prisma.role.upsert({
       where: {
         tenantId_name: {
@@ -343,6 +344,25 @@ export class AuthService {
         tenantId: academyTenant.id,
         name: 'PUBLIC_LEARNER',
         description: 'Public academy learner',
+        isSystem: true,
+        permissions: PUBLIC_LEARNER_PERMISSIONS,
+      },
+    });
+
+    const modernLearnerRole = await prisma.role.upsert({
+      where: {
+        tenantId_name: {
+          tenantId: academyTenant.id,
+          name: 'LEARNER',
+        },
+      },
+      update: {
+        permissions: PUBLIC_LEARNER_PERMISSIONS,
+      },
+      create: {
+        tenantId: academyTenant.id,
+        name: 'LEARNER',
+        description: 'Academy learner role (Public Academy students)',
         isSystem: true,
         permissions: PUBLIC_LEARNER_PERMISSIONS,
       },
@@ -380,6 +400,14 @@ export class AuthService {
           tenantId: academyTenant.id,
           userId: newUser.id,
           roleId: learnerRole.id,
+        },
+      });
+
+      await tx.userRole.create({
+        data: {
+          tenantId: academyTenant.id,
+          userId: newUser.id,
+          roleId: modernLearnerRole.id,
         },
       });
 

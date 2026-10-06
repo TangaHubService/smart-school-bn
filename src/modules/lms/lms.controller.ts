@@ -13,6 +13,7 @@ import {
   listCourseTeacherOptionsQuerySchema,
   listCourseSubjectOptionsQuerySchema,
   listMyCoursesQuerySchema,
+  learningInsightsQuerySchema,
   recordLessonActivitySchema,
 } from './lms.schemas';
 
@@ -288,7 +289,8 @@ export class LmsController {
   }
 
   async listTeacherLearningInsights(req: Request, res: Response): Promise<Response> {
-    const result = await lmsService.listTeacherLearningInsights(req.tenantId!, req.user!);
+    const query = learningInsightsQuerySchema.parse(req.query);
+    const result = await lmsService.listTeacherLearningInsights(req.tenantId!, req.user!, query);
     return sendSuccess(req, res, result);
   }
 }

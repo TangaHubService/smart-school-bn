@@ -25,6 +25,7 @@ import {
   ResultsActionInput,
   UpdateExamInput,
 } from './exams.schemas';
+import { computeSubjectScore } from './marks-calculation';
 import {
   loadLedgerConductDisplayMap,
   loadTermConductDisplayMap,
@@ -186,6 +187,7 @@ export class ExamsService {
       ...(query.termId ? { termId: query.termId } : {}),
       ...(query.classId ? { classRoomId: query.classId } : {}),
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
+      ...(query.academicYearId ? { academicYearId: query.academicYearId } : {}),
     };
 
     if (query.q) {
@@ -665,52 +667,31 @@ export class ExamsService {
           .filter(e => e.examType === 'CAT')
           .sort((a, b) => a.name.localeCompare(b.name));
         const termExams = list.filter(e => e.examType === 'EXAM');
-        const policy = policyBySubjectId.get(subjectId) ?? defaultPolicy;
-        const cw = policy.continuousWeight;
-        const ew = policy.examWeight;
-        const wSum = cw + ew || 1;
-
-        const pctFor = (exam: (typeof exams)[number], sid: string): number | null => {
-          const m = exam.marks.find(mk => mk.studentId === sid);
-          if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
-            return null;
+        // OFFICIAL FORMULA (Rev #27): Total = CAT Marks + Exam Marks (raw sum).
+        // Percentage = (catObtained + examObtained) / (catMax + examMax) * 100.
+        // Policy weights are NOT used for the total (passMark only).
+        const toEntry = (exam: (typeof exams)[number]) => {
+          const m = exam.marks.find(mk => mk.studentId === student.id);
+          if (!m) return null;
+          if (m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+            return { obtained: null, max: exam.totalMarks, present: false as const, hasRecord: true };
           }
-          return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
+          return { obtained: m.marksObtained, max: exam.totalMarks, present: true as const, hasRecord: true };
         };
-
-        const caParts = caExams
-          .map(e => pctFor(e, student.id))
-          .filter((p): p is number => p != null);
-        const caPct = caParts.length ? caParts.reduce((a, b) => a + b, 0) / caParts.length : null;
-
-        const termParts = termExams
-          .map(e => pctFor(e, student.id))
-          .filter((p): p is number => p != null);
-        const examPct = termParts.length
-          ? termParts.reduce((a, b) => a + b, 0) / termParts.length
-          : null;
-
-        const ca = caPct ?? 0;
-        const te = examPct ?? 0;
-        const hasCaEx = caExams.length > 0;
-        const hasTermEx = termExams.length > 0;
-        const hasAny = caPct != null || examPct != null;
-        let total = 0;
-        if (hasAny) {
-          if (hasCaEx && hasTermEx) {
-            total = (ca * cw + te * ew) / wSum;
-          } else if (hasTermEx) {
-            total = te;
-          } else {
-            total = ca;
-          }
-        }
+        const catEntries = caExams.map(toEntry).filter((e): e is NonNullable<typeof e> => e != null);
+        const examEntries = termExams.map(toEntry).filter((e): e is NonNullable<typeof e> => e != null);
+        const score = computeSubjectScore({
+          cat: catEntries.map(e => ({ obtained: e.obtained, max: e.max, present: e.present })),
+          exam: examEntries.map(e => ({ obtained: e.obtained, max: e.max, present: e.present })),
+        });
+        // Absent handling: computeSubjectScore keeps max for present=false.
+        // Exams with no mark record at all contribute nothing (hasAny=false).
 
         return {
           subjectId,
-          testMarks: caPct != null ? Number(caPct.toFixed(2)) : null,
-          examMarks: examPct != null ? Number(examPct.toFixed(2)) : null,
-          total: hasAny ? Number(total.toFixed(2)) : 0,
+          testMarks: score.testPercent,
+          examMarks: score.examPercent,
+          total: score.hasAny ? score.total : 0,
         };
       });
       const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
@@ -1023,44 +1004,25 @@ export class ExamsService {
             .filter(e => e.examType === 'CAT')
             .sort((a, b) => a.name.localeCompare(b.name));
           const termExams = list.filter(e => e.examType === 'EXAM');
-          const policy = policyByKey.get(`${termId}:${classRoomId}:${subjectId}`) ?? defaultPolicy;
-          const cw = policy.continuousWeight;
-          const ew = policy.examWeight;
-          const wSum = cw + ew || 1;
-
-          const caParts = caExams
-            .map(e => pctFor(e, student.id))
-            .filter((p): p is number => p != null);
-          const caPct = caParts.length ? caParts.reduce((a, b) => a + b, 0) / caParts.length : null;
-
-          const termParts = termExams
-            .map(e => pctFor(e, student.id))
-            .filter((p): p is number => p != null);
-          const examPct = termParts.length
-            ? termParts.reduce((a, b) => a + b, 0) / termParts.length
-            : null;
-
-          const ca = caPct ?? 0;
-          const te = examPct ?? 0;
-          const hasCaEx = caExams.length > 0;
-          const hasTermEx = termExams.length > 0;
-          const hasAny = caPct != null || examPct != null;
-          let total = 0;
-          if (hasAny) {
-            if (hasCaEx && hasTermEx) {
-              total = (ca * cw + te * ew) / wSum;
-            } else if (hasTermEx) {
-              total = te;
-            } else {
-              total = ca;
+          // OFFICIAL FORMULA (Rev #27): Total = CAT + EXAM raw-sum percentage.
+          const entryFor = (exam: (typeof gExams)[number]) => {
+            const m = exam.marks.find(mk => mk.studentId === student.id);
+            if (!m) return null;
+            if (m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+              return { obtained: null, max: exam.totalMarks, present: false as const };
             }
-          }
+            return { obtained: m.marksObtained, max: exam.totalMarks, present: true as const };
+          };
+          const score = computeSubjectScore({
+            cat: caExams.map(entryFor).filter((e): e is NonNullable<typeof e> => e != null),
+            exam: termExams.map(entryFor).filter((e): e is NonNullable<typeof e> => e != null),
+          });
 
           return {
             subjectId,
-            testMarks: caPct != null ? Number(caPct.toFixed(2)) : null,
-            examMarks: examPct != null ? Number(examPct.toFixed(2)) : null,
-            total: hasAny ? Number(total.toFixed(2)) : 0,
+            testMarks: score.testPercent,
+            examMarks: score.examPercent,
+            total: score.hasAny ? score.total : 0,
           };
         });
         const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
@@ -3002,23 +2964,8 @@ export class ExamsService {
       examsBySubject.get(exam.subjectId)!.push(exam);
     }
 
-    const pctForStudent = (exam: any, studentId: string): number => {
-      const m = exam.marks.find((item: any) => item.studentId === studentId);
-      if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
-        return 0;
-      }
-      return exam.totalMarks > 0 ? (m.marksObtained / exam.totalMarks) * 100 : 0;
-    };
-
-    const weightedPercent = (examList: any[], studentId: string): number => {
-      if (!examList.length) {
-        return 0;
-      }
-      const weightTotal = examList.reduce((sum, e) => sum + e.weight, 0) || 1;
-      return (
-        examList.reduce((sum, e) => sum + pctForStudent(e, studentId) * e.weight, 0) / weightTotal
-      );
-    };
+    // NOTE: legacy weighted helpers removed — canonical total is CAT+EXAM
+    // raw-sum percentage via computeSubjectScore (Revision #27).
 
     const subjects: ReportCardPayload['subjects'] = [];
     let totalMarksObtained = 0;
@@ -3031,23 +2978,21 @@ export class ExamsService {
       const caExams = subjectExams.filter(e => e.examType === 'CAT');
       const termExams = subjectExams.filter(e => e.examType === 'EXAM');
 
-      const continuousAssessmentPercent = weightedPercent(caExams, params.student.id);
-      const examPercent = weightedPercent(termExams, params.student.id);
-      const cw = policy.continuousWeight;
-      const ew = policy.examWeight;
-      const wSum = cw + ew || 1;
-      const hasCa = caExams.length > 0;
-      const hasTerm = termExams.length > 0;
-      let finalPercent: number;
-      if (hasCa && hasTerm) {
-        finalPercent = (continuousAssessmentPercent * cw + examPercent * ew) / wSum;
-      } else if (hasTerm) {
-        finalPercent = examPercent;
-      } else if (hasCa) {
-        finalPercent = continuousAssessmentPercent;
-      } else {
-        finalPercent = 0;
-      }
+      // OFFICIAL FORMULA (Rev #27): Total = CAT + EXAM raw-sum percentage.
+      const toEntry = (exam: any) => {
+        const m = exam.marks.find((item: any) => item.studentId === params.student.id);
+        if (!m || m.status !== MarkStatus.PRESENT || m.marksObtained == null) {
+          return { obtained: null, max: exam.totalMarks, present: false as const };
+        }
+        return { obtained: m.marksObtained, max: exam.totalMarks, present: true as const };
+      };
+      const score = computeSubjectScore({
+        cat: caExams.map(toEntry),
+        exam: termExams.map(toEntry),
+      });
+      const continuousAssessmentPercent = score.testPercent ?? 0;
+      const examPercent = score.examPercent ?? 0;
+      const finalPercent = score.total;
       const passMark = policy.passMark;
       const decision: 'PASS' | 'FAIL' = finalPercent >= passMark ? 'PASS' : 'FAIL';
       const band = this.resolveBand(rules, finalPercent);

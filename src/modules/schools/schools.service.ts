@@ -5,6 +5,7 @@ import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
+import { resolveSchoolLocation } from './school-location.util';
 import { SchoolSetupInput } from './schools.schemas';
 
 export class SchoolsService {
@@ -18,6 +19,8 @@ export class SchoolsService {
   ) {
     this.validateChronology(input);
 
+    const location = resolveSchoolLocation(input.school ?? {});
+
     const result = await prisma.$transaction(async tx => {
       const school = await tx.school.upsert({
         where: { tenantId },
@@ -28,14 +31,19 @@ export class SchoolsService {
           phone: input.school?.phone,
           addressLine1: input.school?.addressLine1,
           addressLine2: input.school?.addressLine2,
-          province: input.school?.province,
-          city: input.school?.city,
-          district: input.school?.district,
-          sector: input.school?.sector,
-          cell: input.school?.cell,
+          province: location.province,
+          city: location.city,
+          district: location.district,
+          sector: location.sector,
+          cell: location.cell,
           village: input.school?.village,
-          country: input.school?.country,
-          timezone: input.school?.timezone,
+          country: location.country,
+          timezone: location.timezone,
+          adminCountryCode: location.adminCountryCode,
+          adminLevel1: location.adminLevel1,
+          adminLevel2: location.adminLevel2,
+          adminLevel3: location.adminLevel3,
+          adminLevel4: location.adminLevel4,
           logoUrl: input.school?.logoUrl,
           setupCompletedAt: input.markSetupComplete ? new Date() : undefined,
         },
@@ -47,14 +55,19 @@ export class SchoolsService {
           phone: input.school?.phone,
           addressLine1: input.school?.addressLine1,
           addressLine2: input.school?.addressLine2,
-          province: input.school?.province,
-          city: input.school?.city,
-          district: input.school?.district,
-          sector: input.school?.sector,
-          cell: input.school?.cell,
+          province: location.province,
+          city: location.city,
+          district: location.district,
+          sector: location.sector,
+          cell: location.cell,
           village: input.school?.village,
-          country: input.school?.country ?? 'Rwanda',
-          timezone: input.school?.timezone ?? 'Africa/Kigali',
+          country: location.country ?? 'Rwanda',
+          timezone: location.timezone ?? 'Africa/Kigali',
+          adminCountryCode: location.adminCountryCode,
+          adminLevel1: location.adminLevel1,
+          adminLevel2: location.adminLevel2,
+          adminLevel3: location.adminLevel3,
+          adminLevel4: location.adminLevel4,
           logoUrl: input.school?.logoUrl,
           setupCompletedAt: input.markSetupComplete ? new Date() : null,
         },

@@ -7,6 +7,7 @@ import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
   AttendanceSummaryQueryInput,
+  AttendanceReportQueryInput,
   BulkAttendanceRecordsInput,
   ClassAttendanceQueryInput,
   CreateAttendanceSessionInput,
@@ -579,6 +580,146 @@ export class AttendanceService {
         updatedAt: record.updatedAt,
       })),
     };
+  }
+
+  async getAttendanceReport(
+    tenantId: string,
+    query: AttendanceReportQueryInput
+  ) {
+    const where: Prisma.AttendanceRecordWhereInput = { tenantId };
+    if (query.classRoomId) where.classRoomId = query.classRoomId;
+    if (query.studentId) where.studentId = query.studentId;
+    if (query.status) where.status = query.status;
+    if (query.from || query.to) {
+      const range: Prisma.DateTimeFilter = {};
+      if (query.from) range.gte = this.parseSchoolDate(query.from);
+      if (query.to) range.lte = this.parseSchoolDate(query.to);
+      where.attendanceDate = range;
+    }
+
+    const [records, classRoom, student] = await Promise.all([
+      prisma.attendanceRecord.findMany({
+        where,
+        include: {
+          classRoom: { select: { id: true, code: true, name: true } },
+          student: {
+            select: { id: true, studentCode: true, firstName: true, lastName: true },
+          },
+        },
+        orderBy: [{ attendanceDate: 'desc' }],
+        take: 2000,
+      }),
+      query.classRoomId
+        ? prisma.classRoom.findFirst({
+            where: { id: query.classRoomId, tenantId },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve(null),
+      query.studentId
+        ? prisma.student.findFirst({
+            where: { id: query.studentId, tenantId },
+            select: { id: true, studentCode: true, firstName: true, lastName: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const summary = {
+      total: records.length,
+      present: records.filter(r => r.status === AttendanceStatus.PRESENT).length,
+      absent: records.filter(r => r.status === AttendanceStatus.ABSENT).length,
+      late: records.filter(r => r.status === AttendanceStatus.LATE).length,
+      excused: records.filter(r => r.status === AttendanceStatus.EXCUSED).length,
+    };
+
+    return {
+      range: { from: query.from ?? null, to: query.to ?? null },
+      classRoom,
+      student,
+      status: query.status ?? null,
+      summary,
+      records: records.map(r => ({
+        id: r.id,
+        date: this.toSchoolDateString(r.attendanceDate),
+        status: r.status,
+        remarks: r.remarks,
+        classRoom: r.classRoom,
+        student: r.student,
+      })),
+    };
+  }
+
+  /**
+   * Professional attendance PDF (Rev #21) with school logo and verified totals:
+   * TOTAL = PRESENT + ABSENT + LATE + EXCUSED.
+   */
+  async buildAttendanceReportPdf(
+    tenantId: string,
+    query: AttendanceReportQueryInput
+  ): Promise<Buffer> {
+    const PDFDocument = (await import('pdfkit')).default;
+    const report = await this.getAttendanceReport(tenantId, query);
+    const school = await prisma.school.findUnique({
+      where: { tenantId },
+      select: { displayName: true, logoUrl: true },
+    });
+    const { total, present, absent, late, excused } = report.summary;
+    if (total !== present + absent + late + excused) {
+      throw new AppError(500, 'ATTENDANCE_TOTALS_MISMATCH', 'Attendance totals do not reconcile');
+    }
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const chunks: Buffer[] = [];
+    const done = new Promise<Buffer>((resolve, reject) => {
+      doc.on('data', (c: Buffer) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+    });
+    // Header with school branding
+    doc.fontSize(18).text(school?.displayName ?? 'Attendance Report', { align: 'center' });
+    if (school?.logoUrl) doc.fontSize(9).text(school.logoUrl, { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(12).text('Attendance Report', { align: 'center' });
+    const rangeLabel =
+      report.range.from || report.range.to
+        ? `${report.range.from ?? '…'} → ${report.range.to ?? '…'}`
+        : 'All dates';
+    doc.fontSize(10).text(`Period: ${rangeLabel}`, { align: 'center' });
+    if (report.classRoom) {
+      doc.text(`Class: ${report.classRoom.code} ${report.classRoom.name}`, { align: 'center' });
+    }
+    if (report.student) {
+      doc.text(
+        `Student: ${report.student.firstName} ${report.student.lastName} (${report.student.studentCode})`,
+        { align: 'center' }
+      );
+    }
+    doc.moveDown();
+    // Summary boxes
+    doc.fontSize(11).text('Summary', { underline: true });
+    doc.fontSize(10).text(`TOTAL: ${total}`);
+    doc.text(`PRESENT: ${present}`);
+    doc.text(`ABSENT: ${absent}`);
+    doc.text(`LATE: ${late}`);
+    doc.text(`EXCUSED: ${excused}`);
+    doc.moveDown();
+    if (!report.records.length) {
+      doc.fontSize(10).text('No attendance records found for the selected period.');
+    } else {
+      doc.fontSize(11).text('Records', { underline: true });
+      for (const r of report.records.slice(0, 1500)) {
+        doc
+          .fontSize(9)
+          .text(
+            `${r.date} | ${r.student.firstName} ${r.student.lastName} (${r.student.studentCode}) | ${r.classRoom.code} | ${r.status}${r.remarks ? ` | ${r.remarks}` : ''}`
+          );
+      }
+      if (report.records.length > 1500) {
+        doc.fontSize(9).text(`… and ${report.records.length - 1500} more records`);
+      }
+    }
+    doc.moveDown();
+    doc.fontSize(8).text(`Generated ${new Date().toISOString()}`, { align: 'right' });
+    doc.end();
+    return done;
   }
 
   private async findSessionById(tenantId: string, sessionId: string): Promise<AttendanceSession> {

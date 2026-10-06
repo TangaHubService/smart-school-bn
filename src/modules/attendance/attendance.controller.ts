@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
 import {
+  attendanceReportQuerySchema,
   attendanceSummaryQuerySchema,
   classAttendanceQuerySchema,
   listAttendanceClassesQuerySchema,
@@ -78,5 +79,19 @@ export class AttendanceController {
     );
 
     return sendSuccess(req, res, result);
+  }
+
+  async getAttendanceReport(req: Request, res: Response): Promise<Response> {
+    const query = attendanceReportQuerySchema.parse(req.query);
+    const result = await attendanceService.getAttendanceReport(req.tenantId!, query);
+    return sendSuccess(req, res, result);
+  }
+
+  async downloadAttendanceReportPdf(req: Request, res: Response): Promise<void> {
+    const query = attendanceReportQuerySchema.parse(req.query);
+    const buffer = await attendanceService.buildAttendanceReportPdf(req.tenantId!, query);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="attendance-report.pdf"');
+    res.send(buffer);
   }
 }

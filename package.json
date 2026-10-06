@@ -6,7 +6,7 @@
   "main": "dist/src/server.js",
   "scripts": {
     "start": "node dist/src/server.js",
-    "start:dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
@@ -19,6 +19,7 @@
     "prisma:fix-missing-columns": "ts-node prisma/scripts/fix-missing-columns.ts",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:add-timetable-permissions": "ts-node prisma/scripts/add-timetable-permissions.ts",
+    "prisma:backfill-learner-role": "ts-node prisma/scripts/backfill-learner-role.ts",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:integration": "jest --config jest.integration.config.ts",

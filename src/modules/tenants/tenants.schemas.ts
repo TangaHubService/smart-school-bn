@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { schoolLocationFields } from '../../common/schemas/school-location.schema';
+
 export const createTenantSchema = z.object({
   code: z
     .string()
@@ -25,6 +27,7 @@ export const createTenantSchema = z.object({
       village: z.string().trim().max(100).optional(),
       country: z.string().trim().max(100).default('Rwanda'),
       timezone: z.string().trim().max(80).default('Africa/Kigali'),
+      ...schoolLocationFields,
     })
     .optional(),
   schoolAdmin: z
@@ -72,6 +75,12 @@ export const listTenantsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   search: z.string().trim().min(1).max(120).optional(),
+  country: z.string().trim().max(100).optional(),
+  province: z.string().trim().max(100).optional(),
+  district: z.string().trim().max(100).optional(),
+  sector: z.string().trim().max(100).optional(),
+  cell: z.string().trim().max(100).optional(),
+  village: z.string().trim().max(100).optional(),
 });
 
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;

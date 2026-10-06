@@ -2229,7 +2229,9 @@ export class AssessmentsService {
 
     if (
       actor.sub === attempt.studentUserId &&
-      (actor.roles.includes('STUDENT') || actor.roles.includes('PUBLIC_LEARNER'))
+      (actor.roles.includes('STUDENT') ||
+        actor.roles.includes('PUBLIC_LEARNER') ||
+        actor.roles.includes('LEARNER'))
     ) {
       return;
     }

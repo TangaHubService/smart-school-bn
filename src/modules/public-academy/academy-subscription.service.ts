@@ -129,7 +129,9 @@ export class AcademySubscriptionService {
       throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
     }
 
-    const hasLearnerRole = user.userRoles.some(item => item.role.name === 'PUBLIC_LEARNER');
+    const hasLearnerRole = user.userRoles.some(item =>
+      ['PUBLIC_LEARNER', 'LEARNER'].includes(item.role.name)
+    );
     if (!hasLearnerRole || !user.studentProfile) {
       throw new AppError(
         403,

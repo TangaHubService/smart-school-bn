@@ -63,6 +63,11 @@ export const listCoursesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const learningInsightsQuerySchema = z.object({
+  classId: z.string().uuid().optional(),
+  courseId: z.string().uuid().optional(),
+});
+
 export const courseDetailQuerySchema = z.object({
   lessonsPage: z.coerce.number().int().min(1).default(1),
   lessonsPageSize: z.coerce.number().int().min(1).max(50).default(10),

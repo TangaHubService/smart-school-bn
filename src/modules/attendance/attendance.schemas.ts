@@ -47,13 +47,55 @@ export const listAttendanceClassesQuerySchema = z.object({
     .transform(v => v === 'true' || v === '1'),
 });
 
-export const classAttendanceQuerySchema = z.object({
-  date: schoolDateSchema.optional(),
-});
+export const classAttendanceQuerySchema = z
+  .object({
+    date: schoolDateSchema.optional(),
+    from: schoolDateSchema.optional(),
+    to: schoolDateSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.from && value.to && value.from > value.to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['from'],
+        message: 'from date must be less than or equal to to date',
+      });
+    }
+  });
 
-export const attendanceSummaryQuerySchema = z.object({
-  date: schoolDateSchema.optional(),
-});
+export const attendanceSummaryQuerySchema = z
+  .object({
+    date: schoolDateSchema.optional(),
+    from: schoolDateSchema.optional(),
+    to: schoolDateSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.from && value.to && value.from > value.to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['from'],
+        message: 'from date must be less than or equal to to date',
+      });
+    }
+  });
+
+export const attendanceReportQuerySchema = z
+  .object({
+    classRoomId: z.string().uuid().optional(),
+    studentId: z.string().uuid().optional(),
+    status: attendanceStatusSchema.optional(),
+    from: schoolDateSchema.optional(),
+    to: schoolDateSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.from && value.to && value.from > value.to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['from'],
+        message: 'from date must be less than or equal to to date',
+      });
+    }
+  });
 
 export const studentAttendanceHistoryQuerySchema = z
   .object({
@@ -75,6 +117,7 @@ export type CreateAttendanceSessionInput = z.infer<typeof createAttendanceSessio
 export type BulkAttendanceRecordsInput = z.infer<typeof bulkAttendanceRecordsSchema>;
 export type ClassAttendanceQueryInput = z.infer<typeof classAttendanceQuerySchema>;
 export type AttendanceSummaryQueryInput = z.infer<typeof attendanceSummaryQuerySchema>;
+export type AttendanceReportQueryInput = z.infer<typeof attendanceReportQuerySchema>;
 export type StudentAttendanceHistoryQueryInput = z.infer<
   typeof studentAttendanceHistoryQuerySchema
 >;

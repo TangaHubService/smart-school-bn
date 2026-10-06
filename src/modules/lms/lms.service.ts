@@ -2801,9 +2801,19 @@ export class LmsService {
   }
 
   /** Per-course completion and quiz aggregates for the signed-in teacher's courses. */
-  async listTeacherLearningInsights(tenantId: string, actor: JwtUser) {
+  async listTeacherLearningInsights(
+    tenantId: string,
+    actor: JwtUser,
+    query?: { classId?: string; courseId?: string }
+  ) {
     const courses = await prisma.course.findMany({
-      where: { tenantId, isActive: true, teacherUserId: actor.sub },
+      where: {
+        tenantId,
+        isActive: true,
+        teacherUserId: actor.sub,
+        ...(query?.classId ? { classRoomId: query.classId } : {}),
+        ...(query?.courseId ? { id: query.courseId } : {}),
+      },
       select: {
         id: true,
         title: true,

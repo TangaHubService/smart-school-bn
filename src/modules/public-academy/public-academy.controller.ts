@@ -125,6 +125,26 @@ async function hasActiveClassAccess(userId: string, classRoomId: string) {
 }
 
 export class PublicAcademyController {
+  /**
+   * Public plan catalog (single source of truth for plan prices/durations).
+   * Frontend must fetch this instead of hardcoding prices.
+   */
+  static async getPlans(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { ACADEMY_CHECKOUT_PLANS } = await import('./academy-subscription.service');
+      const plans = Object.entries(ACADEMY_CHECKOUT_PLANS).map(([id, plan]) => ({
+        id,
+        name: id.charAt(0).toUpperCase() + id.slice(1),
+        amount: plan.amount,
+        durationDays: plan.durationDays,
+        currency: 'RWF',
+      }));
+      return sendSuccess(req, res, { plans, currency: 'RWF' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static webhookProbe(req: Request, res: Response) {
     if (req.method === 'HEAD') {
       return res.status(200).end();
@@ -137,8 +157,7 @@ export class PublicAcademyController {
     });
   }
 
-  static async getPrograms(req: Request, res: Response, next: NextFunction) {
-    try {
+  static async getPrograms(req: Request, res: Response, next: NextFunction) {    try {
       const catalogTenantId = await resolveAcademyCatalogTenantId();
       if (!catalogTenantId) {
         return sendSuccess(req, res, [], 200, null, {
@@ -346,6 +365,45 @@ export class PublicAcademyController {
         .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
 
       return sendSuccess(req, res, { academicYears });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Public platform stats (Rev #2): real counts for the public home page.
+   * successRate = snapshots with averagePercentage >= 50 / snapshots with totals * 100.
+   * No auth required. Null rate when no result data yet.
+   */
+  static async getPublicStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const [activeUsers, schools, courses, snapshots] = await Promise.all([
+        prisma.user.count({ where: { deletedAt: null, status: 'ACTIVE' } }),
+        prisma.tenant.count({ where: { isActive: true, code: { not: 'platform' } } }),
+        prisma.course.count({ where: { isActive: true } }),
+        prisma.resultSnapshot.findMany({
+          select: { payload: true },
+          take: 5000,
+        }),
+      ]);
+      let eligible = 0;
+      let passed = 0;
+      for (const s of snapshots) {
+        const avg = (s.payload as unknown as { totals?: { averagePercentage?: unknown } } | null)
+          ?.totals?.averagePercentage;
+        if (typeof avg !== 'number' || Number.isNaN(avg)) continue;
+        eligible += 1;
+        if (avg >= 50) passed += 1;
+      }
+      return sendSuccess(req, res, {
+        studentSuccessRate:
+          eligible > 0
+            ? { rate: Number(((passed / eligible) * 100).toFixed(1)), passed, eligible }
+            : null,
+        activeUsers,
+        schools,
+        courseModules: courses,
+      });
     } catch (error) {
       next(error);
     }

@@ -11,6 +11,7 @@ import { buildDefaultTenantRoles } from '../../constants/permissions';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../notifications/email.service';
+import { resolveSchoolLocation } from '../schools/school-location.util';
 import {
   AssignSchoolAdminInput,
   CreateTenantInput,
@@ -75,6 +76,18 @@ export class TenantsService {
       ];
     }
 
+    // Hierarchical address filters: Country → Province → District → Sector → Cell → Village (Rev #14)
+    const schoolAddress: Prisma.SchoolWhereInput = {};
+    if (input.country) schoolAddress.country = { equals: input.country, mode: 'insensitive' };
+    if (input.province) schoolAddress.province = { equals: input.province, mode: 'insensitive' };
+    if (input.district) schoolAddress.district = { equals: input.district, mode: 'insensitive' };
+    if (input.sector) schoolAddress.sector = { equals: input.sector, mode: 'insensitive' };
+    if (input.cell) schoolAddress.cell = { equals: input.cell, mode: 'insensitive' };
+    if (input.village) schoolAddress.village = { equals: input.village, mode: 'insensitive' };
+    if (Object.keys(schoolAddress).length) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { school: schoolAddress }];
+    }
+
     const skip = (input.page - 1) * input.pageSize;
 
     const [totalItems, items] = await prisma.$transaction([
@@ -89,7 +102,11 @@ export class TenantsService {
               id: true,
               displayName: true,
               city: true,
+              province: true,
               district: true,
+              sector: true,
+              cell: true,
+              village: true,
               country: true,
               setupCompletedAt: true,
             },
@@ -135,6 +152,8 @@ export class TenantsService {
           },
         });
 
+        const location = resolveSchoolLocation(input.school ?? {});
+
         const school = await tx.school.create({
           data: {
             tenantId: tenant.id,
@@ -144,14 +163,19 @@ export class TenantsService {
             phone: input.school?.phone,
             addressLine1: input.school?.addressLine1,
             addressLine2: input.school?.addressLine2,
-            province: input.school?.province,
-            city: input.school?.city,
-            district: input.school?.district,
-            sector: input.school?.sector,
-            cell: input.school?.cell,
+            province: location.province,
+            city: location.city,
+            district: location.district,
+            sector: location.sector,
+            cell: location.cell,
             village: input.school?.village,
-            country: input.school?.country ?? 'Rwanda',
-            timezone: input.school?.timezone ?? 'Africa/Kigali',
+            country: location.country ?? 'Rwanda',
+            timezone: location.timezone ?? 'Africa/Kigali',
+            adminCountryCode: location.adminCountryCode,
+            adminLevel1: location.adminLevel1,
+            adminLevel2: location.adminLevel2,
+            adminLevel3: location.adminLevel3,
+            adminLevel4: location.adminLevel4,
           },
         });
 

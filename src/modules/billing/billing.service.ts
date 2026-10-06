@@ -3,13 +3,19 @@ import crypto from 'crypto';
 
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
+import { buildPagination } from '../../common/utils/pagination';
 import { AUDIT_EVENT } from '../../constants/audit-events';
 import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
 import { PaypackService } from '../../common/services/paypack.service';
 import { resetSubscriptionGateCache } from '../../common/middleware/subscription-gate.middleware';
 import { AuditService } from '../audit/audit.service';
-import { PaySubscriptionInvoiceInput } from './billing.schemas';
+import {
+  CreateManualInvoiceInput,
+  ListInvoicesQueryInput,
+  PaySubscriptionInvoiceInput,
+  RecordManualPaymentInput,
+} from './billing.schemas';
 
 const PAYMENT_REUSE_WINDOW_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_DAYS = 365;
@@ -46,7 +52,16 @@ function mapInvoice(invoice: {
   dueDate: Date;
   issuedAt: Date;
   paidAt: Date | null;
-}): MappedInvoice {
+  paymentMethod?: string | null;
+  paymentDate?: Date | null;
+  reference?: string | null;
+  notes?: string | null;
+}): MappedInvoice & {
+  paymentMethod: string | null;
+  paymentDate: string | null;
+  reference: string | null;
+  notes: string | null;
+} {
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -61,6 +76,10 @@ function mapInvoice(invoice: {
     dueDate: invoice.dueDate.toISOString(),
     issuedAt: invoice.issuedAt.toISOString(),
     paidAt: invoice.paidAt?.toISOString() ?? null,
+    paymentMethod: invoice.paymentMethod ?? null,
+    paymentDate: invoice.paymentDate?.toISOString() ?? null,
+    reference: invoice.reference ?? null,
+    notes: invoice.notes ?? null,
   };
 }
 
@@ -454,5 +473,180 @@ export class BillingService {
     });
 
     return { handled: true, paymentStatus: 'COMPLETED' };
+  }
+
+  /**
+   * Paginated invoice list for billing staff (Rev #16 follow-up).
+   * Super-admin view across schools with tenant/status filters.
+   */
+  async listInvoices(query: ListInvoicesQueryInput) {
+    const where: Prisma.SubscriptionInvoiceWhereInput = {};
+    if (query.tenantId) where.tenantId = query.tenantId;
+    if (query.status) where.status = query.status;
+    const [total, items] = await prisma.$transaction([
+      prisma.subscriptionInvoice.count({ where }),
+      prisma.subscriptionInvoice.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          tenant: { select: { id: true, code: true, name: true } },
+          payments: {
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            select: {
+              id: true,
+              amount: true,
+              currency: true,
+              status: true,
+              provider: true,
+              completedAt: true,
+              createdAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      items: items.map(invoice => ({
+        ...mapInvoice(invoice),
+        tenant: invoice.tenant,
+        payments: invoice.payments,
+      })),
+      pagination: buildPagination(query.page, query.pageSize, total),
+    };
+  }
+
+  /**
+   * Manual school billing (Rev #16–19). For schools not on online payment:
+   * creates an invoice with amount/currency/method/payment+expiry dates,
+   * reference and notes. Status derives from dates where applicable.
+   */
+  async createManualInvoice(
+    input: CreateManualInvoiceInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+      select: { id: true, code: true },
+    });
+    if (!tenant || tenant.code === 'platform') {
+      throw new AppError(404, 'TENANT_NOT_FOUND', 'School not found');
+    }
+    const periodStart = new Date(input.periodStart);
+    const periodEnd = new Date(input.periodEnd);
+    if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
+      throw new AppError(400, 'INVALID_DATE', 'Invalid billing period dates');
+    }
+    if (periodEnd <= periodStart) {
+      throw new AppError(400, 'INVALID_DATE_RANGE', 'Expiring date must be after period start');
+    }
+    const dueDate = input.dueDate ? new Date(input.dueDate) : periodEnd;
+    const paymentDate = input.paymentDate ? new Date(input.paymentDate) : null;
+    if (input.paymentDate && paymentDate && Number.isNaN(paymentDate.getTime())) {
+      throw new AppError(400, 'INVALID_DATE', 'Invalid payment date');
+    }
+    const yearLabel = String(periodStart.getFullYear());
+    const invoiceNumber = `MAN-${yearLabel}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+    const invoice = await prisma.subscriptionInvoice.create({
+      data: {
+        tenantId: input.tenantId,
+        invoiceNumber,
+        yearLabel,
+        title: input.title,
+        description: input.description,
+        amountDue: input.amountDue,
+        currency: input.currency,
+        status: input.status,
+        periodStart,
+        periodEnd,
+        dueDate,
+        paidAt: input.status === 'PAID' ? (paymentDate ?? new Date()) : null,
+        paymentMethod: input.paymentMethod ?? null,
+        paymentDate,
+        reference: input.reference ?? null,
+        notes: input.notes ?? null,
+      } as never,
+    });
+
+    if (input.status === 'PAID') {
+      await prisma.$transaction(async tx => {
+        await this.syncSchoolSubscription(tx, input.tenantId, periodStart, periodEnd);
+      });
+      resetSubscriptionGateCache(input.tenantId);
+    }
+
+    await this.auditService.log({
+      tenantId: input.tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SUBSCRIPTION_PAYMENT_CONFIRMED,
+      entity: 'SubscriptionInvoice',
+      entityId: invoice.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { invoiceNumber, manual: true, amount: input.amountDue, currency: input.currency },
+    });
+
+    return invoice;
+  }
+
+  /** Record an offline payment (cash/bank/MoMo/card) against an invoice. */
+  async recordManualPayment(
+    invoiceId: string,
+    input: RecordManualPaymentInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const invoice = await prisma.subscriptionInvoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new AppError(404, 'INVOICE_NOT_FOUND', 'Invoice not found');
+    const paymentDate = input.paymentDate ? new Date(input.paymentDate) : new Date();
+    if (Number.isNaN(paymentDate.getTime())) {
+      throw new AppError(400, 'INVALID_DATE', 'Invalid payment date');
+    }
+    const result = await prisma.$transaction(async tx => {
+      const payment = await tx.subscriptionInvoicePayment.create({
+        data: {
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          amount: input.amount,
+          currency: input.currency,
+          status: 'COMPLETED',
+          provider: 'manual',
+          paymentMethod: input.paymentMethod,
+          reference: input.reference ?? null,
+          providerRef: `MANUAL-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
+          completedAt: paymentDate,
+        } as never,
+      });
+      const updated = await tx.subscriptionInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: 'PAID',
+          paidAt: paymentDate,
+          paymentMethod: input.paymentMethod,
+          paymentDate,
+          reference: input.reference ?? (invoice as never as { reference?: string }).reference ?? null,
+        } as never,
+      });
+      await this.syncSchoolSubscription(tx, invoice.tenantId, invoice.periodStart, invoice.periodEnd);
+      return { payment, invoice: updated };
+    });
+    resetSubscriptionGateCache(invoice.tenantId);
+    await this.auditService.log({
+      tenantId: invoice.tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SUBSCRIPTION_PAYMENT_CONFIRMED,
+      entity: 'SubscriptionInvoicePayment',
+      entityId: result.payment.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { invoiceNumber: invoice.invoiceNumber, manual: true, method: input.paymentMethod },
+    });
+    return result;
   }
 }
