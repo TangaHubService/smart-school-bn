@@ -131,7 +131,9 @@ export class PublicAcademyController {
    */
   static async getPlans(req: Request, res: Response, next: NextFunction) {
     try {
-      const { ACADEMY_CHECKOUT_PLANS } = await import('./academy-subscription.service');
+      const { ACADEMY_CHECKOUT_PLANS, isMockAcademyBillingEnabled } = await import(
+        './academy-subscription.service'
+      );
       const plans = Object.entries(ACADEMY_CHECKOUT_PLANS).map(([id, plan]) => ({
         id,
         name: id.charAt(0).toUpperCase() + id.slice(1),
@@ -139,7 +141,11 @@ export class PublicAcademyController {
         durationDays: plan.durationDays,
         currency: 'RWF',
       }));
-      return sendSuccess(req, res, { plans, currency: 'RWF' });
+      return sendSuccess(req, res, {
+        plans,
+        currency: 'RWF',
+        mockBillingEnabled: isMockAcademyBillingEnabled(),
+      });
     } catch (error) {
       next(error);
     }
@@ -250,6 +256,23 @@ export class PublicAcademyController {
       const classRoomIds = programs.map(p => p.classRoomId).filter((id): id is string => !!id);
       const programByClassRoomId = new Map(programs.map(p => [p.classRoomId as string, p]));
 
+      // REB-style "Enrolled students" count per class: active program enrollments
+      // for the program linked to each class room.
+      const enrollmentGroups = programs.length
+        ? await prisma.programEnrollment.groupBy({
+            by: ['programId'],
+            where: {
+              tenantId: catalogTenantId,
+              isActive: true,
+              programId: { in: programs.map(p => p.id) },
+            },
+            _count: { _all: true },
+          })
+        : [];
+      const enrolledByProgramId = new Map(
+        enrollmentGroups.map(g => [g.programId, g._count._all])
+      );
+
       const courses = classRoomIds.length
         ? await prisma.course.findMany({
             where: {
@@ -283,6 +306,7 @@ export class PublicAcademyController {
                 programId: string;
                 price: number;
                 thumbnail: string | null;
+                enrolledCount: number;
                 subjects: Map<string, { id: string; name: string; courseCount: number }>;
               }
             >;
@@ -322,6 +346,7 @@ export class PublicAcademyController {
           programId: program.id,
           price: program.price,
           thumbnail: program.thumbnail,
+          enrolledCount: enrolledByProgramId.get(program.id) ?? 0,
           subjects: new Map(),
         };
         gradeNode.classRooms.set(program.classRoom.id, classNode);
@@ -354,6 +379,7 @@ export class PublicAcademyController {
                   programId: classRoom.programId,
                   price: classRoom.price,
                   thumbnail: classRoom.thumbnail,
+                  enrolledCount: classRoom.enrolledCount,
                   subjects: [...classRoom.subjects.values()].sort((a, b) =>
                     a.name.localeCompare(b.name)
                   ),
@@ -474,6 +500,31 @@ export class PublicAcademyController {
         phoneNumber,
       });
       return sendSuccess(req, res, result, 202);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Dev/demo instant checkout (no Paypack). The service refuses unless mock
+   * billing is enabled, so this endpoint is inert in production.
+   */
+  static async startMockPlanCheckout(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.sub;
+      const tenantId = req.user?.tenantId;
+
+      if (!userId || !tenantId) {
+        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
+      }
+
+      const { planId } = req.body as AcademyPlanCheckoutInput;
+      const result = await academySubscriptionService.startMockPlanCheckout(
+        userId,
+        tenantId,
+        planId as AcademyCheckoutPlanId
+      );
+      return sendSuccess(req, res, result, 201);
     } catch (error) {
       next(error);
     }

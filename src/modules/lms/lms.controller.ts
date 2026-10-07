@@ -168,6 +168,70 @@ export class LmsController {
     return sendSuccess(req, res, result);
   }
 
+  async createSection(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.createSection(
+      req.tenantId!,
+      req.params.courseId,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listSections(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.listSections(req.tenantId!, req.params.courseId, req.user!);
+
+    return sendSuccess(req, res, result);
+  }
+
+  async updateSection(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.updateSection(
+      req.tenantId!,
+      req.params.sectionId,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteSection(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.deleteSection(
+      req.tenantId!,
+      req.params.sectionId,
+      req.user!,
+      buildContext(req)
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async reorderSections(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.reorderSections(
+      req.tenantId!,
+      req.params.courseId,
+      req.body,
+      req.user!
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
+  async publishSection(req: Request, res: Response): Promise<Response> {
+    const result = await lmsService.publishSection(
+      req.tenantId!,
+      req.params.sectionId,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
+
+    return sendSuccess(req, res, result);
+  }
+
   async createAssignment(req: Request, res: Response): Promise<Response> {
     const result = await lmsService.createAssignment(
       req.tenantId!,

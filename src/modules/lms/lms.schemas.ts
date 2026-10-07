@@ -73,6 +73,32 @@ export const courseDetailQuerySchema = z.object({
   lessonsPageSize: z.coerce.number().int().min(1).max(50).default(10),
 });
 
+export const createSectionSchema = z
+  .object({
+    title: z.string().trim().min(2).max(120),
+    sortOrder: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+export const updateSectionSchema = z
+  .object({
+    title: z.string().trim().min(2).max(120).optional(),
+    sortOrder: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+export const reorderSectionsSchema = z
+  .object({
+    order: z.array(z.string().uuid()).min(1).max(200),
+  })
+  .strict();
+
+export const publishSectionSchema = z
+  .object({
+    isPublished: z.boolean(),
+  })
+  .strict();
+
 export const createLessonSchema = z
   .object({
     title: z.string().trim().min(2).max(120),
@@ -81,6 +107,7 @@ export const createLessonSchema = z
     body: z.string().max(40_000).optional(),
     externalUrl: z.string().trim().url().optional(),
     sequence: z.number().int().min(1).optional(),
+    sectionId: z.string().uuid().optional(),
     asset: uploadedAssetSchema.optional(),
   })
   .superRefine((value, context) => {
@@ -125,6 +152,7 @@ export const updateLessonSchema = z
     body: z.string().max(40_000).nullable().optional(),
     externalUrl: z.union([z.string().trim().url(), z.literal(''), z.null()]).optional(),
     sequence: z.number().int().min(1).optional(),
+    sectionId: z.string().uuid().nullable().optional(),
     asset: uploadedAssetSchema.optional(),
     removeAsset: z.boolean().optional(),
   })
@@ -251,6 +279,10 @@ export type UploadedAssetInput = z.infer<typeof uploadedAssetSchema>;
 export type CreateLessonInput = z.infer<typeof createLessonSchema>;
 export type UpdateLessonInput = z.infer<typeof updateLessonSchema>;
 export type PublishLessonInput = z.infer<typeof publishLessonSchema>;
+export type CreateSectionInput = z.infer<typeof createSectionSchema>;
+export type UpdateSectionInput = z.infer<typeof updateSectionSchema>;
+export type ReorderSectionsInput = z.infer<typeof reorderSectionsSchema>;
+export type PublishSectionInput = z.infer<typeof publishSectionSchema>;
 export type CreateAssignmentInput = z.infer<typeof createAssignmentSchema>;
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
 export type GradeSubmissionInput = z.infer<typeof gradeSubmissionSchema>;

@@ -27,6 +27,12 @@
 - `POST /staff/accept-invite`
 - `GET /staff/invites`
 
+## E-Running (e-learning platform, built on this codebase)
+- Reuses GradeLevel/ClassRoom/Subject/Course + class-level enrollment; new tables only: `Section`, `Activity` (file/link/video map to lessons; quiz later), `Announcement`, `Progress`
+- Same locales (en/rw/fr) and plan-gated public access; Admin-only dashboard enforced server-side via permission middleware
+- No new folders: improvements land in existing modules (`lms`, `public-academy`, `announcements`, `assessments`), reusing current services
+- Seeds: `npm run prisma:seed:primary` (Primary 1–6 programs, courses, lessons)
+
 ## Tests
 - Unit: `npm test`
 - Integration: `npm run test:integration`

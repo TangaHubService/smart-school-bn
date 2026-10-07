@@ -4,7 +4,9 @@ import {
   PaymentStatus,
   Prisma,
   type AcademySubscription,
+  type AcademySubscriptionPayment,
 } from '@prisma/client';
+import crypto from 'crypto';
 
 import { AppError } from '../../common/errors/app-error';
 import { PaypackService } from '../../common/services/paypack.service';
@@ -89,6 +91,15 @@ function academyPlanCodeToApi(code: AcademyPlanCode): 'trial' | AcademyCheckoutP
 
 function academyStatusToApi(status: AcademySubscriptionStatus) {
   return status;
+}
+
+/**
+ * Mock academy payments are allowed for demos/tests only — same rule as
+ * school billing: explicit opt-in, or Paypack unconfigured outside production.
+ * NEVER enable in production: it activates paid plans without real payment.
+ */
+export function isMockAcademyBillingEnabled(): boolean {
+  return env.BILLING_ALLOW_MOCK || (!env.PAYPACK_CLIENT_ID && env.NODE_ENV !== 'production');
 }
 
 export class AcademySubscriptionService {
@@ -519,6 +530,8 @@ export class AcademySubscriptionService {
       });
 
       return {
+        status: 'PENDING' as const,
+        mock: false,
         message: 'Payment initiated. Please confirm on your phone.',
         paymentId: payment.id,
         paypackRef: paypackResponse.ref,
@@ -533,6 +546,51 @@ export class AcademySubscriptionService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Development/demo checkout that instantly completes payment without
+   * Paypack. Refuses when mock billing is not enabled (production-safe).
+   * Shares the exact activation transaction as the real webhook path, so
+   * mock-paid plans extend enrollments identically to real payments.
+   */
+  async startMockPlanCheckout(userId: string, tenantId: string, planId: AcademyCheckoutPlanId) {
+    if (!isMockAcademyBillingEnabled()) {
+      throw new AppError(
+        403,
+        'MOCK_BILLING_DISABLED',
+        'Mock checkout is only available in development/demo environments.'
+      );
+    }
+    const subscription = await this.ensureTrialSubscription(userId, tenantId);
+    const plan = ACADEMY_CHECKOUT_PLANS[planId];
+
+    const payment = await prisma.academySubscriptionPayment.create({
+      data: {
+        tenantId,
+        userId,
+        academySubscriptionId: subscription.id,
+        planCode: plan.code,
+        amount: plan.amount,
+        durationDays: plan.durationDays,
+        currency: 'RWF',
+        status: PaymentStatus.COMPLETED,
+        channel: 'MOCK',
+        paypackRef: `MOCK-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
+      },
+    });
+
+    const activated = await this.activateSubscriptionForPayment(payment);
+
+    return {
+      status: 'PAID' as const,
+      mock: true,
+      message: 'Mock payment confirmed. Subscription active.',
+      paymentId: payment.id,
+      paypackRef: payment.paypackRef,
+      planId,
+      subscriptionId: activated.subscriptionId,
+    };
   }
 
   async selectProgram(userId: string, tenantId: string, programId: string) {
@@ -637,6 +695,88 @@ export class AcademySubscriptionService {
     return this.buildSummary(current, userId);
   }
 
+  /**
+   * Shared activation transaction for completed academy payments (real
+   * Paypack webhook AND dev mock checkout): marks payment COMPLETED,
+   * activates/extends the subscription, and extends + de-trials the
+   * learner's active enrollments so courses become visible.
+   */
+  private async activateSubscriptionForPayment(
+    payment: Pick<
+      AcademySubscriptionPayment,
+      'id' | 'tenantId' | 'userId' | 'planCode' | 'durationDays'
+    >
+  ): Promise<{ paymentId: string; subscriptionId: string }> {
+    const now = new Date();
+    return prisma.$transaction(async tx => {
+      await tx.academySubscriptionPayment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.COMPLETED },
+      });
+
+      const existing = await tx.academySubscription.findUnique({
+        where: {
+          tenantId_userId: {
+            tenantId: payment.tenantId,
+            userId: payment.userId,
+          },
+        },
+      });
+
+      const baseDate =
+        existing?.expiresAt && existing.expiresAt.getTime() > now.getTime()
+          ? existing.expiresAt
+          : now;
+      const expiresAt = addDays(baseDate, payment.durationDays);
+
+      const subscription = existing
+        ? await tx.academySubscription.update({
+            where: { id: existing.id },
+            data: {
+              planCode: payment.planCode,
+              status: AcademySubscriptionStatus.ACTIVE,
+              isTrial: false,
+              classLimit: ACADEMY_CLASS_LIMIT,
+              expiresAt,
+            },
+          })
+        : await tx.academySubscription.create({
+            data: {
+              tenantId: payment.tenantId,
+              userId: payment.userId,
+              planCode: payment.planCode,
+              status: AcademySubscriptionStatus.ACTIVE,
+              isTrial: false,
+              classLimit: ACADEMY_CLASS_LIMIT,
+              expiresAt,
+            },
+          });
+
+      await tx.academySubscriptionPayment.update({
+        where: { id: payment.id },
+        data: { academySubscriptionId: subscription.id },
+      });
+
+      await tx.programEnrollment.updateMany({
+        where: {
+          userId: payment.userId,
+          academySubscriptionId: subscription.id,
+          isActive: true,
+        },
+        data: {
+          tenantId: payment.tenantId,
+          expiresAt,
+          isTrial: false,
+        },
+      });
+
+      return {
+        paymentId: payment.id,
+        subscriptionId: subscription.id,
+      };
+    });
+  }
+
   async handlePaymentWebhook(ref: string, rawStatus: string) {
     const payment = await prisma.academySubscriptionPayment.findUnique({
       where: { paypackRef: ref },
@@ -654,84 +794,17 @@ export class AcademySubscriptionService {
     }
 
     if (rawStatus === 'successful') {
-      const now = new Date();
-      const result = await prisma.$transaction(async tx => {
-        await tx.academySubscriptionPayment.update({
-          where: { id: payment.id },
-          data: { status: PaymentStatus.COMPLETED },
-        });
-
-        const existing = await tx.academySubscription.findUnique({
-          where: {
-            tenantId_userId: {
-              tenantId: payment.tenantId,
-              userId: payment.userId,
-            },
-          },
-        });
-
-        const baseDate =
-          existing?.expiresAt && existing.expiresAt.getTime() > now.getTime()
-            ? existing.expiresAt
-            : now;
-        const expiresAt = addDays(baseDate, payment.durationDays);
-
-        const subscription = existing
-          ? await tx.academySubscription.update({
-              where: { id: existing.id },
-              data: {
-                planCode: payment.planCode,
-                status: AcademySubscriptionStatus.ACTIVE,
-                isTrial: false,
-                classLimit: ACADEMY_CLASS_LIMIT,
-                expiresAt,
-              },
-            })
-          : await tx.academySubscription.create({
-              data: {
-                tenantId: payment.tenantId,
-                userId: payment.userId,
-                planCode: payment.planCode,
-                status: AcademySubscriptionStatus.ACTIVE,
-                isTrial: false,
-                classLimit: ACADEMY_CLASS_LIMIT,
-                expiresAt,
-              },
-            });
-
-        await tx.academySubscriptionPayment.update({
-          where: { id: payment.id },
-          data: { academySubscriptionId: subscription.id },
-        });
-
-        await tx.programEnrollment.updateMany({
-          where: {
-            userId: payment.userId,
-            academySubscriptionId: subscription.id,
-            isActive: true,
-          },
-          data: {
-            tenantId: payment.tenantId,
-            expiresAt,
-            isTrial: false,
-          },
-        });
-
-        return {
-          paymentId: payment.id,
-          subscriptionId: subscription.id,
-        };
-      });
+      const activated = await this.activateSubscriptionForPayment(payment);
 
       return {
         handled: true as const,
         status: PaymentStatus.COMPLETED,
-        ...result,
+        paymentId: payment.id,
+        subscriptionId: activated.subscriptionId,
       };
     }
 
-    if (rawStatus === 'failed' || rawStatus === 'cancelled') {
-      const nextStatus = rawStatus === 'failed' ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+    if (rawStatus === 'failed' || rawStatus === 'cancelled') {      const nextStatus = rawStatus === 'failed' ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
       await prisma.academySubscriptionPayment.update({
         where: { id: payment.id },
         data: { status: nextStatus },

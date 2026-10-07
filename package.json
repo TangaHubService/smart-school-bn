@@ -18,6 +18,7 @@
     "prisma:check-duplicates": "ts-node prisma/scripts/check-duplicates.ts",
     "prisma:fix-missing-columns": "ts-node prisma/scripts/fix-missing-columns.ts",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:seed:primary": "ts-node prisma/seed-primary-programs.ts",
     "prisma:add-timetable-permissions": "ts-node prisma/scripts/add-timetable-permissions.ts",
     "prisma:backfill-learner-role": "ts-node prisma/scripts/backfill-learner-role.ts",
     "test": "jest --passWithNoTests",

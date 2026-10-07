@@ -6,6 +6,7 @@ import {
   academyPlanCheckoutSchema,
   academyProgramSelectionSchema,
   academyClassSelectionSchema,
+  academyMockCheckoutSchema,
 } from './public-academy.schemas';
 
 const router = Router();
@@ -27,6 +28,12 @@ router.post(
   authenticate,
   validateBody(academyPlanCheckoutSchema),
   PublicAcademyController.startPlanCheckout
+);
+router.post(
+  '/subscription/checkout/mock',
+  authenticate,
+  validateBody(academyMockCheckoutSchema),
+  PublicAcademyController.startMockPlanCheckout
 );
 router.post(
   '/subscription/programs/select',

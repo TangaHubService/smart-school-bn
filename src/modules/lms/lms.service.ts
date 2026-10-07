@@ -14,6 +14,7 @@ import {
   CreateAssignmentInput,
   CreateCourseInput,
   CreateLessonInput,
+  CreateSectionInput,
   CreateSubmissionInput,
   GradeSubmissionInput,
   ListCourseTeacherOptionsQueryInput,
@@ -22,8 +23,11 @@ import {
   ListAssignmentSubmissionsQueryInput,
   ListCoursesQueryInput,
   ListMyCoursesQueryInput,
+  PublishSectionInput,
   RecordLessonActivityInput,
+  ReorderSectionsInput,
   PublishLessonInput,
+  UpdateSectionInput,
   UploadedAssetInput,
   CreateAcademyProgramInput,
   UpdateAcademyProgramInput,
@@ -674,7 +678,7 @@ export class LmsService {
     this.ensureCanManageCourse(course.teacherUserId, actor);
 
     const lessonSkip = (query.lessonsPage - 1) * query.lessonsPageSize;
-    const [lessonCount, lessons, assignments] = await prisma.$transaction([
+    const [lessonCount, lessons, sections, assignments] = await prisma.$transaction([
       prisma.lesson.count({
         where: {
           tenantId,
@@ -690,8 +694,25 @@ export class LmsService {
         take: query.lessonsPageSize,
         include: {
           fileAsset: true,
+          section: { select: { id: true, title: true } },
         },
         orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.section.findMany({
+        where: { tenantId, courseId },
+        include: {
+          lessons: {
+            select: {
+              id: true,
+              title: true,
+              sequence: true,
+              contentType: true,
+              isPublished: true,
+            },
+            orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.assignment.findMany({
         where: {
@@ -722,6 +743,10 @@ export class LmsService {
         items: lessons.map(item => this.mapLesson(item)),
         pagination: buildPagination(query.lessonsPage, query.lessonsPageSize, lessonCount),
       },
+      sections: sections.map(item => ({
+        ...this.mapSection(item, item.lessons.length),
+        lessons: item.lessons,
+      })),
       assignments: assignments.map(item => this.mapAssignment(item)),
     };
   }
@@ -751,6 +776,12 @@ export class LmsService {
 
     this.ensureCanManageCourse(course.teacherUserId, actor);
 
+    // New lessons land in the chosen section, or the course's first section
+    // (usually "General") when none is given, keeping every lesson grouped.
+    const sectionId = input.sectionId
+      ? (await this.ensureCourseSection(tenantId, courseId, input.sectionId)).id
+      : await this.resolveDefaultSectionId(tenantId, courseId);
+
     try {
       const created = await prisma.$transaction(async tx => {
         const assetId = await this.upsertFileAsset(tx, tenantId, input.asset, actor.sub);
@@ -772,6 +803,7 @@ export class LmsService {
           data: {
             tenantId,
             courseId,
+            sectionId,
             title: input.title,
             summary: input.summary,
             contentType: input.contentType,
@@ -837,6 +869,15 @@ export class LmsService {
 
     this.ensureCanManageCourse(lesson.course.teacherUserId, actor);
 
+    // sectionId: uuid moves the lesson (validated against the same course),
+    // null unassigns it, undefined keeps the current section.
+    const nextSectionId =
+      input.sectionId === undefined
+        ? undefined
+        : input.sectionId === null
+          ? null
+          : (await this.ensureCourseSection(tenantId, lesson.courseId, input.sectionId)).id;
+
     try {
       const updated = await prisma.$transaction(async tx => {
         const nextAssetId = input.asset
@@ -865,6 +906,7 @@ export class LmsService {
             body,
             externalUrl,
             sequence: input.sequence ?? lesson.sequence,
+            sectionId: nextSectionId,
             fileAssetId,
           },
           include: {
@@ -1002,6 +1044,282 @@ export class LmsService {
     }
 
     return this.mapLesson(updated);
+  }
+
+  private async ensureCourseSection(
+    tenantId: string,
+    courseId: string,
+    sectionId: string
+  ) {
+    const section = await prisma.section.findFirst({
+      where: {
+        id: sectionId,
+        tenantId,
+        courseId,
+      },
+      select: { id: true },
+    });
+
+    if (!section) {
+      throw new AppError(404, 'SECTION_NOT_FOUND', 'Section not found in this course');
+    }
+
+    return section;
+  }
+
+  private async resolveDefaultSectionId(tenantId: string, courseId: string) {
+    const first = await prisma.section.findFirst({
+      where: { tenantId, courseId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+
+    return first?.id ?? null;
+  }
+
+  async createSection(
+    tenantId: string,
+    courseId: string,
+    input: CreateSectionInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, isActive: true },
+      select: { id: true, teacherUserId: true },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    this.ensureCanManageCourse(course.teacherUserId, actor);
+
+    const sortOrder =
+      input.sortOrder ??
+      ((await prisma.section.aggregate({
+        where: { tenantId, courseId },
+        _max: { sortOrder: true },
+      }))._max.sortOrder ?? -1) + 1;
+
+    const created = await prisma.section.create({
+      data: {
+        tenantId,
+        courseId,
+        title: input.title,
+        sortOrder,
+        createdByUserId: actor.sub,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SECTION_CREATED,
+      entity: 'Section',
+      entityId: created.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { courseId, title: created.title },
+    });
+
+    return this.mapSection(created, 0);
+  }
+
+  async listSections(tenantId: string, courseId: string, actor: JwtUser) {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, isActive: true },
+      select: { id: true, teacherUserId: true },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    this.ensureCanManageCourse(course.teacherUserId, actor);
+
+    const sections = await prisma.section.findMany({
+      where: { tenantId, courseId },
+      include: { _count: { select: { lessons: true } } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return sections.map(item => this.mapSection(item, item._count.lessons));
+  }
+
+  async updateSection(
+    tenantId: string,
+    sectionId: string,
+    input: UpdateSectionInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const section = await prisma.section.findFirst({
+      where: { id: sectionId, tenantId },
+      include: { course: { select: { teacherUserId: true } } },
+    });
+
+    if (!section) {
+      throw new AppError(404, 'SECTION_NOT_FOUND', 'Section not found');
+    }
+
+    this.ensureCanManageCourse(section.course.teacherUserId, actor);
+
+    const updated = await prisma.section.update({
+      where: { id: section.id },
+      data: {
+        title: input.title ?? section.title,
+        sortOrder: input.sortOrder ?? section.sortOrder,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SECTION_UPDATED,
+      entity: 'Section',
+      entityId: updated.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { courseId: section.courseId, title: updated.title },
+    });
+
+    const lessonCount = await prisma.lesson.count({
+      where: { tenantId, sectionId: updated.id },
+    });
+
+    return this.mapSection(updated, lessonCount);
+  }
+
+  async deleteSection(
+    tenantId: string,
+    sectionId: string,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const section = await prisma.section.findFirst({
+      where: { id: sectionId, tenantId },
+      include: { course: { select: { teacherUserId: true } } },
+    });
+
+    if (!section) {
+      throw new AppError(404, 'SECTION_NOT_FOUND', 'Section not found');
+    }
+
+    this.ensureCanManageCourse(section.course.teacherUserId, actor);
+
+    // Lessons fall back to unsectioned (FK SetNull); they keep course + sequence.
+    await prisma.section.delete({ where: { id: section.id } });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SECTION_DELETED,
+      entity: 'Section',
+      entityId: section.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { courseId: section.courseId, title: section.title },
+    });
+
+    return { id: section.id, deleted: true };
+  }
+
+  async reorderSections(
+    tenantId: string,
+    courseId: string,
+    input: ReorderSectionsInput,
+    actor: JwtUser
+  ) {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, isActive: true },
+      select: { id: true, teacherUserId: true },
+    });
+
+    if (!course) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    }
+
+    this.ensureCanManageCourse(course.teacherUserId, actor);
+
+    const existing = await prisma.section.findMany({
+      where: { tenantId, courseId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map(item => item.id));
+    const uniqueOrder = [...new Set(input.order)];
+
+    if (uniqueOrder.length !== existing.length || !uniqueOrder.every(id => existingIds.has(id))) {
+      throw new AppError(
+        422,
+        'SECTION_REORDER_MISMATCH',
+        'Order must list every section of this course exactly once'
+      );
+    }
+
+    await prisma.$transaction(
+      uniqueOrder.map((id, index) =>
+        prisma.section.update({ where: { id }, data: { sortOrder: index } })
+      )
+    );
+
+    const sections = await prisma.section.findMany({
+      where: { tenantId, courseId },
+      include: { _count: { select: { lessons: true } } },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return sections.map(item => this.mapSection(item, item._count.lessons));
+  }
+
+  async publishSection(
+    tenantId: string,
+    sectionId: string,
+    input: PublishSectionInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const section = await prisma.section.findFirst({
+      where: { id: sectionId, tenantId },
+      include: { course: { select: { teacherUserId: true } } },
+    });
+
+    if (!section) {
+      throw new AppError(404, 'SECTION_NOT_FOUND', 'Section not found');
+    }
+
+    this.ensureCanManageCourse(section.course.teacherUserId, actor);
+
+    const updated = await prisma.section.update({
+      where: { id: section.id },
+      data: {
+        isPublished: input.isPublished,
+        publishedAt: input.isPublished ? new Date() : null,
+        publishedByUserId: input.isPublished ? actor.sub : null,
+      },
+    });
+
+    if (input.isPublished) {
+      await this.auditService.log({
+        tenantId,
+        actorUserId: actor.sub,
+        event: AUDIT_EVENT.SECTION_PUBLISHED,
+        entity: 'Section',
+        entityId: updated.id,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+      });
+    }
+
+    const lessonCount = await prisma.lesson.count({
+      where: { tenantId, sectionId: updated.id },
+    });
+
+    return this.mapSection(updated, lessonCount);
   }
 
   async createAssignment(
@@ -1612,11 +1930,18 @@ export class LmsService {
           lessons: {
             where: {
               isPublished: true,
+              OR: [{ sectionId: null }, { section: { isPublished: true } }],
             },
             include: {
               fileAsset: true,
+              section: { select: { id: true, title: true } },
             },
             orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+          },
+          sections: {
+            where: { isPublished: true },
+            select: { id: true, title: true, sortOrder: true },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           },
           assignments: {
             where: {
@@ -1718,6 +2043,7 @@ export class LmsService {
         return {
           ...mappedCourse,
           lessons: item.lessons.map(lesson => this.mapLesson(lesson)),
+          sections: item.sections,
           assignments: item.assignments.map(assignment => ({
             ...this.mapAssignment(assignment),
             mySubmission: assignment.submissions[0]
@@ -1751,10 +2077,16 @@ export class LmsService {
         courseId: true,
         title: true,
         sequence: true,
+        sectionId: true,
+        section: { select: { isPublished: true } },
       },
     });
 
     if (!lesson) {
+      throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found or not published');
+    }
+
+    if (lesson.sectionId && !lesson.section?.isPublished) {
       throw new AppError(404, 'LESSON_NOT_FOUND', 'Lesson not found or not published');
     }
 
@@ -2297,6 +2629,30 @@ export class LmsService {
     };
   }
 
+  private mapSection(
+    section: {
+      id: string;
+      title: string;
+      sortOrder: number;
+      isPublished: boolean;
+      publishedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    lessonCount: number
+  ) {
+    return {
+      id: section.id,
+      title: section.title,
+      sortOrder: section.sortOrder,
+      isPublished: section.isPublished,
+      publishedAt: section.publishedAt,
+      lessonCount,
+      createdAt: section.createdAt,
+      updatedAt: section.updatedAt,
+    };
+  }
+
   private mapLesson(lesson: {
     id: string;
     title: string;
@@ -2305,6 +2661,8 @@ export class LmsService {
     body: string | null;
     externalUrl: string | null;
     sequence: number;
+    sectionId?: string | null;
+    section?: { id: string; title: string } | null;
     isPublished: boolean;
     publishedAt: Date | null;
     mustPassAssessmentId?: string | null;
@@ -2328,6 +2686,8 @@ export class LmsService {
       body: lesson.body,
       externalUrl: lesson.externalUrl,
       sequence: lesson.sequence,
+      sectionId: lesson.sectionId ?? null,
+      section: lesson.section ?? null,
       isPublished: lesson.isPublished,
       publishedAt: lesson.publishedAt,
       mustPassAssessmentId: lesson.mustPassAssessmentId ?? null,

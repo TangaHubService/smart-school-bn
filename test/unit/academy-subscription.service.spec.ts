@@ -225,4 +225,110 @@ describe('AcademySubscriptionService', () => {
     );
     expect(result.paypackRef).toBe('trx-1');
   });
+
+  describe('mock checkout (development/demo)', () => {
+    const runTxCallback = async () => {
+      const cb = mockedPrisma.$transaction.mock.calls[0][0] as (
+        tx: unknown
+      ) => Promise<unknown>;
+      const tx = {
+        academySubscriptionPayment: { update: jest.fn() },
+        academySubscription: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'sub-1',
+            expiresAt: new Date('2027-04-09T00:00:00.000Z'),
+          }),
+          update: jest.fn().mockResolvedValue({ id: 'sub-1' }),
+          create: jest.fn(),
+        },
+        programEnrollment: { updateMany: jest.fn() },
+      };
+      await cb(tx);
+      return tx;
+    };
+
+    beforeEach(() => {
+      mockedPrisma.academySubscription.findUnique.mockResolvedValue({
+        id: 'sub-1',
+        tenantId: 'academy-tenant',
+        userId: 'user-1',
+        planCode: AcademyPlanCode.TRIAL,
+        status: AcademySubscriptionStatus.TRIAL,
+        isTrial: true,
+        classLimit: 3,
+        expiresAt: new Date('2027-04-09T00:00:00.000Z'),
+        createdAt: new Date('2027-04-08T00:00:00.000Z'),
+        updatedAt: new Date('2027-04-08T00:00:00.000Z'),
+      });
+    });
+
+    it('instantly completes payment and activates the plan with extended enrollments', async () => {
+      mockedPrisma.academySubscriptionPayment.create.mockResolvedValue({
+        id: 'pay-mock',
+        tenantId: 'academy-tenant',
+        userId: 'user-1',
+        planCode: AcademyPlanCode.MONTHLY,
+        durationDays: 30,
+      });
+
+      const result = await service.startMockPlanCheckout('user-1', 'academy-tenant', 'monthly');
+
+      expect(result.status).toBe('PAID');
+      expect(result.mock).toBe(true);
+      expect(mockedPrisma.academySubscriptionPayment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            planCode: AcademyPlanCode.MONTHLY,
+            amount: 5000,
+            durationDays: 30,
+            status: PaymentStatus.COMPLETED,
+            channel: 'MOCK',
+          }),
+        })
+      );
+      expect(mockCashin).not.toHaveBeenCalled();
+
+      const tx = await runTxCallback();
+      expect(tx.academySubscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            planCode: AcademyPlanCode.MONTHLY,
+            status: AcademySubscriptionStatus.ACTIVE,
+            isTrial: false,
+          }),
+        })
+      );
+      expect(tx.programEnrollment.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ isTrial: false }),
+        })
+      );
+    });
+
+    it('activates the same way through the successful Paypack webhook path', async () => {
+      mockedPrisma.academySubscriptionPayment.findUnique.mockResolvedValue({
+        id: 'pay-1',
+        tenantId: 'academy-tenant',
+        userId: 'user-1',
+        planCode: AcademyPlanCode.MONTHLY,
+        durationDays: 30,
+        status: PaymentStatus.PENDING,
+        academySubscription: null,
+      });
+
+      const result = await service.handlePaymentWebhook('trx-1', 'successful');
+
+      expect(result).toMatchObject({ handled: true, status: PaymentStatus.COMPLETED });
+      const tx = await runTxCallback();
+      expect(tx.academySubscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: AcademySubscriptionStatus.ACTIVE,
+            isTrial: false,
+          }),
+        })
+      );
+      expect(tx.programEnrollment.updateMany).toHaveBeenCalled();
+    });
+  });
 });

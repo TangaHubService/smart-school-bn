@@ -5,6 +5,10 @@ export const academyPlanCheckoutSchema = z.object({
   phoneNumber: z.string().trim().min(10, 'Phone number is required').max(20),
 });
 
+export const academyMockCheckoutSchema = z.object({
+  planId: z.enum(['test', 'weekly', 'monthly', 'quarterly', 'yearly']),
+});
+
 export const academyProgramSelectionSchema = z.object({
   programId: z.string().uuid(),
 });

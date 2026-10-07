@@ -234,6 +234,7 @@ model Tenant {
   attendanceRecords  AttendanceRecord[]
   courses       Course[]
   lessons       Lesson[]
+  sections      Section[]
   assignments   Assignment[]
   submissions   Submission[]
   assessments        Assessment[]
@@ -372,6 +373,8 @@ model User {
   publishedResultSnapshots ResultSnapshot[]    @relation("ResultSnapshotPublishedBy")
   createdLessons           Lesson[]            @relation("LessonCreatedBy")
   publishedLessons         Lesson[]            @relation("LessonPublishedBy")
+  createdSections          Section[]           @relation("SectionCreatedBy")
+  publishedSections        Section[]           @relation("SectionPublishedBy")
   createdAssignments       Assignment[]        @relation("AssignmentCreatedBy")
   submissions              Submission[]        @relation("SubmissionStudentUser")
   gradedSubmissions        Submission[]        @relation("SubmissionGradedBy")
@@ -1011,6 +1014,7 @@ model Course {
   subject      Subject?     @relation(fields: [subjectId], references: [id], onDelete: SetNull)
   teacherUser  User         @relation("CourseTeacher", fields: [teacherUserId], references: [id], onDelete: Restrict)
   lessons      Lesson[]
+  sections     Section[]
   assignments  Assignment[]
   assessments  Assessment[]
   timetableSlots TimetableSlot[]
@@ -1030,6 +1034,7 @@ model Lesson {
   body              String?
   externalUrl       String?
   fileAssetId       String?
+  sectionId         String?
   sequence          Int
   isPublished       Boolean           @default(false)
   publishedAt       DateTime?
@@ -1042,6 +1047,7 @@ model Lesson {
 
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section         Section?  @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   fileAsset       FileAsset? @relation("LessonFileAsset", fields: [fileAssetId], references: [id], onDelete: SetNull)
   mustPassAssessment Assessment? @relation("LessonMustPassAssessment", fields: [mustPassAssessmentId], references: [id], onDelete: SetNull)
   createdByUser   User      @relation("LessonCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1054,6 +1060,30 @@ model Lesson {
   @@unique([tenantId, courseId, sequence])
   @@index([tenantId, courseId, isPublished, sequence])
   @@index([tenantId, publishedAt])
+  @@index([tenantId, sectionId])
+}
+
+model Section {
+  id                String    @id @default(uuid())
+  tenantId          String
+  courseId          String
+  title             String
+  sortOrder         Int       @default(0)
+  isPublished       Boolean   @default(false)
+  publishedAt       DateTime?
+  createdByUserId   String
+  publishedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons         Lesson[]
+  createdByUser   User     @relation("SectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  publishedByUser User?    @relation("SectionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, courseId, sortOrder])
+  @@index([tenantId, courseId, isPublished])
 }
 
 model Assignment {

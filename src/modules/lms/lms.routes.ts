@@ -15,13 +15,17 @@ import {
   createAssignmentSchema,
   createCourseSchema,
   createLessonSchema,
+  createSectionSchema,
   createSubmissionSchema,
   gradeSubmissionSchema,
   publishLessonSchema,
+  publishSectionSchema,
   recordLessonActivitySchema,
+  reorderSectionsSchema,
   updateAcademyProgramSchema,
   updateCourseSchema,
   updateLessonSchema,
+  updateSectionSchema,
 } from './lms.schemas';
 
 const lmsController = new LmsController();
@@ -139,6 +143,46 @@ lmsRoutes.patch(
   requirePermissions([PERMISSIONS.LESSONS_PUBLISH]),
   validateBody(publishLessonSchema),
   asyncHandler((req, res) => lmsController.publishLesson(req, res))
+);
+
+lmsRoutes.post(
+  '/courses/:courseId/sections',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  validateBody(createSectionSchema),
+  asyncHandler((req, res) => lmsController.createSection(req, res))
+);
+
+lmsRoutes.get(
+  '/courses/:courseId/sections',
+  requirePermissions([PERMISSIONS.COURSES_READ]),
+  asyncHandler((req, res) => lmsController.listSections(req, res))
+);
+
+lmsRoutes.patch(
+  '/courses/:courseId/sections/reorder',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  validateBody(reorderSectionsSchema),
+  asyncHandler((req, res) => lmsController.reorderSections(req, res))
+);
+
+lmsRoutes.patch(
+  '/sections/:sectionId',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  validateBody(updateSectionSchema),
+  asyncHandler((req, res) => lmsController.updateSection(req, res))
+);
+
+lmsRoutes.delete(
+  '/sections/:sectionId',
+  requirePermissions([PERMISSIONS.LESSONS_MANAGE]),
+  asyncHandler((req, res) => lmsController.deleteSection(req, res))
+);
+
+lmsRoutes.patch(
+  '/sections/:sectionId/publish',
+  requirePermissions([PERMISSIONS.LESSONS_PUBLISH]),
+  validateBody(publishSectionSchema),
+  asyncHandler((req, res) => lmsController.publishSection(req, res))
 );
 
 lmsRoutes.post(
