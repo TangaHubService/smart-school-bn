@@ -29,8 +29,6 @@ import {
   PublishLessonInput,
   UpdateSectionInput,
   UploadedAssetInput,
-  CreateAcademyProgramInput,
-  UpdateAcademyProgramInput,
   UpdateCourseInput,
   UpdateLessonInput,
 } from './lms.schemas';
@@ -1808,26 +1806,20 @@ export class LmsService {
       include: { enrollments: { where: { isActive: true } } },
     });
 
-    // 2. Get Program enrollments (Academy)
-    const programEnrollments = await prisma.programEnrollment.findMany({
+    // 2. Get class enrollments (Academy)
+    const classEnrollments = await prisma.classEnrollment.findMany({
       where: {
         userId: actor.sub,
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
-      include: {
-        program: {
-          select: {
-            classRoomId: true,
-          },
-        },
-      },
+      select: { classRoomId: true },
     });
 
     const academyClassRoomIds = [
       ...new Set(
-        programEnrollments
-          .map(pe => pe.program.classRoomId)
+        classEnrollments
+          .map(pe => pe.classRoomId)
           .filter((id): id is string => Boolean(id))
       ),
     ];
@@ -2390,14 +2382,12 @@ export class LmsService {
       );
     }
 
-    const academyAccess = await prisma.programEnrollment.findFirst({
+    const academyAccess = await prisma.classEnrollment.findFirst({
       where: {
         userId: student.userId,
+        classRoomId,
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-        program: {
-          classRoomId,
-        },
       },
       select: {
         id: true,
@@ -2954,218 +2944,27 @@ export class LmsService {
     };
   }
 
-  private async assertClassRoomInTenant(tenantId: string, classRoomId: string) {
-    const classRoom = await prisma.classRoom.findFirst({
-      where: { id: classRoomId, tenantId, isActive: true },
-      select: { id: true },
-    });
-    if (!classRoom) {
-      throw new AppError(404, 'CLASS_ROOM_NOT_FOUND', 'Class not found for this school');
-    }
-  }
-
-  private mapAcademyProgram(p: {
-    id: string;
-    tenantId: string;
-    title: string;
-    description: string | null;
-    thumbnail: string | null;
-    section: string | null;
-    price: number;
-    durationDays: number;
-    isActive: boolean;
-    listedInPublicCatalog: boolean;
-    classRoomId: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    classRoom?: { id: string; name: string; gradeLevel: { id: string; name: string } } | null;
-  }) {
-    return {
-      id: p.id,
-      tenantId: p.tenantId,
-      title: p.title,
-      description: p.description,
-      thumbnail: p.thumbnail,
-      section: p.section,
-      price: p.price,
-      durationDays: p.durationDays,
-      isActive: p.isActive,
-      listedInPublicCatalog: p.listedInPublicCatalog,
-      classRoomId: p.classRoomId,
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
-      linkedClassRoom: p.classRoom
-        ? { id: p.classRoom.id, name: p.classRoom.name, gradeLevelName: p.classRoom.gradeLevel.name }
-        : null,
-    };
-  }
-
-  async listAcademyPrograms(tenantId: string, _actor: JwtUser) {
-    const items = await prisma.program.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } },
-      },
-    });
-    return items.map(row => this.mapAcademyProgram(row));
-  }
-
-  async createAcademyProgram(
-    tenantId: string,
-    input: CreateAcademyProgramInput,
-    actor: JwtUser,
-    context: RequestAuditContext
-  ) {
-    if (input.classRoomId) {
-      await this.assertClassRoomInTenant(tenantId, input.classRoomId);
-    }
-
-    try {
-      const created = await prisma.program.create({
-        data: {
-          tenantId,
-          title: input.title,
-          description: input.description?.trim() ? input.description.trim() : null,
-          thumbnail: input.thumbnail?.trim() ? input.thumbnail.trim() : null,
-          section: input.section ?? null,
-          price: input.price,
-          durationDays: input.durationDays,
-          isActive: input.isActive ?? true,
-          listedInPublicCatalog: input.listedInPublicCatalog ?? true,
-          classRoomId: input.classRoomId ?? null,
-        },
-        include: { classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } } },
-      });
-
-      await this.auditService.log({
-        tenantId,
-        actorUserId: actor.sub,
-        event: AUDIT_EVENT.ACADEMY_PROGRAM_CREATED,
-        entity: 'Program',
-        entityId: created.id,
-        requestId: context.requestId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        payload: { title: created.title, price: created.price },
-      });
-
-      return this.mapAcademyProgram(created);
-    } catch (error) {
-      this.handleUniqueError(error, 'A program with this title already exists for your school');
-      throw error;
-    }
-  }
-
-  async updateAcademyProgram(
-    tenantId: string,
-    programId: string,
-    input: UpdateAcademyProgramInput,
-    actor: JwtUser,
-    context: RequestAuditContext
-  ) {
-    const existing = await prisma.program.findFirst({
-      where: { id: programId, tenantId },
-    });
-    if (!existing) {
-      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
-    }
-
-    if (input.classRoomId !== undefined && input.classRoomId) {
-      await this.assertClassRoomInTenant(tenantId, input.classRoomId);
-    }
-
-    const data: Prisma.ProgramUpdateInput = {};
-    if (input.title !== undefined) {
-      data.title = input.title;
-    }
-    if (input.description !== undefined) {
-      data.description =
-        input.description === null
-          ? null
-          : input.description.trim()
-            ? input.description.trim()
-            : null;
-    }
-    if (input.thumbnail !== undefined) {
-      data.thumbnail =
-        input.thumbnail === null || input.thumbnail === '' ? null : input.thumbnail.trim();
-    }
-    if (input.section !== undefined) {
-      data.section = input.section === null ? null : input.section;
-    }
-    if (input.price !== undefined) {
-      data.price = input.price;
-    }
-    if (input.durationDays !== undefined) {
-      data.durationDays = input.durationDays;
-    }
-    if (input.isActive !== undefined) {
-      data.isActive = input.isActive;
-    }
-    if (input.listedInPublicCatalog !== undefined) {
-      data.listedInPublicCatalog = input.listedInPublicCatalog;
-    }
-    if (input.classRoomId !== undefined) {
-      if (input.classRoomId === null) {
-        data.classRoom = { disconnect: true };
-      } else {
-        data.classRoom = { connect: { id: input.classRoomId } };
-      }
-    }
-
-    if (Object.keys(data).length === 0) {
-      throw new AppError(400, 'NO_CHANGES', 'No fields to update');
-    }
-
-    try {
-      const updated = await prisma.program.update({
-        where: { id: programId },
-        data,
-        include: { classRoom: { include: { gradeLevel: { select: { id: true, name: true } } } } },
-      });
-
-      await this.auditService.log({
-        tenantId,
-        actorUserId: actor.sub,
-        event: AUDIT_EVENT.ACADEMY_PROGRAM_UPDATED,
-        entity: 'Program',
-        entityId: programId,
-        requestId: context.requestId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        payload: { title: updated.title },
-      });
-
-      return this.mapAcademyProgram(updated);
-    } catch (error) {
-      this.handleUniqueError(error, 'A program with this title already exists for your school');
-      throw error;
-    }
-  }
-
-  async deleteAcademyProgram(tenantId: string, programId: string, actor: JwtUser, context: RequestAuditContext) {
-    const existing = await prisma.program.findFirst({ where: { id: programId, tenantId } });
-    if (!existing) throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
-
-    await prisma.program.update({ where: { id: programId }, data: { isActive: false } });
-
-    await this.auditService.log({
-      tenantId, actorUserId: actor.sub, event: AUDIT_EVENT.ACADEMY_PROGRAM_DELETED,
-      entity: 'Program', entityId: programId, requestId: context.requestId,
-      ipAddress: context.ipAddress, userAgent: context.userAgent,
-      payload: { title: existing.title },
-    });
-
-    return { id: programId, deleted: true };
-  }
-
   /** Per-course completion and quiz aggregates for the signed-in teacher's courses. */
   async listTeacherLearningInsights(
     tenantId: string,
     actor: JwtUser,
     query?: { classId?: string; courseId?: string }
   ) {
+    if (process.env.SEED_INSIGHTS === '1') {
+      const all = [
+        { courseId: 'seed-1', courseTitle: 'Mathematics Fundamentals', classRoomId: 'c1', classRoomName: 'S2A', enrolledStudents: 28, publishedLessons: 12, avgCompletionPercent: 78, atRiskCount: 4, avgQuizScorePercent: 82 },
+        { courseId: 'seed-2', courseTitle: 'English Literature', classRoomId: 'c1', classRoomName: 'S2A', enrolledStudents: 32, publishedLessons: 9, avgCompletionPercent: 65, atRiskCount: 7, avgQuizScorePercent: 71 },
+        { courseId: 'seed-3', courseTitle: 'Physics & Chemistry', classRoomId: 'c2', classRoomName: 'S3B', enrolledStudents: 24, publishedLessons: 15, avgCompletionPercent: 91, atRiskCount: 1, avgQuizScorePercent: 88 },
+        { courseId: 'seed-4', courseTitle: 'Biology Basics', classRoomId: 'c2', classRoomName: 'S3B', enrolledStudents: 20, publishedLessons: 10, avgCompletionPercent: 54, atRiskCount: 9, avgQuizScorePercent: 62 },
+        { courseId: 'seed-5', courseTitle: 'History of Rwanda', classRoomId: 'c3', classRoomName: 'S1A', enrolledStudents: 35, publishedLessons: 8, avgCompletionPercent: 88, atRiskCount: 2, avgQuizScorePercent: 79 },
+      ];
+      const filtered = all.filter((r) => {
+        if (query?.classId && r.classRoomId !== query.classId) return false;
+        if (query?.courseId && r.courseId !== query.courseId) return false;
+        return true;
+      });
+      return { items: filtered };
+    }
     const courses = await prisma.course.findMany({
       where: {
         tenantId,

@@ -349,7 +349,7 @@ export class DashboardService {
       }
     }
     try {
-      academyLearnersActive = await prisma.programEnrollment.count({
+      academyLearnersActive = await prisma.classEnrollment.count({
         where: {
           isActive: true,
           OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
@@ -361,7 +361,7 @@ export class DashboardService {
       }
     }
     try {
-      academyPaymentsPending = await prisma.payment.count({
+      academyPaymentsPending = await prisma.academySubscriptionPayment.count({
         where: { status: 'PENDING' },
       });
     } catch (e) {
@@ -375,7 +375,7 @@ export class DashboardService {
     let revenueLastMonth = 0;
     let monthlyRevenue: Array<{ month: string; amount: number }> = [];
     try {
-      const payments = await prisma.payment.findMany({
+      const payments = await prisma.academySubscriptionPayment.findMany({
         where: { status: 'COMPLETED' },
         select: { amount: true, createdAt: true },
       });
@@ -412,7 +412,7 @@ export class DashboardService {
 
     let enrollmentTrends: SuperAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
     try {
-      const enrollments = await prisma.programEnrollment.findMany({
+      const enrollments = await prisma.classEnrollment.findMany({
         select: { createdAt: true },
         orderBy: { createdAt: 'asc' },
       });
@@ -444,8 +444,8 @@ export class DashboardService {
     let courseCompletionRate: number | null = null;
     let assessmentCompletionRate: number | null = null;
     try {
-      const totalEnrollments = await prisma.programEnrollment.count();
-      const completedEnrollments = await prisma.programEnrollment.count({
+      const totalEnrollments = await prisma.classEnrollment.count();
+      const completedEnrollments = await prisma.classEnrollment.count({
         where: { isActive: false },
       });
       courseCompletionRate =
@@ -1036,7 +1036,7 @@ export class DashboardService {
     let revenueLastMonth = 0;
     let monthlyRevenue: Array<{ month: string; amount: number }> = [];
     try {
-      const payments = await prisma.payment.findMany({
+      const payments = await prisma.academySubscriptionPayment.findMany({
         where: { tenantId, status: 'COMPLETED' },
         select: { amount: true, createdAt: true },
       });

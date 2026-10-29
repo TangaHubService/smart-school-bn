@@ -181,18 +181,18 @@ async function main() {
     },
   });
 
-  const existingPrimary = await prisma.program.count({
+  const existingPrimary = await prisma.classRoom.count({
     where: {
       tenantId: catalogTenant.id,
       isActive: true,
       listedInPublicCatalog: true,
-      title: { startsWith: 'Primary ' },
+      code: { startsWith: 'PRI-' },
     },
   });
 
   if (existingPrimary >= GRADES.length) {
     console.log(
-      `Skipped: ${existingPrimary} primary programs already listed — nothing to seed.`
+      `Skipped: ${existingPrimary} primary classes already listed — nothing to seed.`
     );
     return;
   }
@@ -266,13 +266,23 @@ async function main() {
 
     const classRoom = await prisma.classRoom.upsert({
       where: { tenantId_code: { tenantId: catalogTenant.id, code: `PRI-${grade.rank}` } },
-      update: { name: grade.name, gradeLevelId: gradeLevel.id, isActive: true },
+      update: {
+        name: grade.name,
+        gradeLevelId: gradeLevel.id,
+        isActive: true,
+        price: 5000,
+        durationDays: 90,
+        listedInPublicCatalog: true,
+      },
       create: {
         tenantId: catalogTenant.id,
         gradeLevelId: gradeLevel.id,
         code: `PRI-${grade.rank}`,
         name: grade.name,
         capacity: 60,
+        price: 5000,
+        durationDays: 90,
+        listedInPublicCatalog: true,
         isActive: true,
       },
     });
@@ -342,31 +352,10 @@ async function main() {
       }
     }
 
-    await prisma.program.upsert({
-      where: { tenantId_title: { tenantId: catalogTenant.id, title: `${grade.name} Complete Program` } },
-      update: {
-        description: `${grade.name} full program: enroll in this class and unlock Mathematics, English, Kinyarwanda, and Science lessons with revision.`,
-        price: 5000,
-        durationDays: 90,
-        classRoomId: classRoom.id,
-        listedInPublicCatalog: true,
-        isActive: true,
-      },
-      create: {
-        tenantId: catalogTenant.id,
-        title: `${grade.name} Complete Program`,
-        description: `${grade.name} full program: enroll in this class and unlock Mathematics, English, Kinyarwanda, and Science lessons with revision.`,
-        price: 5000,
-        durationDays: 90,
-        classRoomId: classRoom.id,
-        listedInPublicCatalog: true,
-        isActive: true,
-      },
-    });
   }
 
   console.log(
-    `Seeded ${GRADES.length} primary programs, ${courseCount} courses, ${lessonCount} lessons on catalog tenant ${catalogTenant.code}.`
+    `Seeded ${GRADES.length} primary classes, ${courseCount} courses, ${lessonCount} lessons on catalog tenant ${catalogTenant.code}.`
   );
 }
 

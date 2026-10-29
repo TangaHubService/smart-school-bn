@@ -1997,25 +1997,19 @@ export class AssessmentsService {
       academicYearId: enrollment.academicYearId,
     }));
 
-    const programEnrollments = await prisma.programEnrollment.findMany({
+    const classEnrollments = await prisma.classEnrollment.findMany({
       where: {
         userId,
         isActive: true,
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
-      include: {
-        program: {
-          select: {
-            classRoomId: true,
-          },
-        },
-      },
+      select: { classRoomId: true },
     });
 
     const academyClassRoomIds = [
       ...new Set(
-        programEnrollments
-          .map(item => item.program.classRoomId)
+        classEnrollments
+          .map(item => item.classRoomId)
           .filter((id): id is string => Boolean(id))
       ),
     ];

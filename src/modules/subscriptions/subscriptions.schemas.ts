@@ -15,7 +15,7 @@ export const grantAcademyAccessSchema = z
   .object({
     userId: z.string().uuid().optional(),
     email: z.string().email().optional(),
-    programId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
     durationDays: z.number().int().positive().max(3650).optional(),
   })
   .superRefine((val, ctx) => {

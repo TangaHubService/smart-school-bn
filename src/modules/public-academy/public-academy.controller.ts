@@ -1,9 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import crypto from 'crypto';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma';
 import { sendSuccess, sendError } from '../../common/utils/response';
-import { PaypackService } from '../../common/services/paypack.service';
 import { getIO } from '../../common/utils/socket-server';
 import { env } from '../../config/env';
 import { rootLogger } from '../../config/logger';
@@ -14,110 +11,85 @@ import {
 } from './academy-subscription.service';
 import type {
   AcademyPlanCheckoutInput,
-  AcademyProgramSelectionInput,
   AcademyClassSelectionInput,
 } from './public-academy.schemas';
-
-const PLAN_DURATION_MAP: Record<string, number> = {
-  test: 1,
-  weekly: 7,
-  monthly: 30,
-  quarterly: 90,
-  yearly: 365,
-};
 
 const academySubscriptionService = new AcademySubscriptionService();
 const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' });
 
-type CatalogProgramRow = Prisma.ProgramGetPayload<{
-  include: {
-    classRoom: {
-      include: {
-        gradeLevel: true;
-      };
-    };
+type CatalogClassRow = {
+  id: string;
+  tenantId: string;
+  name: string;
+  price: number;
+  durationDays: number;
+  thumbnail: string | null;
+  gradeLevel: { id: string; name: string; rank: number };
+};
+
+function mapCatalogClass(
+  classRoom: CatalogClassRow,
+  stats: { subjectCount: number; courseCount: number; titles: string[] }
+) {
+  return {
+    id: classRoom.id,
+    title: classRoom.name,
+    description: null as string | null,
+    thumbnail: classRoom.thumbnail,
+    price: classRoom.price,
+    durationDays: classRoom.durationDays,
+    classRoomId: classRoom.id,
+    className: classRoom.name,
+    gradeLevelId: classRoom.gradeLevel.id,
+    gradeLevelName: classRoom.gradeLevel.name,
+    classSubjectCount: stats.subjectCount,
+    classCourseCount: stats.courseCount,
+    classCourseTitles: stats.titles,
   };
-}>;
+}
 
-type CatalogProgramResult =
-  | { ok: true; program: CatalogProgramRow; catalogTenantId: string }
-  | { ok: false; reason: 'no_catalog' | 'not_found' };
-
-function buildCatalogClassStats(programs: CatalogProgramRow[]) {
-  const classRoomIds = [
-    ...new Set(programs.map(program => program.classRoomId).filter(Boolean)),
-  ];
-  return prisma.course.findMany({
-    where: {
-      tenantId: programs[0]?.tenantId ?? '',
-      isActive: true,
-      classRoomId: { in: classRoomIds as string[] },
-    },
-    include: {
-      subject: { select: { id: true, name: true } },
-    },
+async function buildClassCourseStats(catalogTenantId: string, classRoomIds: string[]) {
+  const stats = new Map<string, { subjectCount: number; courseCount: number; titles: string[] }>();
+  if (!classRoomIds.length) return stats;
+  const courses = await prisma.course.findMany({
+    where: { tenantId: catalogTenantId, isActive: true, classRoomId: { in: classRoomIds } },
+    select: { classRoomId: true, subjectId: true, title: true },
     orderBy: [{ title: 'asc' }],
   });
+  const byClass = new Map<string, typeof courses>();
+  for (const c of courses) {
+    const list = byClass.get(c.classRoomId) ?? [];
+    list.push(c);
+    byClass.set(c.classRoomId, list);
+  }
+  for (const [classRoomId, list] of byClass) {
+    stats.set(classRoomId, {
+      subjectCount: new Set(list.map(c => c.subjectId).filter(Boolean)).size,
+      courseCount: list.length,
+      titles: list.slice(0, 6).map(c => c.title),
+    });
+  }
+  return stats;
 }
 
-function mapCatalogProgram(
-  program: CatalogProgramRow,
-  classStats: Map<string, { subjectCount: number; courseCount: number; titles: string[] }>
-) {
-  const classRoom = program.classRoom ?? null;
-  const stats = classRoom ? classStats.get(classRoom.id) : null;
-
-  return {
-    id: program.id,
-    title: program.title,
-    description: program.description,
-    thumbnail: program.thumbnail,
-    section: program.section,
-    price: program.price,
-    durationDays: program.durationDays,
-    classRoomId: program.classRoomId,
-    className: classRoom?.name ?? null,
-    gradeLevelId: classRoom?.gradeLevel?.id ?? null,
-    gradeLevelName: classRoom?.gradeLevel?.name ?? null,
-    classSubjectCount: stats?.subjectCount ?? 0,
-    classCourseCount: stats?.courseCount ?? 0,
-    classCourseTitles: stats?.titles ?? [],
-  };
-}
-
-async function assertCatalogProgram(programId: string): Promise<CatalogProgramResult> {
+async function assertCatalogClass(classRoomId: string) {
   const catalogTenantId = await resolveAcademyCatalogTenantId();
-  if (!catalogTenantId) {
-    return { ok: false, reason: 'no_catalog' };
-  }
-  const program = await prisma.program.findFirst({
-    where: {
-      id: programId,
-      tenantId: catalogTenantId,
-      isActive: true,
-      listedInPublicCatalog: true,
-    },
-    include: {
-      classRoom: {
-        include: {
-          gradeLevel: true,
-        },
-      },
-    },
+  if (!catalogTenantId) return { ok: false as const, reason: 'no_catalog' as const };
+  const classRoom = await prisma.classRoom.findFirst({
+    where: { id: classRoomId, tenantId: catalogTenantId, isActive: true, listedInPublicCatalog: true },
+    include: { gradeLevel: true },
   });
-  if (!program) {
-    return { ok: false, reason: 'not_found' };
-  }
-  return { ok: true, program, catalogTenantId };
+  if (!classRoom) return { ok: false as const, reason: 'not_found' as const };
+  return { ok: true as const, classRoom, catalogTenantId };
 }
 
 async function hasActiveClassAccess(userId: string, classRoomId: string) {
-  const enrollment = await prisma.programEnrollment.findFirst({
+  const enrollment = await prisma.classEnrollment.findFirst({
     where: {
       userId,
+      classRoomId,
       isActive: true,
       OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      program: { classRoomId },
     },
     select: { id: true },
   });
@@ -163,68 +135,34 @@ export class PublicAcademyController {
     });
   }
 
-  static async getPrograms(req: Request, res: Response, next: NextFunction) {    try {
+  /** Public class catalog — pricing lives on the class. Replaces legacy GET /programs. */
+  static async getClasses(req: Request, res: Response, next: NextFunction) {
+    try {
       const catalogTenantId = await resolveAcademyCatalogTenantId();
       if (!catalogTenantId) {
         return sendSuccess(req, res, [], 200, null, {
           academyCatalog: { resolved: false, publicProgramCount: 0 },
         });
       }
-      const programs = await prisma.program.findMany({
-        where: {
-          tenantId: catalogTenantId,
-          isActive: true,
-          listedInPublicCatalog: true,
-        },
-        include: {
-          classRoom: {
-            include: {
-              gradeLevel: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
+      const classes = await prisma.classRoom.findMany({
+        where: { tenantId: catalogTenantId, isActive: true, listedInPublicCatalog: true },
+        include: { gradeLevel: true },
+        orderBy: [{ gradeLevel: { rank: 'asc' } }, { name: 'asc' }],
       });
-      const classStats = new Map<
-        string,
-        { subjectCount: number; courseCount: number; titles: string[] }
-      >();
-      if (programs.length) {
-        const classCourses = await buildCatalogClassStats(programs);
-        for (const course of classCourses) {
-          if (!course.classRoomId) {
-            continue;
-          }
-          const current = classStats.get(course.classRoomId) ?? {
-            subjectCount: 0,
-            courseCount: 0,
-            titles: [],
-          };
-          current.courseCount += 1;
-          if (course.subjectId) {
-            current.subjectCount = new Set([
-              ...classCourses
-                .filter(c => c.classRoomId === course.classRoomId && c.subjectId)
-                .map(c => c.subjectId),
-            ]).size;
-          }
-          if (current.titles.length < 6) {
-            current.titles.push(course.title);
-          }
-          classStats.set(course.classRoomId, current);
-        }
-      }
+      const stats = await buildClassCourseStats(
+        catalogTenantId,
+        classes.map(c => c.id)
+      );
       return sendSuccess(
         req,
         res,
-        programs.map(program => mapCatalogProgram(program, classStats)),
+        classes.map(c =>
+          mapCatalogClass(c, stats.get(c.id) ?? { subjectCount: 0, courseCount: 0, titles: [] })
+        ),
         200,
         null,
         {
-          academyCatalog: {
-            resolved: true,
-            publicProgramCount: programs.length,
-          },
+          academyCatalog: { resolved: true, publicProgramCount: classes.length },
         }
       );
     } catch (error) {
@@ -241,45 +179,28 @@ export class PublicAcademyController {
         });
       }
 
-      const programs = await prisma.program.findMany({
-        where: {
-          tenantId: catalogTenantId,
-          isActive: true,
-          listedInPublicCatalog: true,
-          classRoomId: { not: null },
-        },
-        include: {
-          classRoom: { include: { gradeLevel: true } },
-        },
+      const classes = await prisma.classRoom.findMany({
+        where: { tenantId: catalogTenantId, isActive: true, listedInPublicCatalog: true },
+        include: { gradeLevel: true },
       });
 
-      const classRoomIds = programs.map(p => p.classRoomId).filter((id): id is string => !!id);
-      const programByClassRoomId = new Map(programs.map(p => [p.classRoomId as string, p]));
+      const classRoomIds = classes.map(c => c.id);
+      const classById = new Map(classes.map(c => [c.id, c]));
 
-      // REB-style "Enrolled students" count per class: active program enrollments
-      // for the program linked to each class room.
-      const enrollmentGroups = programs.length
-        ? await prisma.programEnrollment.groupBy({
-            by: ['programId'],
-            where: {
-              tenantId: catalogTenantId,
-              isActive: true,
-              programId: { in: programs.map(p => p.id) },
-            },
+      const enrollmentGroups = classRoomIds.length
+        ? await prisma.classEnrollment.groupBy({
+            by: ['classRoomId'],
+            where: { tenantId: catalogTenantId, isActive: true, classRoomId: { in: classRoomIds } },
             _count: { _all: true },
           })
         : [];
-      const enrolledByProgramId = new Map(
-        enrollmentGroups.map(g => [g.programId, g._count._all])
+      const enrolledByClassId = new Map(
+        enrollmentGroups.map(g => [g.classRoomId, g._count._all])
       );
 
       const courses = classRoomIds.length
         ? await prisma.course.findMany({
-            where: {
-              tenantId: catalogTenantId,
-              isActive: true,
-              classRoomId: { in: classRoomIds },
-            },
+            where: { tenantId: catalogTenantId, isActive: true, classRoomId: { in: classRoomIds } },
             include: {
               subject: { select: { id: true, name: true, code: true } },
               academicYear: { select: { id: true, name: true, isCurrent: true } },
@@ -303,11 +224,18 @@ export class PublicAcademyController {
               {
                 id: string;
                 name: string;
-                programId: string;
                 price: number;
                 thumbnail: string | null;
                 enrolledCount: number;
-                subjects: Map<string, { id: string; name: string; courseCount: number }>;
+                subjects: Map<
+                  string,
+                  {
+                    id: string;
+                    name: string;
+                    courseCount: number;
+                    courses: Array<{ id: string; title: string }>;
+                  }
+                >;
               }
             >;
           }
@@ -318,8 +246,8 @@ export class PublicAcademyController {
 
       for (const course of courses) {
         if (!course.classRoomId) continue;
-        const program = programByClassRoomId.get(course.classRoomId);
-        if (!program || !program.classRoom) continue;
+        const classRoom = classById.get(course.classRoomId);
+        if (!classRoom) continue;
 
         const year =
           years.get(course.academicYear.id) ??
@@ -331,7 +259,7 @@ export class PublicAcademyController {
           } as YearNode);
         years.set(course.academicYear.id, year);
 
-        const gradeLevel = program.classRoom.gradeLevel;
+        const gradeLevel = classRoom.gradeLevel;
         const gradeNode = year.gradeLevels.get(gradeLevel.id) ?? {
           id: gradeLevel.id,
           name: gradeLevel.name,
@@ -340,24 +268,28 @@ export class PublicAcademyController {
         };
         year.gradeLevels.set(gradeLevel.id, gradeNode);
 
-        const classNode = gradeNode.classRooms.get(program.classRoom.id) ?? {
-          id: program.classRoom.id,
-          name: program.classRoom.name,
-          programId: program.id,
-          price: program.price,
-          thumbnail: program.thumbnail,
-          enrolledCount: enrolledByProgramId.get(program.id) ?? 0,
+        const classNode = gradeNode.classRooms.get(classRoom.id) ?? {
+          id: classRoom.id,
+          name: classRoom.name,
+          price: classRoom.price,
+          thumbnail: classRoom.thumbnail,
+          enrolledCount: enrolledByClassId.get(classRoom.id) ?? 0,
           subjects: new Map(),
         };
-        gradeNode.classRooms.set(program.classRoom.id, classNode);
+        gradeNode.classRooms.set(classRoom.id, classNode);
 
         if (course.subject) {
           const subjectNode = classNode.subjects.get(course.subject.id) ?? {
             id: course.subject.id,
             name: course.subject.name,
             courseCount: 0,
+            courses: [] as Array<{ id: string; title: string }>,
           };
           subjectNode.courseCount += 1;
+          subjectNode.courses.push({ id: course.id, title: course.title });
+          subjectNode.courses.sort((a: { title: string }, b: { title: string }) =>
+            a.title.localeCompare(b.title)
+          );
           classNode.subjects.set(course.subject.id, subjectNode);
         }
       }
@@ -376,7 +308,6 @@ export class PublicAcademyController {
                 .map(classRoom => ({
                   id: classRoom.id,
                   name: classRoom.name,
-                  programId: classRoom.programId,
                   price: classRoom.price,
                   thumbnail: classRoom.thumbnail,
                   enrolledCount: classRoom.enrolledCount,
@@ -397,7 +328,7 @@ export class PublicAcademyController {
   }
 
   /**
-   * Public platform stats (Rev #2): real counts for the public home page.
+   * Public platform stats: real counts for the public home page.
    * successRate = snapshots with averagePercentage >= 50 / snapshots with totals * 100.
    * No auth required. Null rate when no result data yet.
    */
@@ -435,10 +366,10 @@ export class PublicAcademyController {
     }
   }
 
-  static async getProgramById(req: Request, res: Response, next: NextFunction) {
+  static async getClassById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const result = await assertCatalogProgram(id);
+      const result = await assertCatalogClass(id);
       if (!result.ok) {
         if (result.reason === 'no_catalog') {
           return sendError(
@@ -449,21 +380,17 @@ export class PublicAcademyController {
             'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
           );
         }
-        return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
+        return sendError(req, res, 404, 'CLASS_NOT_FOUND', 'Class not found');
       }
-      const classStats = new Map<
-        string,
-        { subjectCount: number; courseCount: number; titles: string[] }
-      >();
-      if (result.program.classRoomId) {
-        const classCourses = await buildCatalogClassStats([result.program]);
-        classStats.set(result.program.classRoomId, {
-          subjectCount: new Set(classCourses.map(c => c.subjectId).filter(Boolean)).size,
-          courseCount: classCourses.length,
-          titles: classCourses.slice(0, 6).map(course => course.title),
-        });
-      }
-      return sendSuccess(req, res, mapCatalogProgram(result.program, classStats));
+      const stats = await buildClassCourseStats(result.catalogTenantId, [result.classRoom.id]);
+      return sendSuccess(
+        req,
+        res,
+        mapCatalogClass(
+          result.classRoom,
+          stats.get(result.classRoom.id) ?? { subjectCount: 0, courseCount: 0, titles: [] }
+        )
+      );
     } catch (error) {
       next(error);
     }
@@ -530,23 +457,6 @@ export class PublicAcademyController {
     }
   }
 
-  static async selectProgram(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = req.user?.sub;
-      const tenantId = req.user?.tenantId;
-
-      if (!userId || !tenantId) {
-        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
-      }
-
-      const { programId } = req.body as AcademyProgramSelectionInput;
-      const result = await academySubscriptionService.selectProgram(userId, tenantId, programId);
-      return sendSuccess(req, res, result);
-    } catch (error) {
-      next(error);
-    }
-  }
-
   static async selectClass(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.sub;
@@ -558,26 +468,6 @@ export class PublicAcademyController {
 
       const { classRoomId } = req.body as AcademyClassSelectionInput;
       const result = await academySubscriptionService.selectClass(userId, tenantId, classRoomId);
-      return sendSuccess(req, res, result);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  static async removeProgram(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = req.user?.sub;
-      const tenantId = req.user?.tenantId;
-
-      if (!userId || !tenantId) {
-        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
-      }
-
-      const result = await academySubscriptionService.removeProgram(
-        userId,
-        tenantId,
-        req.params.programId
-      );
       return sendSuccess(req, res, result);
     } catch (error) {
       next(error);
@@ -604,75 +494,6 @@ export class PublicAcademyController {
     }
   }
 
-  static async purchaseProgram(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { programId, phoneNumber, planId } = req.body;
-      const userId = req.user?.sub;
-      const buyerTenantId = req.user?.tenantId;
-
-      if (!userId || !buyerTenantId) {
-        return sendError(req, res, 401, 'UNAUTHORIZED', 'Authentication required');
-      }
-
-      const result = await assertCatalogProgram(programId);
-      if (!result.ok) {
-        if (result.reason === 'no_catalog') {
-          return sendError(
-            req,
-            res,
-            503,
-            'ACADEMY_CATALOG_NOT_CONFIGURED',
-            'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
-          );
-        }
-        return sendError(req, res, 404, 'PROGRAM_NOT_FOUND', 'Program not found');
-      }
-      const { program } = result;
-
-      const durationDays =
-        planId && typeof planId === 'string' && PLAN_DURATION_MAP[planId]
-          ? PLAN_DURATION_MAP[planId]
-          : program.durationDays || 30;
-
-      const chargeAmount = program.price;
-
-      const payment = await prisma.payment.create({
-        data: {
-          tenantId: program.tenantId,
-          buyerTenantId,
-          userId,
-          programId: program.id,
-          amount: chargeAmount,
-          planId: planId && typeof planId === 'string' ? planId : 'standard',
-          durationDays,
-          status: 'PENDING',
-        },
-      });
-
-      const paypackResponse = await PaypackService.cashin(chargeAmount, phoneNumber);
-
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          paypackRef: paypackResponse.ref,
-        },
-      });
-
-      return sendSuccess(
-        req,
-        res,
-        {
-          message: 'Payment initiated. Please confirm on your phone.',
-          paymentId: payment.id,
-          paypackRef: paypackResponse.ref,
-        },
-        202
-      );
-    } catch (error) {
-      next(error);
-    }
-  }
-
   static async handleWebhook(req: Request, res: Response) {
     try {
       const signature = req.get('X-Paypack-Signature');
@@ -681,7 +502,11 @@ export class PublicAcademyController {
       if (webhookSecret && signature) {
         const rawBody = req.rawBody;
         if (rawBody) {
-          const hash = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('base64');
+          const crypto = await import('crypto');
+          const hash = crypto
+            .createHmac('sha256', webhookSecret)
+            .update(rawBody)
+            .digest('base64');
 
           if (hash !== signature) {
             academyWebhookLog.warn('Rejected Paypack webhook with invalid signature');
@@ -698,126 +523,37 @@ export class PublicAcademyController {
 
       const { ref, status } = payload.data;
 
-      const payment = await prisma.payment.findUnique({
-        where: { paypackRef: ref },
-      });
-
-      if (!payment) {
-        const academyResult = await academySubscriptionService.handlePaymentWebhook(ref, status);
-        if (!academyResult.handled) {
-          academyWebhookLog.info(
-            { ref, status },
-            'Ignored Paypack webhook for unknown payment reference'
-          );
-          return res.status(200).send('Payment not found (ignored)');
-        }
-
+      const academyResult = await academySubscriptionService.handlePaymentWebhook(ref, status);
+      if (!academyResult.handled) {
         academyWebhookLog.info(
-          {
-            ref,
-            status,
-            paymentStatus: academyResult.status,
-            paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
-            subscriptionId:
-              'subscriptionId' in academyResult ? academyResult.subscriptionId : undefined,
-          },
-          'Processed academy subscription Paypack webhook'
+          { ref, status },
+          'Ignored Paypack webhook for unknown payment reference'
         );
-
-        getIO()
-          .to(`trx-${ref}`)
-          .emit('transactionUpdate', {
-            event: 'payment:processed',
-            status: academyResult.status,
-            paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
-            ref,
-          });
-
-        return res.status(200).send('OK');
+        return res.status(200).send('Payment not found (ignored)');
       }
 
-      if (payment.status !== 'PENDING') {
-        academyWebhookLog.info(
-          { ref, status, paymentId: payment.id, paymentStatus: payment.status },
-          'Ignored already-processed legacy payment webhook'
-        );
-        return res.status(200).send('Already processed');
-      }
+      academyWebhookLog.info(
+        {
+          ref,
+          status,
+          paymentStatus: academyResult.status,
+          paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
+          subscriptionId:
+            'subscriptionId' in academyResult ? academyResult.subscriptionId : undefined,
+        },
+        'Processed academy subscription Paypack webhook'
+      );
 
-      if (status === 'successful') {
-        await prisma.$transaction(async tx => {
-          await tx.payment.update({
-            where: { id: payment.id },
-            data: { status: 'COMPLETED' },
-          });
-
-          const duration = payment.durationDays || 30;
-          const expiresAt = new Date();
-          expiresAt.setDate(expiresAt.getDate() + duration);
-
-          const enrollmentTenantId = payment.buyerTenantId ?? payment.tenantId;
-
-          await tx.programEnrollment.upsert({
-            where: {
-              userId_programId: {
-                userId: payment.userId,
-                programId: payment.programId,
-              },
-            },
-            update: {
-              tenantId: enrollmentTenantId,
-              isActive: true,
-              expiresAt,
-              isTrial: false,
-            },
-            create: {
-              tenantId: enrollmentTenantId,
-              userId: payment.userId,
-              programId: payment.programId,
-              expiresAt,
-              isActive: true,
-              isTrial: false,
-            },
-          });
-        });
-
-        getIO().to(`trx-${ref}`).emit('transactionUpdate', {
+      getIO()
+        .to(`trx-${ref}`)
+        .emit('transactionUpdate', {
           event: 'payment:processed',
-          status: 'COMPLETED',
-          paymentId: payment.id,
+          status: academyResult.status,
+          paymentId: 'paymentId' in academyResult ? academyResult.paymentId : undefined,
           ref,
         });
 
-        academyWebhookLog.info(
-          { ref, status, paymentId: payment.id, paymentStatus: 'COMPLETED' },
-          'Processed legacy program payment Paypack webhook'
-        );
-      } else if (status === 'failed' || status === 'cancelled') {
-        const newStatus = status === 'failed' ? 'FAILED' : 'CANCELLED';
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: { status: newStatus },
-        });
-
-        getIO().to(`trx-${ref}`).emit('transactionUpdate', {
-          event: 'payment:processed',
-          status: newStatus,
-          paymentId: payment.id,
-          ref,
-        });
-
-        academyWebhookLog.info(
-          { ref, status, paymentId: payment.id, paymentStatus: newStatus },
-          'Processed legacy program payment Paypack webhook'
-        );
-      } else {
-        academyWebhookLog.info(
-          { ref, status, paymentId: payment.id, paymentStatus: payment.status },
-          'Received Paypack webhook with non-terminal legacy payment status'
-        );
-      }
-
-      res.status(200).send('OK');
+      return res.status(200).send('OK');
     } catch (error) {
       academyWebhookLog.error({ err: error }, 'Failed to process Paypack webhook');
       res.status(500).send('Internal Server Error');
@@ -829,9 +565,9 @@ export class PublicAcademyController {
       const userId = req.user?.sub;
       if (!userId) return res.status(401).send('Unauthorized');
 
-      const enrollments = await prisma.programEnrollment.findMany({
+      const enrollments = await prisma.classEnrollment.findMany({
         where: { userId, isActive: true },
-        include: { program: true },
+        include: { classRoom: { include: { gradeLevel: true } } },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -841,43 +577,7 @@ export class PublicAcademyController {
     }
   }
 
-  static async getProgramContent(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.sub;
-
-      if (!userId) return sendError(req, res, 401, 'UNAUTHORIZED', 'Unauthorized');
-
-      const enrollment = await prisma.programEnrollment.findUnique({
-        where: {
-          userId_programId: {
-            userId,
-            programId: id,
-          },
-        },
-        include: { program: true },
-      });
-
-      if (!enrollment || !enrollment.isActive) {
-        return sendError(req, res, 403, 'ENROLLMENT_REQUIRED', 'Active enrollment required');
-      }
-
-      if (enrollment.expiresAt && enrollment.expiresAt.getTime() < Date.now()) {
-        return sendError(req, res, 403, 'ENROLLMENT_EXPIRED', 'Enrollment has expired');
-      }
-
-      if (!enrollment.program.classRoomId) {
-        return sendError(req, res, 404, 'CONTENT_NOT_FOUND', 'Program content not linked or found');
-      }
-
-      req.params.classRoomId = enrollment.program.classRoomId;
-      return PublicAcademyController.getClassContent(req, res, next);
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /** Purchasing a class unlocks every subject, course, lesson, and assessment within it. */
+  /** Enrolling in a class unlocks every subject, course, lesson, and assessment within it. */
   static async getClassContent(req: Request, res: Response, next: NextFunction) {
     try {
       const { classRoomId } = req.params;

@@ -238,37 +238,6 @@ export const listCourseSubjectOptionsQuerySchema = z.object({
   q: z.string().trim().min(1).max(120).optional(),
 });
 
-export const createAcademyProgramSchema = z
-  .object({
-    title: z.string().trim().min(2).max(120),
-    description: z.string().trim().max(2000).optional(),
-    thumbnail: z.union([z.string().trim().url().max(2000), z.literal('')]).optional(),
-    section: z.string().trim().max(120).optional(),
-    price: z.coerce.number().positive().max(1_000_000_000),
-    durationDays: z.coerce.number().int().min(1).max(3650).default(30),
-    isActive: z.boolean().optional().default(true),
-    listedInPublicCatalog: z.boolean().optional().default(true),
-    classRoomId: z.string().uuid().nullable().optional(),
-  })
-  .strict();
-
-export const updateAcademyProgramSchema = z
-  .object({
-    title: z.string().trim().min(2).max(120).optional(),
-    description: z.string().trim().max(2000).nullable().optional(),
-    thumbnail: z
-      .union([z.string().trim().url().max(2000), z.literal('')])
-      .nullable()
-      .optional(),
-    section: z.string().trim().max(120).nullable().optional(),
-    price: z.coerce.number().positive().max(1_000_000_000).optional(),
-    durationDays: z.coerce.number().int().min(1).max(3650).optional(),
-    isActive: z.boolean().optional(),
-    listedInPublicCatalog: z.boolean().optional(),
-    classRoomId: z.string().uuid().nullable().optional(),
-  })
-  .strict();
-
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;
 export type UpdateCourseInput = z.infer<typeof updateCourseSchema>;
 export type AssignCourseTeacherInput = z.infer<typeof assignCourseTeacherSchema>;
@@ -298,5 +267,3 @@ export type ListCourseTeacherOptionsQueryInput = z.infer<
 export type ListCourseSubjectOptionsQueryInput = z.infer<
   typeof listCourseSubjectOptionsQuerySchema
 >;
-export type CreateAcademyProgramInput = z.infer<typeof createAcademyProgramSchema>;
-export type UpdateAcademyProgramInput = z.infer<typeof updateAcademyProgramSchema>;

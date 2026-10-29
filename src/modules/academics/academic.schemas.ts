@@ -56,6 +56,10 @@ export const createClassRoomSchema = z.object({
   code: z.string().trim().min(1).max(30),
   name: z.string().trim().min(1).max(80),
   capacity: z.number().int().min(1).max(200).optional(),
+  price: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  durationDays: z.coerce.number().int().min(1).max(3650).default(30),
+  thumbnail: z.union([z.string().trim().url().max(2000), z.literal('')]).optional(),
+  listedInPublicCatalog: z.boolean().optional().default(true),
 });
 
 export const updateClassRoomSchema = z
@@ -64,6 +68,10 @@ export const updateClassRoomSchema = z
     code: z.string().trim().min(1).max(30).optional(),
     name: z.string().trim().min(1).max(80).optional(),
     capacity: z.number().int().min(1).max(200).nullable().optional(),
+    price: z.coerce.number().min(0).max(1_000_000_000).optional(),
+    durationDays: z.coerce.number().int().min(1).max(3650).optional(),
+    thumbnail: z.union([z.string().trim().url().max(2000), z.literal(''), z.null()]).optional(),
+    listedInPublicCatalog: z.boolean().optional(),
     isActive: z.boolean().optional(),
   })
   .strict();

@@ -40,9 +40,15 @@ subscriptionsRoutes.get(
 );
 
 subscriptionsRoutes.get(
+  '/subscriptions/academy/catalog-classes',
+  requirePermissions([PERMISSIONS.TENANTS_READ]),
+  asyncHandler((req, res) => controller.listAcademyCatalogClasses(req, res))
+);
+// Legacy alias (programs are now classes).
+subscriptionsRoutes.get(
   '/subscriptions/academy/catalog-programs',
   requirePermissions([PERMISSIONS.TENANTS_READ]),
-  asyncHandler((req, res) => controller.listAcademyCatalogPrograms(req, res))
+  asyncHandler((req, res) => controller.listAcademyCatalogClasses(req, res))
 );
 
 subscriptionsRoutes.post(

@@ -46,8 +46,8 @@ export class SubscriptionsController {
     return sendSuccess(req, res, result);
   }
 
-  async listAcademyCatalogPrograms(req: Request, res: Response): Promise<Response> {
-    const result = await service.listAcademyCatalogPrograms(req.user!);
+  async listAcademyCatalogClasses(req: Request, res: Response): Promise<Response> {
+    const result = await service.listAcademyCatalogClasses(req.user!);
     return sendSuccess(req, res, result);
   }
 

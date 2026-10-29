@@ -21,6 +21,8 @@ export const createStudentSchema = z.object({
   email: z.string().trim().email().optional().or(z.literal('')),
   gender: studentGenderSchema.optional(),
   dateOfBirth: isoDate.optional(),
+  hasDisability: z.boolean().optional(),
+  disabilityType: z.string().trim().max(160).nullable().optional(),
   enrollment: enrollmentSchema,
 });
 
@@ -32,6 +34,8 @@ export const updateStudentSchema = z
     email: z.string().trim().email().nullable().optional().or(z.literal('')),
     gender: studentGenderSchema.nullable().optional(),
     dateOfBirth: isoDate.nullable().optional(),
+    hasDisability: z.boolean().optional(),
+    disabilityType: z.string().trim().max(160).nullable().optional(),
     isActive: z.boolean().optional(),
     enrollment: enrollmentSchema.optional(),
   })

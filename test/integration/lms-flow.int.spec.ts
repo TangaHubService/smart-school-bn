@@ -5,7 +5,7 @@ jest.mock('../../src/db/prisma', () => {
     subject: { findFirst: jest.fn() },
     user: { findFirst: jest.fn(), findMany: jest.fn() },
     student: { findFirst: jest.fn() },
-    programEnrollment: { findMany: jest.fn() },
+    classEnrollment: { findMany: jest.fn() },
     studentLessonProgress: { findMany: jest.fn() },
     assessmentAttempt: { findMany: jest.fn() },
     course: {
@@ -258,8 +258,8 @@ describe('lms integration flow', () => {
       ],
     });
 
-    // Mock program enrollments (empty for this test)
-    mockedPrisma.programEnrollment.findMany.mockResolvedValue([]);
+    // Mock class enrollments (empty for this test)
+    mockedPrisma.classEnrollment.findMany.mockResolvedValue([]);
 
     // Mock student lesson progress (empty for this test)
     mockedPrisma.studentLessonProgress.findMany.mockResolvedValue([]);
@@ -302,16 +302,10 @@ describe('lms integration flow', () => {
 
   it('expands academy subject access to every course under the selected subject', async () => {
     mockedPrisma.student.findFirst.mockResolvedValue(null);
-    mockedPrisma.programEnrollment.findMany.mockResolvedValue([
+    mockedPrisma.classEnrollment.findMany.mockResolvedValue([
       {
         id: 'academy-enrollment-1',
-        programId: 'program-1',
-        program: {
-          courseId: null,
-          course: {
-            subjectId: 'subject-1',
-          },
-        },
+        classRoomId: 'classroom-1',
       },
     ]);
 
@@ -705,8 +699,8 @@ describe('lms integration flow', () => {
       ],
     });
 
-    // Mock program enrollments (empty for this test)
-    mockedPrisma.programEnrollment.findMany.mockResolvedValue([]);
+    // Mock class enrollments (empty for this test)
+    mockedPrisma.classEnrollment.findMany.mockResolvedValue([]);
 
     // Mock student lesson progress (empty for this test)
     mockedPrisma.studentLessonProgress.findMany.mockResolvedValue([]);

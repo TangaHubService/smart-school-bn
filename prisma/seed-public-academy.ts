@@ -93,12 +93,15 @@ async function main() {
     where: {
       tenantId_code: { tenantId: academyTenant.id, code: 'ACAD-CAT' },
     },
-    update: {},
+    update: { price: 100, durationDays: 30, listedInPublicCatalog: true, isActive: true },
     create: {
       tenantId: academyTenant.id,
       gradeLevelId: academyGrade.id,
       code: 'ACAD-CAT',
       name: 'Catalog',
+      price: 100,
+      durationDays: 30,
+      listedInPublicCatalog: true,
     },
   });
 
@@ -173,83 +176,7 @@ async function main() {
     },
   });
 
-  await prisma.program.upsert({
-    where: {
-      tenantId_title: {
-        tenantId: academyTenant.id,
-        title: 'Test course (100 RWF)',
-      },
-    },
-    update: {
-      description: 'Cheap test listing (100 RWF) with linked class content.',
-      price: 100,
-      durationDays: 30,
-      classRoomId: academyClass.id,
-      listedInPublicCatalog: true,
-      isActive: true,
-    },
-    create: {
-      tenantId: academyTenant.id,
-      title: 'Test course (100 RWF)',
-      description: 'Cheap test listing (100 RWF) with linked class content.',
-      price: 100,
-      durationDays: 30,
-      classRoomId: academyClass.id,
-      listedInPublicCatalog: true,
-      isActive: true,
-    },
-  });
-
-  console.log('Seeded academy test program: Test course (100 RWF) + course + lesson');
-
-  // Create initial programs
-  const programs = [
-    {
-      title: 'Web Development Bootcamp',
-      description: 'Learn full-stack web development from scratch.',
-      thumbnail:
-        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/web-dev.jpg',
-      price: 50000,
-      durationDays: 90,
-    },
-    {
-      title: 'Digital Marketing Essentials',
-      description: 'Master the basics of SEO, SEM, and social media marketing.',
-      thumbnail:
-        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/marketing.jpg',
-      price: 25000,
-      durationDays: 30,
-    },
-    {
-      title: 'Mobile App Development with React Native',
-      description: 'Build cross-platform mobile apps for iOS and Android.',
-      thumbnail:
-        'https://res.cloudinary.com/dv8svgy01/image/upload/v1741600000/smart-school/mobile-dev.jpg',
-      price: 45000,
-      durationDays: 60,
-    },
-  ];
-
-  for (const prog of programs) {
-    await prisma.program.upsert({
-      where: {
-        tenantId_title: {
-          tenantId: academyTenant.id,
-          title: prog.title,
-        },
-      },
-      update: {
-        description: prog.description,
-        thumbnail: prog.thumbnail,
-        price: prog.price,
-        durationDays: prog.durationDays,
-      },
-      create: {
-        tenantId: academyTenant.id,
-        ...prog,
-      },
-    });
-  }
+  console.log('Seeded academy test class: Catalog (100 RWF) + course + lesson');
 
   // Create demo learner
   const learnerEmail = 'learner@academy.rw';

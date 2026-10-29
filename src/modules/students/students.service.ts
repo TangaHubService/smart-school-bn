@@ -24,6 +24,8 @@ interface CsvValidationRow {
   lastName: string;
   gender: StudentGender | null;
   dateOfBirth: string | null;
+  hasDisability: boolean;
+  disabilityType: string | null;
   academicYearId: string | null;
   classRoomId: string | null;
   enrolledAt: string | null;
@@ -36,6 +38,8 @@ const CSV_HEADER_ALIASES = {
   lastName: ['lastname', 'last_name', 'surname'],
   gender: ['gender', 'sex'],
   dateOfBirth: ['dateofbirth', 'date_of_birth', 'dob'],
+  hasDisability: ['hasdisability', 'has_disability', 'disability'],
+  disabilityType: ['disabilitytype', 'disability_type', 'disability_details'],
   academicYearId: ['academicyearid', 'academic_year_id'],
   academicYearName: ['academicyear', 'academic_year', 'academic_year_name'],
   classRoomId: ['classroomid', 'class_room_id', 'classid', 'class_id'],
@@ -129,6 +133,8 @@ export class StudentsService {
             lastName: input.lastName,
             gender: input.gender,
             dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+            hasDisability: input.hasDisability ?? false,
+            disabilityType: input.hasDisability ? input.disabilityType || null : null,
           },
         });
 
@@ -314,6 +320,13 @@ export class StudentsService {
                 : input.dateOfBirth
                   ? new Date(input.dateOfBirth)
                   : undefined,
+            hasDisability: input.hasDisability,
+            disabilityType:
+              input.hasDisability === false
+                ? null
+                : input.disabilityType === undefined
+                  ? undefined
+                  : input.disabilityType || null,
             isActive: input.isActive,
           },
         });
@@ -581,6 +594,11 @@ export class StudentsService {
         }
       }
 
+      const hasDisabilityRaw = this.readCsvField(source, CSV_HEADER_ALIASES.hasDisability);
+      const hasDisability = this.parseBoolean(hasDisabilityRaw);
+      const disabilityTypeRaw = this.readCsvField(source, CSV_HEADER_ALIASES.disabilityType);
+      const disabilityType = hasDisability ? disabilityTypeRaw || null : null;
+
       const yearIdRaw =
         this.readCsvField(source, CSV_HEADER_ALIASES.academicYearId) ||
         input.defaultAcademicYearId ||
@@ -634,6 +652,8 @@ export class StudentsService {
         lastName,
         gender,
         dateOfBirth,
+        hasDisability,
+        disabilityType,
         academicYearId,
         classRoomId,
         enrolledAt,
@@ -722,6 +742,8 @@ export class StudentsService {
             lastName: row.lastName,
             gender: row.gender,
             dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
+            hasDisability: row.hasDisability,
+            disabilityType: row.disabilityType,
           })),
         });
 
@@ -954,6 +976,8 @@ export class StudentsService {
     lastName: string;
     gender: StudentGender | null;
     dateOfBirth: Date | null;
+    hasDisability: boolean;
+    disabilityType: string | null;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -987,6 +1011,8 @@ export class StudentsService {
       lastName: student.lastName,
       gender: student.gender,
       dateOfBirth: student.dateOfBirth,
+      hasDisability: student.hasDisability,
+      disabilityType: student.disabilityType,
       isActive: student.isActive,
       createdAt: student.createdAt,
       updatedAt: student.updatedAt,
@@ -1119,6 +1145,11 @@ export class StudentsService {
     }
 
     return null;
+  }
+
+  private parseBoolean(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return ['true', 'yes', 'y', '1'].includes(normalized);
   }
 
   private parseCsvContent(content: string): string[][] {

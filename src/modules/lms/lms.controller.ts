@@ -316,42 +316,6 @@ export class LmsController {
     return sendSuccess(req, res, result);
   }
 
-  async listAcademyPrograms(req: Request, res: Response): Promise<Response> {
-    const result = await lmsService.listAcademyPrograms(req.tenantId!, req.user!);
-    return sendSuccess(req, res, result);
-  }
-
-  async createAcademyProgram(req: Request, res: Response): Promise<Response> {
-    const result = await lmsService.createAcademyProgram(
-      req.tenantId!,
-      req.body,
-      req.user!,
-      buildContext(req)
-    );
-    return sendSuccess(req, res, result, 201);
-  }
-
-  async updateAcademyProgram(req: Request, res: Response): Promise<Response> {
-    const result = await lmsService.updateAcademyProgram(
-      req.tenantId!,
-      req.params.programId,
-      req.body,
-      req.user!,
-      buildContext(req)
-    );
-    return sendSuccess(req, res, result);
-  }
-
-  async deleteAcademyProgram(req: Request, res: Response): Promise<Response> {
-    const result = await lmsService.deleteAcademyProgram(
-      req.tenantId!,
-      req.params.programId,
-      req.user!,
-      buildContext(req)
-    );
-    return sendSuccess(req, res, result);
-  }
-
   async listTeacherLearningInsights(req: Request, res: Response): Promise<Response> {
     const query = learningInsightsQuerySchema.parse(req.query);
     const result = await lmsService.listTeacherLearningInsights(req.tenantId!, req.user!, query);

@@ -46,15 +46,11 @@ export const ACADEMY_CHECKOUT_PLANS = {
 
 export type AcademyCheckoutPlanId = keyof typeof ACADEMY_CHECKOUT_PLANS;
 type AcademySubscriptionDb = Prisma.TransactionClient | typeof prisma;
-type AcademyEnrollmentRow = Prisma.ProgramEnrollmentGetPayload<{
+type AcademyEnrollmentRow = Prisma.ClassEnrollmentGetPayload<{
   include: {
-    program: {
+    classRoom: {
       include: {
-        classRoom: {
-          include: {
-            gradeLevel: true;
-          };
-        };
+        gradeLevel: true;
       };
     };
   };
@@ -199,9 +195,8 @@ export class AcademySubscriptionService {
   private collectClassRoomIds(rows: AcademyEnrollmentRow[]) {
     const classRoomIds = new Set<string>();
     for (const row of rows) {
-      const classRoomId = row.program.classRoom?.id ?? row.program.classRoomId ?? null;
-      if (classRoomId) {
-        classRoomIds.add(classRoomId);
+      if (row.classRoomId) {
+        classRoomIds.add(row.classRoomId);
       }
     }
     return classRoomIds;
@@ -215,8 +210,7 @@ export class AcademySubscriptionService {
         className: string;
         gradeLevelName: string;
         thumbnail: string | null;
-        programId: string;
-        programTitle: string;
+        price: number;
         expiresAt: string | null;
         isTrial: boolean;
         isLegacy: boolean;
@@ -224,7 +218,7 @@ export class AcademySubscriptionService {
     >();
 
     for (const row of rows) {
-      const classRoom = row.program.classRoom;
+      const classRoom = row.classRoom;
       if (!classRoom) {
         continue;
       }
@@ -233,16 +227,15 @@ export class AcademySubscriptionService {
         classRoomId: classRoom.id,
         className: classRoom.name,
         gradeLevelName: classRoom.gradeLevel.name,
-        thumbnail: row.program.thumbnail,
-        programId: row.programId,
-        programTitle: row.program.title,
+        thumbnail: classRoom.thumbnail,
+        price: classRoom.price,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         isTrial: row.isTrial,
         isLegacy: row.academySubscriptionId !== currentSubscriptionId,
       };
 
-      if (!current.thumbnail && row.program.thumbnail) {
-        current.thumbnail = row.program.thumbnail;
+      if (!current.thumbnail && classRoom.thumbnail) {
+        current.thumbnail = classRoom.thumbnail;
       }
       if (
         row.expiresAt &&
@@ -261,20 +254,16 @@ export class AcademySubscriptionService {
   }
 
   private async getCurrentClassSelections(userId: string, subscriptionId: string) {
-    const rows = await prisma.programEnrollment.findMany({
+    const rows = await prisma.classEnrollment.findMany({
       where: {
         userId,
         academySubscriptionId: subscriptionId,
         isActive: true,
       },
       include: {
-        program: {
+        classRoom: {
           include: {
-            classRoom: {
-              include: {
-                gradeLevel: true,
-              },
-            },
+            gradeLevel: true,
           },
         },
       },
@@ -287,7 +276,7 @@ export class AcademySubscriptionService {
     };
   }
 
-  private async getCatalogProgram(programId: string) {
+  private async getCatalogClass(classRoomId: string) {
     const catalogTenantId = await resolveAcademyCatalogTenantId();
     if (!catalogTenantId) {
       throw new AppError(
@@ -297,61 +286,23 @@ export class AcademySubscriptionService {
       );
     }
 
-    const program = await prisma.program.findFirst({
+    const classRoom = await prisma.classRoom.findFirst({
       where: {
-        id: programId,
+        id: classRoomId,
         tenantId: catalogTenantId,
         isActive: true,
         listedInPublicCatalog: true,
       },
       include: {
-        classRoom: {
-          include: {
-            gradeLevel: true,
-          },
-        },
+        gradeLevel: true,
       },
     });
 
-    if (!program) {
-      throw new AppError(404, 'PROGRAM_NOT_FOUND', 'Program not found');
-    }
-
-    return program;
-  }
-
-  private async getCatalogProgramForClass(classRoomId: string) {
-    const catalogTenantId = await resolveAcademyCatalogTenantId();
-    if (!catalogTenantId) {
-      throw new AppError(
-        503,
-        'ACADEMY_CATALOG_NOT_CONFIGURED',
-        'Set one tenant as academy catalog or ACADEMY_CATALOG_TENANT_ID in env'
-      );
-    }
-
-    const program = await prisma.program.findFirst({
-      where: {
-        tenantId: catalogTenantId,
-        isActive: true,
-        listedInPublicCatalog: true,
-        classRoomId,
-      },
-      include: {
-        classRoom: {
-          include: {
-            gradeLevel: true,
-          },
-        },
-      },
-      orderBy: [{ createdAt: 'desc' }],
-    });
-
-    if (!program) {
+    if (!classRoom) {
       throw new AppError(404, 'CLASS_NOT_FOUND', 'Class not found in academy catalog.');
     }
 
-    return program;
+    return { classRoom, catalogTenantId };
   }
 
   async ensureTrialSubscription(
@@ -391,39 +342,31 @@ export class AcademySubscriptionService {
     const current = await this.syncSubscriptionStatus(subscription);
 
     const [selectedRows, accessibleRows, pendingPayment] = await Promise.all([
-      prisma.programEnrollment.findMany({
+      prisma.classEnrollment.findMany({
         where: {
           userId,
           academySubscriptionId: current.id,
           isActive: true,
         },
         include: {
-          program: {
+          classRoom: {
             include: {
-              classRoom: {
-                include: {
-                  gradeLevel: true,
-                },
-              },
+              gradeLevel: true,
             },
           },
         },
         orderBy: [{ updatedAt: 'desc' }],
       }),
-      prisma.programEnrollment.findMany({
+      prisma.classEnrollment.findMany({
         where: {
           userId,
           isActive: true,
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         include: {
-          program: {
+          classRoom: {
             include: {
-              classRoom: {
-                include: {
-                  gradeLevel: true,
-                },
-              },
+              gradeLevel: true,
             },
           },
         },
@@ -445,12 +388,12 @@ export class AcademySubscriptionService {
 
     const selectedPrograms = selectedRows.map(row => ({
       enrollmentId: row.id,
-      programId: row.programId,
-      title: row.program.title,
-      description: row.program.description,
-      thumbnail: row.program.thumbnail,
-      classRoomId: row.program.classRoom?.id ?? row.program.classRoomId ?? null,
-      className: row.program.classRoom?.name ?? null,
+      programId: row.classRoomId,
+      title: row.classRoom.name,
+      description: null as string | null,
+      thumbnail: row.classRoom.thumbnail,
+      classRoomId: row.classRoomId,
+      className: row.classRoom.name,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       isTrial: row.isTrial,
     }));
@@ -470,12 +413,12 @@ export class AcademySubscriptionService {
       selectedPrograms,
       accessiblePrograms: accessibleRows.map(row => ({
         enrollmentId: row.id,
-        programId: row.programId,
-        title: row.program.title,
-        description: row.program.description,
-        thumbnail: row.program.thumbnail,
-        classRoomId: row.program.classRoom?.id ?? row.program.classRoomId ?? null,
-        className: row.program.classRoom?.name ?? null,
+        programId: row.classRoomId,
+        title: row.classRoom.name,
+        description: null as string | null,
+        thumbnail: row.classRoom.thumbnail,
+        classRoomId: row.classRoomId,
+        className: row.classRoom.name,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         isTrial: row.isTrial,
         isLegacy: row.academySubscriptionId !== current.id,
@@ -593,25 +536,12 @@ export class AcademySubscriptionService {
     };
   }
 
-  async selectProgram(userId: string, tenantId: string, programId: string) {
-    const program = await this.getCatalogProgram(programId);
-    if (!program.classRoomId) {
-      throw new AppError(
-        400,
-        'PROGRAM_CLASS_NOT_READY',
-        'This program is not linked to a class yet.'
-      );
-    }
-
-    return this.selectClass(userId, tenantId, program.classRoomId);
-  }
-
   async selectClass(userId: string, tenantId: string, classRoomId: string) {
     const current = await this.ensureSelectableSubscription(userId, tenantId);
-    const program = await this.getCatalogProgramForClass(classRoomId);
+    const { classRoom } = await this.getCatalogClass(classRoomId);
     const { classRoomIds } = await this.getCurrentClassSelections(userId, current.id);
 
-    if (!classRoomIds.has(classRoomId) && classRoomIds.size >= current.classLimit) {
+    if (!classRoomIds.has(classRoom.id) && classRoomIds.size >= current.classLimit) {
       throw new AppError(
         409,
         'ACADEMY_SELECTION_LIMIT_REACHED',
@@ -619,11 +549,11 @@ export class AcademySubscriptionService {
       );
     }
 
-    await prisma.programEnrollment.upsert({
+    await prisma.classEnrollment.upsert({
       where: {
-        userId_programId: {
+        userId_classRoomId: {
           userId,
-          programId: program.id,
+          classRoomId: classRoom.id,
         },
       },
       update: {
@@ -636,7 +566,7 @@ export class AcademySubscriptionService {
       create: {
         tenantId,
         userId,
-        programId: program.id,
+        classRoomId: classRoom.id,
         academySubscriptionId: current.id,
         expiresAt: current.expiresAt,
         isActive: true,
@@ -647,31 +577,16 @@ export class AcademySubscriptionService {
     return this.buildSummary(current, userId);
   }
 
-  async removeProgram(userId: string, tenantId: string, programId: string) {
-    const program = await this.getCatalogProgram(programId);
-    if (!program.classRoomId) {
-      throw new AppError(
-        400,
-        'PROGRAM_CLASS_NOT_READY',
-        'This program is not linked to a class yet.'
-      );
-    }
-
-    return this.removeClass(userId, tenantId, program.classRoomId);
-  }
-
   async removeClass(userId: string, tenantId: string, classRoomId: string) {
     const subscription = await this.ensureTrialSubscription(userId, tenantId);
     const current = await this.syncSubscriptionStatus(subscription);
 
-    const selectedRows = await prisma.programEnrollment.findMany({
+    const selectedRows = await prisma.classEnrollment.findMany({
       where: {
         userId,
         academySubscriptionId: current.id,
         isActive: true,
-        program: {
-          classRoomId,
-        },
+        classRoomId,
       },
       select: { id: true },
     });
@@ -680,7 +595,7 @@ export class AcademySubscriptionService {
       throw new AppError(404, 'CLASS_NOT_SELECTED', 'This class is not selected on your plan.');
     }
 
-    await prisma.programEnrollment.updateMany({
+    await prisma.classEnrollment.updateMany({
       where: {
         id: {
           in: selectedRows.map(row => row.id),
@@ -757,7 +672,7 @@ export class AcademySubscriptionService {
         data: { academySubscriptionId: subscription.id },
       });
 
-      await tx.programEnrollment.updateMany({
+      await tx.classEnrollment.updateMany({
         where: {
           userId: payment.userId,
           academySubscriptionId: subscription.id,

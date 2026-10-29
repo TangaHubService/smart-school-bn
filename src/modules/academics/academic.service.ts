@@ -363,6 +363,10 @@ export class AcademicsService {
           code: input.code,
           name: input.name,
           capacity: input.capacity,
+          price: input.price ?? 0,
+          durationDays: input.durationDays ?? 30,
+          thumbnail: input.thumbnail?.trim() ? input.thumbnail.trim() : null,
+          listedInPublicCatalog: input.listedInPublicCatalog ?? true,
           isActive: true,
         },
       });
@@ -415,6 +419,15 @@ export class AcademicsService {
         code: input.code,
         name: input.name,
         capacity: input.capacity,
+        price: input.price,
+        durationDays: input.durationDays,
+        thumbnail:
+          input.thumbnail === undefined
+            ? undefined
+            : input.thumbnail === null || input.thumbnail === ''
+              ? null
+              : input.thumbnail.trim(),
+        listedInPublicCatalog: input.listedInPublicCatalog,
         isActive: input.isActive,
       },
     });

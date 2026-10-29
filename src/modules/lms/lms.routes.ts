@@ -11,7 +11,6 @@ import { LmsController } from './lms.controller';
 import {
   assignCourseTeacherSchema,
   assignTeacherBySubjectSchema,
-  createAcademyProgramSchema,
   createAssignmentSchema,
   createCourseSchema,
   createLessonSchema,
@@ -22,7 +21,6 @@ import {
   publishSectionSchema,
   recordLessonActivitySchema,
   reorderSectionsSchema,
-  updateAcademyProgramSchema,
   updateCourseSchema,
   updateLessonSchema,
   updateSectionSchema,
@@ -39,32 +37,6 @@ lmsRoutes.post(
   requirePermissions([PERMISSIONS.COURSES_MANAGE]),
   validateBody(createCourseSchema),
   asyncHandler((req, res) => lmsController.createCourse(req, res))
-);
-
-lmsRoutes.get(
-  '/academy-programs',
-  requirePermissions([PERMISSIONS.COURSES_READ]),
-  asyncHandler((req, res) => lmsController.listAcademyPrograms(req, res))
-);
-
-lmsRoutes.post(
-  '/academy-programs',
-  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  validateBody(createAcademyProgramSchema),
-  asyncHandler((req, res) => lmsController.createAcademyProgram(req, res))
-);
-
-lmsRoutes.patch(
-  '/academy-programs/:programId',
-  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  validateBody(updateAcademyProgramSchema),
-  asyncHandler((req, res) => lmsController.updateAcademyProgram(req, res))
-);
-
-lmsRoutes.delete(
-  '/academy-programs/:programId',
-  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
-  asyncHandler((req, res) => lmsController.deleteAcademyProgram(req, res))
 );
 
 lmsRoutes.get(

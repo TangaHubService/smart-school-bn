@@ -4,7 +4,6 @@ import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import {
   academyPlanCheckoutSchema,
-  academyProgramSelectionSchema,
   academyClassSelectionSchema,
   academyMockCheckoutSchema,
 } from './public-academy.schemas';
@@ -13,10 +12,13 @@ const router = Router();
 
 // Public routes
 router.get('/plans', PublicAcademyController.getPlans);
-router.get('/programs', PublicAcademyController.getPrograms);
+router.get('/classes', PublicAcademyController.getClasses);
+// Legacy alias: programs are now classes (pricing lives on the class).
+router.get('/programs', PublicAcademyController.getClasses);
 router.get('/catalog/tree', PublicAcademyController.getCatalogTree);
 router.get('/stats', PublicAcademyController.getPublicStats);
-router.get('/programs/:id', PublicAcademyController.getProgramById);
+router.get('/classes/:id', PublicAcademyController.getClassById);
+router.get('/programs/:id', PublicAcademyController.getClassById);
 router.head('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.get('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.post('/webhook/paypack', PublicAcademyController.handleWebhook);
@@ -36,30 +38,17 @@ router.post(
   PublicAcademyController.startMockPlanCheckout
 );
 router.post(
-  '/subscription/programs/select',
-  authenticate,
-  validateBody(academyProgramSelectionSchema),
-  PublicAcademyController.selectProgram
-);
-router.post(
   '/subscription/classes/select',
   authenticate,
   validateBody(academyClassSelectionSchema),
   PublicAcademyController.selectClass
 );
 router.delete(
-  '/subscription/programs/:programId',
-  authenticate,
-  PublicAcademyController.removeProgram
-);
-router.delete(
   '/subscription/classes/:classRoomId',
   authenticate,
   PublicAcademyController.removeClass
 );
-router.post('/purchase', authenticate, PublicAcademyController.purchaseProgram);
 router.get('/my-enrollments', authenticate, PublicAcademyController.getMyEnrollments);
-router.get('/programs/:id/content', authenticate, PublicAcademyController.getProgramContent);
 router.get('/classes/:classRoomId/content', authenticate, PublicAcademyController.getClassContent);
 
 export { router as publicAcademyRouter };

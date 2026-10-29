@@ -206,10 +206,10 @@ export class SubscriptionsService {
   }
 
   /**
-   * All active programs in the academy catalog tenant (including not listed on the public storefront).
-   * Used by super admins to grant enrollments; public GET /public-academy/programs only returns listed ones.
+   * All active listed classes in the academy catalog tenant.
+   * Used by super admins to grant enrollments; pricing lives on the class.
    */
-  async listAcademyCatalogPrograms(actor: JwtUser) {
+  async listAcademyCatalogClasses(actor: JwtUser) {
     this.assertSuperAdmin(actor);
 
     const catalogTenantId = await resolveAcademyCatalogTenantId();
@@ -223,36 +223,36 @@ export class SubscriptionsService {
           price: number;
           durationDays: number;
           listedInPublicCatalog: boolean;
-          classRoomId: string | null;
-          className: string | null;
+          classRoomId: string;
+          className: string;
         }>,
       };
     }
 
-    const programs = await prisma.program.findMany({
-      where: {
-        tenantId: catalogTenantId,
-        isActive: true,
-      },
-      orderBy: [{ title: 'asc' }],
-      include: {
-        classRoom: { select: { id: true, name: true } },
-      },
+    const classes = await prisma.classRoom.findMany({
+      where: { tenantId: catalogTenantId, isActive: true },
+      orderBy: [{ name: 'asc' }],
+      include: { gradeLevel: { select: { id: true, name: true } } },
     });
 
     return {
       catalogConfigured: true as const,
       catalogTenantId,
-      items: programs.map(p => ({
-        id: p.id,
-        title: p.title,
-        price: p.price,
-        durationDays: p.durationDays,
-        listedInPublicCatalog: p.listedInPublicCatalog,
-        classRoomId: p.classRoomId,
-        className: p.classRoom?.name ?? null,
+      items: classes.map(c => ({
+        id: c.id,
+        title: c.name,
+        price: c.price,
+        durationDays: c.durationDays,
+        listedInPublicCatalog: c.listedInPublicCatalog,
+        classRoomId: c.id,
+        className: c.name,
       })),
     };
+  }
+
+  /** Legacy alias — programs are now classes. */
+  async listAcademyCatalogPrograms(actor: JwtUser) {
+    return this.listAcademyCatalogClasses(actor);
   }
 
   async listAcademyEnrollments(actor: JwtUser, page: number, pageSize: number) {
@@ -262,8 +262,8 @@ export class SubscriptionsService {
     const skip = (safePage - 1) * safeSize;
 
     const [total, rows] = await prisma.$transaction([
-      prisma.programEnrollment.count(),
-      prisma.programEnrollment.findMany({
+      prisma.classEnrollment.count(),
+      prisma.classEnrollment.findMany({
         skip,
         take: safeSize,
         orderBy: { updatedAt: 'desc' },
@@ -271,43 +271,13 @@ export class SubscriptionsService {
           user: {
             select: { id: true, email: true, firstName: true, lastName: true },
           },
-          program: {
-            select: { id: true, title: true, price: true, durationDays: true },
+          classRoom: {
+            select: { id: true, name: true, price: true, durationDays: true },
           },
           tenant: { select: { id: true, name: true, code: true } },
         },
       }),
     ]);
-
-    const keys = new Set(rows.map(r => `${r.userId}:${r.programId}`));
-    const payments =
-      keys.size === 0
-        ? []
-        : await prisma.payment.findMany({
-            where: {
-              OR: rows.map(r => ({
-                userId: r.userId,
-                programId: r.programId,
-              })),
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-
-    const latestPaymentByPair = new Map<
-      string,
-      { status: string; amount: number; currency: string; createdAt: string }
-    >();
-    for (const p of payments) {
-      const k = `${p.userId}:${p.programId}`;
-      if (!latestPaymentByPair.has(k)) {
-        latestPaymentByPair.set(k, {
-          status: p.status,
-          amount: p.amount,
-          currency: p.currency,
-          createdAt: p.createdAt.toISOString(),
-        });
-      }
-    }
 
     return {
       pagination: { page: safePage, pageSize: safeSize, total },
@@ -316,15 +286,17 @@ export class SubscriptionsService {
         userId: r.userId,
         userEmail: r.user.email,
         userName: `${r.user.firstName} ${r.user.lastName}`.trim(),
-        programId: r.programId,
-        programTitle: r.program.title,
+        programId: r.classRoomId,
+        programTitle: r.classRoom.name,
+        classRoomId: r.classRoomId,
+        className: r.classRoom.name,
         tenantName: r.tenant.name,
         tenantCode: r.tenant.code,
         isActive: r.isActive,
         isTrial: r.isTrial,
         expiresAt: r.expiresAt?.toISOString() ?? null,
         updatedAt: r.updatedAt.toISOString(),
-        lastPayment: latestPaymentByPair.get(`${r.userId}:${r.programId}`) ?? null,
+        lastPayment: null as null,
       })),
     };
   }
@@ -345,20 +317,17 @@ export class SubscriptionsService {
       );
     }
 
-    const program = await prisma.program.findFirst({
+    const classRoom = await prisma.classRoom.findFirst({
       where: {
-        id: input.programId,
+        id: input.classRoomId,
         tenantId: catalogTenantId,
         isActive: true,
       },
+      include: { gradeLevel: { select: { id: true, name: true } } },
     });
 
-    if (!program) {
-      throw new AppError(
-        404,
-        'PROGRAM_NOT_FOUND',
-        'Program not found in the public academy catalog'
-      );
+    if (!classRoom) {
+      throw new AppError(404, 'CLASS_NOT_FOUND', 'Class not found in the public academy catalog');
     }
 
     const user = input.userId
@@ -373,15 +342,15 @@ export class SubscriptionsService {
       throw new AppError(404, 'USER_NOT_FOUND', 'User not found for that id or email');
     }
 
-    const days = input.durationDays ?? program.durationDays ?? 30;
+    const days = input.durationDays ?? classRoom.durationDays ?? 30;
     const expiresAt = new Date();
     expiresAt.setUTCDate(expiresAt.getUTCDate() + days);
 
-    const enrollment = await prisma.programEnrollment.upsert({
+    const enrollment = await prisma.classEnrollment.upsert({
       where: {
-        userId_programId: {
+        userId_classRoomId: {
           userId: user.id,
-          programId: program.id,
+          classRoomId: classRoom.id,
         },
       },
       update: {
@@ -393,7 +362,7 @@ export class SubscriptionsService {
       create: {
         tenantId: catalogTenantId,
         userId: user.id,
-        programId: program.id,
+        classRoomId: classRoom.id,
         isActive: true,
         isTrial: false,
         expiresAt,
@@ -404,15 +373,15 @@ export class SubscriptionsService {
       tenantId: catalogTenantId,
       actorUserId: actor.sub,
       event: AUDIT_EVENT.ACADEMY_ACCESS_GRANTED,
-      entity: 'ProgramEnrollment',
+      entity: 'ClassEnrollment',
       entityId: enrollment.id,
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
       payload: {
         targetUserId: user.id,
-        programId: program.id,
-        programTitle: program.title,
+        classRoomId: classRoom.id,
+        className: classRoom.name,
         durationDays: days,
         expiresAt: expiresAt.toISOString(),
       },
@@ -422,8 +391,10 @@ export class SubscriptionsService {
       enrollmentId: enrollment.id,
       userId: user.id,
       email: user.email,
-      programId: program.id,
-      programTitle: program.title,
+      programId: classRoom.id,
+      programTitle: classRoom.name,
+      classRoomId: classRoom.id,
+      className: classRoom.name,
       expiresAt: expiresAt.toISOString(),
       isTrial: false,
     };

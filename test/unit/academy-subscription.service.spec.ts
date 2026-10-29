@@ -2,6 +2,19 @@ const mockResolveAcademyCatalogTenantId = jest.fn();
 const mockCashin = jest.fn();
 
 jest.mock('../../src/db/prisma', () => {
+  const tx = {
+    academySubscriptionPayment: { update: jest.fn().mockResolvedValue({}) },
+    academySubscription: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      update: jest.fn().mockImplementation((args: unknown) =>
+        Promise.resolve({ id: 'sub-1', ...((args as { data: object }).data ?? {}) })
+      ),
+      create: jest.fn().mockImplementation((args: unknown) =>
+        Promise.resolve({ id: 'sub-1', ...((args as { data: object }).data ?? {}) })
+      ),
+    },
+    classEnrollment: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+  };
   const prisma = {
     user: { findFirst: jest.fn() },
     academySubscription: {
@@ -15,15 +28,15 @@ jest.mock('../../src/db/prisma', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
-    program: { findFirst: jest.fn(), findMany: jest.fn() },
-    programEnrollment: {
+    classRoom: { findFirst: jest.fn(), findMany: jest.fn() },
+    classEnrollment: {
       count: jest.fn(),
       findUnique: jest.fn(),
       upsert: jest.fn(),
       findMany: jest.fn(),
       updateMany: jest.fn(),
     },
-    $transaction: jest.fn(),
+    $transaction: jest.fn((cb: (client: unknown) => unknown) => cb(tx)),
   };
   return { prisma };
 });
@@ -52,8 +65,8 @@ const mockedPrisma = prisma as unknown as {
     findFirst: jest.Mock;
     findUnique: jest.Mock;
   };
-  program: { findFirst: jest.Mock; findMany: jest.Mock };
-  programEnrollment: {
+  classRoom: { findFirst: jest.Mock; findMany: jest.Mock };
+  classEnrollment: {
     count: jest.Mock;
     findUnique: jest.Mock;
     upsert: jest.Mock;
@@ -75,7 +88,7 @@ describe('AcademySubscriptionService', () => {
       userRoles: [{ role: { name: 'PUBLIC_LEARNER' } }],
       studentProfile: { id: 'student-1' },
     });
-    mockedPrisma.programEnrollment.findMany.mockResolvedValue([]);
+    mockedPrisma.classEnrollment.findMany.mockResolvedValue([]);
     mockedPrisma.academySubscriptionPayment.findFirst.mockResolvedValue(null);
   });
 
@@ -122,54 +135,55 @@ describe('AcademySubscriptionService', () => {
       createdAt: new Date('2027-04-08T00:00:00.000Z'),
       updatedAt: new Date('2027-04-08T00:00:00.000Z'),
     });
-    mockedPrisma.program.findFirst.mockResolvedValue({
-      id: 'program-4',
+    mockedPrisma.classRoom.findFirst.mockResolvedValue({
+      id: 'classroom-4',
       tenantId: 'academy-tenant',
-      title: 'Program 4',
-      classRoomId: 'classroom-4',
+      name: 'Class 4',
+      price: 5000,
+      durationDays: 30,
+      thumbnail: null,
       isActive: true,
       listedInPublicCatalog: true,
-      classRoom: {
-        id: 'classroom-4',
-        name: 'Class 4',
-        gradeLevel: { id: 'grade-4', name: 'Grade 4' },
-      },
+      gradeLevel: { id: 'grade-4', name: 'Grade 4' },
     });
-    mockedPrisma.programEnrollment.findMany.mockResolvedValueOnce([
+    mockedPrisma.classEnrollment.findMany.mockResolvedValueOnce([
       {
         id: 'enrollment-1',
-        programId: 'program-1',
+        classRoomId: 'classroom-1',
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
         expiresAt: new Date('2027-05-08T00:00:00.000Z'),
-        program: {
-          classRoomId: 'classroom-1',
-          classRoom: { id: 'classroom-1', name: 'Class 1', gradeLevel: { name: 'Grade 1' } },
+        classRoom: {
+          id: 'classroom-1',
+          name: 'Class 1',
+          gradeLevel: { id: 'grade-1', name: 'Grade 1' },
         },
       },
       {
         id: 'enrollment-2',
-        programId: 'program-2',
+        classRoomId: 'classroom-2',
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
         expiresAt: new Date('2027-05-08T00:00:00.000Z'),
-        program: {
-          classRoomId: 'classroom-2',
-          classRoom: { id: 'classroom-2', name: 'Class 2', gradeLevel: { name: 'Grade 2' } },
+        classRoom: {
+          id: 'classroom-2',
+          name: 'Class 2',
+          gradeLevel: { id: 'grade-2', name: 'Grade 2' },
         },
       },
       {
         id: 'enrollment-3',
-        programId: 'program-3',
+        classRoomId: 'classroom-3',
         academySubscriptionId: 'sub-1',
         isActive: true,
         isTrial: false,
         expiresAt: new Date('2027-05-08T00:00:00.000Z'),
-        program: {
-          classRoomId: 'classroom-3',
-          classRoom: { id: 'classroom-3', name: 'Class 3', gradeLevel: { name: 'Grade 3' } },
+        classRoom: {
+          id: 'classroom-3',
+          name: 'Class 3',
+          gradeLevel: { id: 'grade-3', name: 'Grade 3' },
         },
       },
     ]);
@@ -241,7 +255,7 @@ describe('AcademySubscriptionService', () => {
           update: jest.fn().mockResolvedValue({ id: 'sub-1' }),
           create: jest.fn(),
         },
-        programEnrollment: { updateMany: jest.fn() },
+        classEnrollment: { updateMany: jest.fn() },
       };
       await cb(tx);
       return tx;
@@ -298,7 +312,7 @@ describe('AcademySubscriptionService', () => {
           }),
         })
       );
-      expect(tx.programEnrollment.updateMany).toHaveBeenCalledWith(
+      expect(tx.classEnrollment.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ isTrial: false }),
         })
@@ -328,7 +342,7 @@ describe('AcademySubscriptionService', () => {
           }),
         })
       );
-      expect(tx.programEnrollment.updateMany).toHaveBeenCalled();
+      expect(tx.classEnrollment.updateMany).toHaveBeenCalled();
     });
   });
 });
