@@ -17,7 +17,7 @@ jest.mock('../../src/db/prisma', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
-    schoolSubscription: { upsert: jest.fn() },
+    schoolSubscription: { upsert: jest.fn(), findUnique: jest.fn() },
     subscriptionPlan: { findFirst: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -239,5 +239,40 @@ describe('BillingService (paypack mode)', () => {
       expect.objectContaining({ data: { status: 'CANCELLED' } })
     );
     expect(result.paymentStatus).toBe('CANCELLED');
+  });
+
+  describe('cancelInvoice', () => {
+    it('voids an unpaid invoice', async () => {
+      mockedPrisma.subscriptionInvoice.findUnique.mockResolvedValue(sampleInvoice());
+      mockedPrisma.subscriptionInvoicePayment.findFirst.mockResolvedValue(null);
+      mockedPrisma.subscriptionInvoice.update.mockResolvedValue(sampleInvoice({ status: 'VOID' }));
+
+      const result = await service.cancelInvoice('inv-1', actor, context);
+
+      expect(mockedPrisma.subscriptionInvoice.update).toHaveBeenCalledWith({
+        where: { id: 'inv-1', status: 'PENDING' },
+        data: { status: 'VOID' },
+      });
+      expect(result.status).toBe('VOID');
+    });
+
+    it('refuses to cancel a paid invoice', async () => {
+      mockedPrisma.subscriptionInvoice.findUnique.mockResolvedValue(sampleInvoice({ status: 'PAID' }));
+
+      await expect(service.cancelInvoice('inv-1', actor, context)).rejects.toMatchObject({
+        code: 'INVOICE_NOT_PENDING',
+      });
+      expect(mockedPrisma.subscriptionInvoice.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to cancel while a Mobile Money payment is in progress', async () => {
+      mockedPrisma.subscriptionInvoice.findUnique.mockResolvedValue(sampleInvoice());
+      mockedPrisma.subscriptionInvoicePayment.findFirst.mockResolvedValue({ id: 'pay-1' });
+
+      await expect(service.cancelInvoice('inv-1', actor, context)).rejects.toMatchObject({
+        code: 'INVOICE_PAYMENT_IN_PROGRESS',
+      });
+      expect(mockedPrisma.subscriptionInvoice.update).not.toHaveBeenCalled();
+    });
   });
 });

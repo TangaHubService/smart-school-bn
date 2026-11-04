@@ -1915,7 +1915,7 @@ model SubscriptionInvoice {
   tenant   Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payments SubscriptionInvoicePayment[]
 
-  @@unique([tenantId, yearLabel, periodStart])
+  // Unique on (tenantId, yearLabel, periodStart) for non-VOID rows: partial index in migration 20261104120000.
   @@index([tenantId, status])
   @@index([status, periodEnd])
 }

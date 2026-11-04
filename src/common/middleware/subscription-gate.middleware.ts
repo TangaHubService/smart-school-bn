@@ -37,16 +37,74 @@ function markCached(tenantId: string, allowed: boolean): void {
   decisionCache.set(tenantId, { allowed, expiresAt: Date.now() + GATE_CACHE_TTL_MS });
 }
 
-function isPlatformActor(user: JwtUser | undefined): boolean {
+export function isPlatformActor(user: JwtUser | undefined): boolean {
   const roles = user?.roles ?? [];
   return roles.includes('SUPER_ADMIN') || roles.includes('GOV_AUDITOR');
 }
 
+/** Invoices a Super Admin issues to a school use this number prefix. */
+export const MANUAL_INVOICE_PREFIX = 'MAN-';
+
 /**
- * Hard gate: blocks every school-scoped API for tenants whose annual
- * subscription is unpaid (no PAID invoice covering today and no ACTIVE
- * SchoolSubscription period). Platform actors and academy-catalog tenants
- * are always allowed.
+ * A school keeps access only while it has a paid period covering today and no
+ * unpaid invoice issued by a Super Admin. An issued invoice blocks straight
+ * away, even if the school has already paid for the current period.
+ */
+export async function isTenantAccessAllowed(tenantId: string): Promise<boolean> {
+  const cached = getCachedDecision(tenantId);
+  if (cached !== null) return cached;
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: {
+      code: true,
+      isActive: true,
+      isAcademyCatalog: true,
+      schoolSubscription: {
+        select: { status: true, currentPeriodStart: true, currentPeriodEnd: true },
+      },
+      subscriptionInvoices: {
+        where: { status: 'PAID' },
+        select: { periodStart: true, periodEnd: true },
+        orderBy: { periodEnd: 'desc' },
+        take: 1,
+      },
+    },
+  });
+
+  if (!tenant || !tenant.isActive || tenant.isAcademyCatalog || tenant.code === 'platform') {
+    markCached(tenantId, true);
+    return true;
+  }
+
+  const unpaidIssuedInvoice = await prisma.subscriptionInvoice.findFirst({
+    where: {
+      tenantId,
+      status: 'PENDING',
+      invoiceNumber: { startsWith: MANUAL_INVOICE_PREFIX },
+    },
+    select: { id: true },
+  });
+
+  const now = new Date();
+  const invoiceCoversToday = tenant.subscriptionInvoices.some(
+    invoice => invoice.periodStart <= now && invoice.periodEnd >= now
+  );
+
+  const sub = tenant.schoolSubscription;
+  const subscriptionActive =
+    sub?.status === 'ACTIVE' &&
+    (sub.currentPeriodStart ?? new Date(0)) <= now &&
+    (sub.currentPeriodEnd ? sub.currentPeriodEnd >= now : true);
+
+  const allowed = !unpaidIssuedInvoice && (invoiceCoversToday || subscriptionActive);
+  markCached(tenantId, allowed);
+  return allowed;
+}
+
+/**
+ * Hard gate: blocks every school-scoped API for tenants that fail
+ * isTenantAccessAllowed. Platform actors are always allowed.
  *
  * Must run AFTER authenticate + enforceTenant so req.user/req.tenantId exist.
  */
@@ -68,52 +126,7 @@ export async function requireActiveSubscription(
       return;
     }
 
-    let allowed = getCachedDecision(tenantId);
-
-    if (allowed === null) {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          code: true,
-          isActive: true,
-          isAcademyCatalog: true,
-          schoolSubscription: {
-            select: { status: true, currentPeriodStart: true, currentPeriodEnd: true },
-          },
-          subscriptionInvoices: {
-            where: { status: 'PAID' },
-            select: { periodStart: true, periodEnd: true },
-            orderBy: { periodEnd: 'desc' },
-            take: 1,
-          },
-        },
-      });
-
-      if (
-        !tenant ||
-        !tenant.isActive ||
-        tenant.isAcademyCatalog ||
-        tenant.code === 'platform'
-      ) {
-        markCached(tenantId, true);
-        next();
-        return;
-      }
-
-      const now = new Date();
-      const invoiceCoversToday = tenant.subscriptionInvoices.some(
-        invoice => invoice.periodStart <= now && invoice.periodEnd >= now
-      );
-
-      const sub = tenant.schoolSubscription;
-      const subscriptionActive =
-        sub?.status === 'ACTIVE' &&
-        (sub.currentPeriodStart ?? new Date(0)) <= now &&
-        (sub.currentPeriodEnd ? sub.currentPeriodEnd >= now : true);
-
-      allowed = invoiceCoversToday || subscriptionActive;
-      markCached(tenantId, allowed);
-    }
+    const allowed = await isTenantAccessAllowed(tenantId);
 
     if (!allowed) {
       const auditService = new AuditService();
@@ -122,7 +135,7 @@ export async function requireActiveSubscription(
         actorUserId: user.sub,
         event: AUDIT_EVENT.SUBSCRIPTION_GATE_BLOCKED,
         module: 'billing',
-        description: `Blocked ${req.originalUrl ?? ''} for tenant with unpaid annual subscription`,
+        description: `Blocked ${req.originalUrl ?? ''} for tenant with an unpaid subscription invoice`,
         requestId: req.requestId,
         ipAddress: req.ip ?? null,
         userAgent: req.header('user-agent') ?? null,
@@ -131,7 +144,7 @@ export async function requireActiveSubscription(
       throw new AppError(
         402,
         'SUBSCRIPTION_REQUIRED',
-        'The annual school subscription has not been paid. Pay the invoice to unlock the school dashboard.',
+        'This school has an unpaid invoice. Pay the invoice to unlock the school dashboard.',
         { invoicePath: '/admin/subscription' }
       );
     }

@@ -23,6 +23,11 @@ function buildContext(req: Request) {
 }
 
 export class BillingController {
+  async getAccessStatus(req: Request, res: Response): Promise<Response> {
+    const result = await service.getAccessStatus(req.user!);
+    return sendSuccess(req, res, result);
+  }
+
   async getMyInvoice(req: Request, res: Response): Promise<Response> {
     const result = await service.getMyInvoice(req.tenantId!);
     return sendSuccess(req, res, result);
@@ -43,6 +48,11 @@ export class BillingController {
   async recordManualPayment(req: Request, res: Response): Promise<Response> {
     const body = recordManualPaymentSchema.parse(req.body);
     const result = await service.recordManualPayment(req.params.id, body, req.user!, buildContext(req));
+    return sendSuccess(req, res, result);
+  }
+
+  async cancelInvoice(req: Request, res: Response): Promise<Response> {
+    const result = await service.cancelInvoice(req.params.id, req.user!, buildContext(req));
     return sendSuccess(req, res, result);
   }
 

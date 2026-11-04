@@ -27,6 +27,12 @@ billingRoutes.post(
 // subscription gate so unpaid schools can still view and pay their invoice.
 billingRoutes.use(authenticate, enforceTenant);
 
+// Any signed-in school user, so everyone at a locked school sees why.
+billingRoutes.get(
+  '/billing/access',
+  asyncHandler((req, res) => controller.getAccessStatus(req, res))
+);
+
 billingRoutes.get(
   '/billing/invoice',
   requirePermissions([PERMISSIONS.BILLING_READ]),
@@ -59,4 +65,10 @@ billingRoutes.post(
   requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
   validateBody(recordManualPaymentSchema),
   asyncHandler((req, res) => controller.recordManualPayment(req, res))
+);
+
+billingRoutes.post(
+  '/billing/invoices/:id/cancel',
+  requirePermissions([PERMISSIONS.TENANTS_MANAGE]),
+  asyncHandler((req, res) => controller.cancelInvoice(req, res))
 );

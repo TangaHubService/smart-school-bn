@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
+import { requireActiveSubscription } from '../../common/middleware/subscription-gate.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
@@ -32,6 +33,7 @@ usersRoutes.get(
   '/users',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requirePermissions([PERMISSIONS.USERS_READ]),
   asyncHandler((req, res) => usersController.listUsers(req, res))
 );
@@ -40,6 +42,7 @@ usersRoutes.get(
   '/users/:id',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requirePermissions([PERMISSIONS.USERS_READ]),
   asyncHandler((req, res) => usersController.getUser(req, res))
 );
@@ -48,6 +51,7 @@ usersRoutes.patch(
   '/users/:id/status',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requirePermissions([PERMISSIONS.USERS_READ]),
   validateBody(updateUserStatusSchema),
   asyncHandler((req, res) => usersController.updateUserStatus(req, res))
@@ -57,6 +61,7 @@ usersRoutes.get(
   '/users/export',
   authenticate,
   enforceTenant,
+  requireActiveSubscription,
   requirePermissions([PERMISSIONS.USERS_READ]),
   asyncHandler((req, res) => usersController.exportUsers(req, res))
 );

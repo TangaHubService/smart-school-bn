@@ -5,10 +5,16 @@ import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { buildPagination } from '../../common/utils/pagination';
 import { AUDIT_EVENT } from '../../constants/audit-events';
+import { PERMISSIONS } from '../../constants/permissions';
 import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
 import { PaypackService } from '../../common/services/paypack.service';
-import { resetSubscriptionGateCache } from '../../common/middleware/subscription-gate.middleware';
+import {
+  MANUAL_INVOICE_PREFIX,
+  isPlatformActor,
+  isTenantAccessAllowed,
+  resetSubscriptionGateCache,
+} from '../../common/middleware/subscription-gate.middleware';
 import { AuditService } from '../audit/audit.service';
 import {
   CreateManualInvoiceInput,
@@ -19,6 +25,8 @@ import {
 
 const PAYMENT_REUSE_WINDOW_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_DAYS = 365;
+/** Mobile Money charges in RWF, so other currencies are settled offline. */
+const ONLINE_PAYMENT_CURRENCY = 'RWF';
 
 type InvoiceStatus = 'PENDING' | 'PAID' | 'VOID';
 
@@ -145,6 +153,25 @@ export class BillingService {
     const tenant = await this.loadBillableTenant(tenantId);
     const now = new Date();
 
+    // An unpaid invoice from a Super Admin comes first, oldest first, even if
+    // its period has ended: it is the one keeping the school locked.
+    const issued = await prisma.subscriptionInvoice.findFirst({
+      where: {
+        tenantId,
+        status: 'PENDING',
+        invoiceNumber: { startsWith: MANUAL_INVOICE_PREFIX },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (issued) {
+      return {
+        invoice: mapInvoice(issued),
+        schoolName: tenant.school?.displayName ?? tenant.name,
+        tenantCode: tenant.code,
+      };
+    }
+
     const existing = await prisma.subscriptionInvoice.findFirst({
       where: { tenantId, status: { not: 'VOID' }, periodEnd: { gt: now } },
       orderBy: { createdAt: 'desc' },
@@ -194,6 +221,38 @@ export class BillingService {
       invoice: mapInvoice(created),
       schoolName: tenant.school?.displayName ?? tenant.name,
       tenantCode: tenant.code,
+    };
+  }
+
+  /**
+   * Whether the signed-in user's school is locked, for every school role.
+   * Only people with billing access see the invoice itself.
+   */
+  async getAccessStatus(user: JwtUser) {
+    if (isPlatformActor(user) || (await isTenantAccessAllowed(user.tenantId))) {
+      return { blocked: false as const };
+    }
+
+    const permissions = user.permissions ?? [];
+    const canPay = permissions.includes(PERMISSIONS.BILLING_PAY);
+
+    if (!canPay && !permissions.includes(PERMISSIONS.BILLING_READ)) {
+      const tenant = await this.loadBillableTenant(user.tenantId);
+      return {
+        blocked: true as const,
+        schoolName: tenant.school?.displayName ?? tenant.name,
+        canPay: false,
+        invoice: null,
+      };
+    }
+
+    const { invoice, schoolName } = await this.getOrCreateCurrentInvoice(user.tenantId);
+    const payable = invoice.status === 'PENDING';
+    return {
+      blocked: true as const,
+      schoolName,
+      canPay: canPay && payable && invoice.currency === ONLINE_PAYMENT_CURRENCY,
+      invoice: payable ? invoice : null,
     };
   }
 
@@ -253,6 +312,13 @@ export class BillingService {
     }
     if (invoice.status === 'VOID') {
       throw new AppError(409, 'INVOICE_VOID', 'This invoice is void and cannot be paid');
+    }
+    if (invoice.currency !== ONLINE_PAYMENT_CURRENCY) {
+      throw new AppError(
+        409,
+        'INVOICE_OFFLINE_ONLY',
+        `Invoices in ${invoice.currency} cannot be paid by Mobile Money. Contact Smart School to settle this invoice.`
+      );
     }
 
     if (this.isMockBillingEnabled()) {
@@ -384,6 +450,16 @@ export class BillingService {
     });
     if (!plan) return;
 
+    // Paying an invoice never shortens a period the school already has.
+    const current = await tx.schoolSubscription.findUnique({
+      where: { tenantId },
+      select: { status: true, currentPeriodStart: true, currentPeriodEnd: true },
+    });
+    const keepsCurrentPeriod =
+      current?.status === 'ACTIVE' &&
+      current.currentPeriodEnd !== null &&
+      current.currentPeriodEnd > periodEnd;
+
     await tx.schoolSubscription.upsert({
       where: { tenantId },
       create: {
@@ -395,8 +471,8 @@ export class BillingService {
       },
       update: {
         status: 'ACTIVE',
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
+        currentPeriodStart: keepsCurrentPeriod ? current.currentPeriodStart : periodStart,
+        currentPeriodEnd: keepsCurrentPeriod ? current.currentPeriodEnd : periodEnd,
       },
     });
   }
@@ -551,7 +627,8 @@ export class BillingService {
     const yearLabel = String(periodStart.getFullYear());
     const invoiceNumber = `MAN-${yearLabel}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
-    const invoice = await prisma.subscriptionInvoice.create({
+    const invoice = await prisma.subscriptionInvoice
+      .create({
       data: {
         tenantId: input.tenantId,
         invoiceNumber,
@@ -570,14 +647,25 @@ export class BillingService {
         reference: input.reference ?? null,
         notes: input.notes ?? null,
       } as never,
-    });
+    })
+      .catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new AppError(
+            409,
+            'INVOICE_PERIOD_EXISTS',
+            'This school already has an invoice starting on that date. Cancel it first or choose another start date.'
+          );
+        }
+        throw error;
+      });
 
     if (input.status === 'PAID') {
       await prisma.$transaction(async tx => {
         await this.syncSchoolSubscription(tx, input.tenantId, periodStart, periodEnd);
       });
-      resetSubscriptionGateCache(input.tenantId);
     }
+    // A pending invoice locks the school, so it must take effect immediately.
+    resetSubscriptionGateCache(input.tenantId);
 
     await this.auditService.log({
       tenantId: input.tenantId,
@@ -594,6 +682,59 @@ export class BillingService {
     return invoice;
   }
 
+  /**
+   * Cancels an unpaid invoice issued by mistake. Paid invoices stay as they are,
+   * and so does an invoice with a Mobile Money payment still in progress, because
+   * that money may yet arrive.
+   */
+  async cancelInvoice(invoiceId: string, actor: JwtUser, context: RequestAuditContext) {
+    const invoice = await prisma.subscriptionInvoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new AppError(404, 'INVOICE_NOT_FOUND', 'Invoice not found');
+    if (invoice.status !== 'PENDING') {
+      throw new AppError(409, 'INVOICE_NOT_PENDING', 'Only unpaid invoices can be cancelled');
+    }
+
+    const paymentInProgress = await prisma.subscriptionInvoicePayment.findFirst({
+      where: {
+        invoiceId,
+        status: 'PENDING',
+        createdAt: { gt: new Date(Date.now() - PAYMENT_REUSE_WINDOW_MS) },
+      },
+      select: { id: true },
+    });
+    if (paymentInProgress) {
+      throw new AppError(
+        409,
+        'INVOICE_PAYMENT_IN_PROGRESS',
+        'A Mobile Money payment is in progress for this invoice. Try again in 15 minutes.'
+      );
+    }
+
+    const cancelled = await prisma.subscriptionInvoice.update({
+      where: { id: invoiceId, status: 'PENDING' },
+      data: { status: 'VOID' },
+    });
+    resetSubscriptionGateCache(invoice.tenantId);
+
+    await this.auditService.log({
+      tenantId: invoice.tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SUBSCRIPTION_INVOICE_CANCELLED,
+      entity: 'SubscriptionInvoice',
+      entityId: invoice.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        invoiceNumber: invoice.invoiceNumber,
+        amountDue: invoice.amountDue,
+        currency: invoice.currency,
+      },
+    });
+
+    return mapInvoice(cancelled);
+  }
+
   /** Record an offline payment (cash/bank/MoMo/card) against an invoice. */
   async recordManualPayment(
     invoiceId: string,
@@ -603,6 +744,13 @@ export class BillingService {
   ) {
     const invoice = await prisma.subscriptionInvoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new AppError(404, 'INVOICE_NOT_FOUND', 'Invoice not found');
+    if (invoice.status !== 'PENDING') {
+      throw new AppError(
+        409,
+        'INVOICE_NOT_PENDING',
+        'Payments can only be recorded against unpaid invoices'
+      );
+    }
     const paymentDate = input.paymentDate ? new Date(input.paymentDate) : new Date();
     if (Number.isNaN(paymentDate.getTime())) {
       throw new AppError(400, 'INVALID_DATE', 'Invalid payment date');
