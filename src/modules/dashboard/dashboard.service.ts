@@ -4,6 +4,7 @@ import { AppError } from '../../common/errors/app-error';
 import { JwtUser } from '../../common/types/auth.types';
 import { prisma } from '../../db/prisma';
 import { AnnouncementsService } from '../announcements/announcements.service';
+import { LmsService } from '../lms/lms.service';
 
 export interface SuperAdminDashboardData {
   metrics: {
@@ -41,10 +42,6 @@ export interface SuperAdminDashboardData {
     count: number;
     icon: string;
   }>;
-  systemAnalytics: {
-    weekly: Array<{ label: string; logins: number; courses: number; exams: number }>;
-    monthly: Array<{ label: string; logins: number; courses: number; exams: number }>;
-  };
   revenue: {
     totalRevenue: number;
     monthlyRevenue: Array<{ month: string; amount: number }>;
@@ -478,8 +475,8 @@ export class DashboardService {
       const sevenDays = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const thirtyDays = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       [weeklyActive, monthlyActive] = await Promise.all([
-        prisma.user.count({ where: { updatedAt: { gte: sevenDays }, deletedAt: null } }),
-        prisma.user.count({ where: { updatedAt: { gte: thirtyDays }, deletedAt: null } }),
+        prisma.user.count({ where: { lastLoginAt: { gte: sevenDays }, deletedAt: null } }),
+        prisma.user.count({ where: { lastLoginAt: { gte: thirtyDays }, deletedAt: null } }),
       ]);
     } catch {
       // best-effort
@@ -543,18 +540,6 @@ export class DashboardService {
         },
         { id: 'discipline', name: 'Discipline Report', count: conductCount, icon: 'message' },
       ],
-      systemAnalytics: {
-        weekly: this.buildSuperAdminAnalyticsSeries('weekly', {
-          logins: totalUsers,
-          courses: classesCount,
-          exams: assessmentsCount,
-        }),
-        monthly: this.buildSuperAdminAnalyticsSeries('monthly', {
-          logins: totalUsers,
-          courses: classesCount,
-          exams: assessmentsCount,
-        }),
-      },
       revenue: {
         totalRevenue,
         monthlyRevenue,
@@ -642,27 +627,6 @@ export class DashboardService {
       }
       throw e;
     }
-  }
-
-  private buildSuperAdminAnalyticsSeries(
-    kind: 'weekly' | 'monthly',
-    totals: { logins: number; courses: number; exams: number }
-  ): Array<{ label: string; logins: number; courses: number; exams: number }> {
-    const points = kind === 'weekly' ? 7 : 12;
-    const labels =
-      kind === 'weekly'
-        ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    const scale = (total: number, index: number) =>
-      Math.max(0, Math.round((total / points) * (0.65 + (index % 5) * 0.07)));
-
-    return Array.from({ length: points }, (_, i) => ({
-      label: labels[i] ?? `P${i + 1}`,
-      logins: scale(totals.logins, i),
-      courses: scale(totals.courses, i + 2),
-      exams: scale(totals.exams, i + 4),
-    }));
   }
 
   async getSuperAdminFilters(_actor: JwtUser) {
@@ -1534,7 +1498,6 @@ export class DashboardService {
 
     const [
       school,
-      enrollments,
       pendingAssignments,
       assessments,
       reportCards,
@@ -1545,14 +1508,6 @@ export class DashboardService {
       prisma.school.findUnique({
         where: { tenantId },
         select: { displayName: true, city: true },
-      }),
-      prisma.studentEnrollment.count({
-        where: {
-          tenantId,
-          studentId: student.id,
-          isActive: true,
-          ...enrollmentScope,
-        },
       }),
       prisma.submission.count({
         where: {
@@ -1611,6 +1566,12 @@ export class DashboardService {
       }, 0);
       avgAssessmentScorePercent = Math.round(pctSum / scoredAttempts.length);
     }
+
+    // Count what the course list shows, so the dashboard and the list always agree.
+    const courseList = await new LmsService().listMyCourses(tenantId, actor, {
+      page: 1,
+      pageSize: 1,
+    });
 
     const [upcomingExamsRows, announcementsList] = await Promise.all([
       classIds.length
@@ -1687,7 +1648,7 @@ export class DashboardService {
         city: school?.city ?? null,
       },
       metrics: {
-        myCourses: enrollments,
+        myCourses: courseList.pagination.totalItems,
         assignmentsSubmitted: pendingAssignments,
         myAssessments: assessments,
         reportCards,
@@ -1795,7 +1756,7 @@ export class DashboardService {
         },
       }),
       prisma.exam.findMany({
-        where: { tenantId, teacherUserId: userId },
+        where: { tenantId, teacherUserId: userId, isActive: true, examDate: { gte: todayDate } },
         take: 5,
         orderBy: { examDate: 'asc' },
         include: { subject: true, classRoom: true },
