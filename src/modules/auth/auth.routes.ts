@@ -15,8 +15,6 @@ import {
   resetPasswordSchema,
   selectSchoolSchema,
   verifyOtpSchema,
-  verifyTwoFactorSchema,
-  resendTwoFactorOtpSchema,
 } from './auth.schemas';
 
 const authController = new AuthController();
@@ -70,18 +68,6 @@ authRoutes.post(
   '/reset-password',
   validateBody(resetPasswordSchema),
   asyncHandler((req, res) => authController.resetPassword(req, res))
-);
-
-authRoutes.post(
-  '/verify-two-factor',
-  validateBody(verifyTwoFactorSchema),
-  asyncHandler((req, res) => authController.verifyTwoFactor(req, res))
-);
-
-authRoutes.post(
-  '/resend-two-factor-otp',
-  validateBody(resendTwoFactorOtpSchema),
-  asyncHandler((req, res) => authController.resendTwoFactorOtp(req, res))
 );
 
 authRoutes.post(

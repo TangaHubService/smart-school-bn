@@ -63,7 +63,7 @@ describe('AuthService', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('challenges privileged staff roles with two-factor before issuing tokens', async () => {
+  it('logs in privileged staff directly without a two-factor step', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -96,11 +96,10 @@ describe('AuthService', () => {
       }
     );
 
-    expect(result).toEqual({ requiresTwoFactor: true });
-    expect(mockedPrisma.user.update).toHaveBeenCalledWith(
+    expect(result).not.toHaveProperty('requiresTwoFactor');
+    expect(result).toEqual(
       expect.objectContaining({
-        where: { id: 'user-1' },
-        data: expect.objectContaining({ isTwoFactorVerified: false }),
+        user: expect.objectContaining({ id: 'user-1' }),
       })
     );
   });
