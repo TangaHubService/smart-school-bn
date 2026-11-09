@@ -49,12 +49,13 @@ WHERE p."classRoomId" IS NOT NULL
 GROUP BY pe."tenantId", pe."userId", p."classRoomId", pe."academySubscriptionId"
 ON CONFLICT ("userId", "classRoomId") DO NOTHING;
 
--- 3. Drop legacy program tables
+-- 3. ClassEnrollment foreign keys
 ALTER TABLE "ClassEnrollment" ADD CONSTRAINT "ClassEnrollment_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "ClassEnrollment" ADD CONSTRAINT "ClassEnrollment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ClassEnrollment" ADD CONSTRAINT "ClassEnrollment_classRoomId_fkey" FOREIGN KEY ("classRoomId") REFERENCES "ClassRoom"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ClassEnrollment" ADD CONSTRAINT "ClassEnrollment_academySubscriptionId_fkey" FOREIGN KEY ("academySubscriptionId") REFERENCES "AcademySubscription"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
-DROP TABLE IF EXISTS "Payment";
-DROP TABLE IF EXISTS "ProgramEnrollment";
-DROP TABLE IF EXISTS "Program";
+-- The legacy "Payment", "ProgramEnrollment" and "Program" tables are kept on
+-- purpose: they hold historical payment and enrollment records. The app no
+-- longer reads them (they are not in schema.prisma), so leaving them is safe.
+-- Archive or drop them by hand later, after a backup, if they are not needed.

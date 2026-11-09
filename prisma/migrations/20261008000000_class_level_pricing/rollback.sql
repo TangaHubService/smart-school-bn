@@ -1,5 +1,5 @@
--- Rollback is best-effort: dropped Program/Payment tables cannot be restored
--- with their data. This only removes the migration's additive changes.
+-- Rollback is best-effort: the legacy Program/Payment tables are kept by the
+-- migration, so this only removes its additive changes.
 
 DROP TABLE IF EXISTS "ClassEnrollment";
 ALTER TABLE "ClassRoom" DROP COLUMN IF EXISTS "listedInPublicCatalog";
