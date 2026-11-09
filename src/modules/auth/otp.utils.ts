@@ -13,5 +13,7 @@ export const hashOtp = (otp: string): string => {
 };
 
 export const verifyOtpHash = (otp: string, hash: string): boolean => {
-  return hashOtp(otp) === hash;
+  const actual = Buffer.from(hashOtp(otp), 'hex');
+  const expected = Buffer.from(hash, 'hex');
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 };

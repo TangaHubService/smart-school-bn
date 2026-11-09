@@ -3,6 +3,21 @@ import { z } from 'zod';
 
 dotenv.config();
 
+// Some deployments (and older .env files) name the mail settings EMAIL_HOST /
+// EMAIL_PORT / EMAIL_USER / EMAIL_PASSWORD, while the mailer reads SMTP_*.
+// Accept both so mail is not silently disabled; SMTP_* wins when both are set.
+const SMTP_ALIASES: Array<[string, string]> = [
+  ['SMTP_HOST', 'EMAIL_HOST'],
+  ['SMTP_PORT', 'EMAIL_PORT'],
+  ['SMTP_USER', 'EMAIL_USER'],
+  ['SMTP_PASS', 'EMAIL_PASSWORD'],
+];
+for (const [canonical, alias] of SMTP_ALIASES) {
+  if (!process.env[canonical] && process.env[alias]) {
+    process.env[canonical] = process.env[alias];
+  }
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -62,6 +77,11 @@ const envSchema = z.object({
   PAYPACK_INITIATE_PATH: z.string().optional(),
   ACADEMY_CATALOG_TENANT_ID: z.string().uuid().optional(),
   ACADEMY_TRIAL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  /** Offer the 100 RWF / 1 day "test" academy plan (payment smoke tests only). */
+  ACADEMY_TEST_PLAN_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform(value => value === 'true'),
   /** Annual school subscription price in RWF (one invoice per school per year). */
   BILLING_ANNUAL_AMOUNT_RWF: z.coerce.number().int().positive().default(250000),
   /** Allows simulated instant payments for demos/tests. Never enable in production. */
@@ -73,9 +93,46 @@ const envSchema = z.object({
   DEPLOY_REGION: z.string().max(120).optional().default(''),
   /** Source for EAC administrative division reference data (country/province/district/... lookups). */
   OPENADMINDATA_API_BASE_URL: z.string().url().default('https://api.openadmindata.org/api/v1'),
+  /**
+   * Express `trust proxy` setting so rate limits see the real client IP behind a
+   * load balancer. Number of proxy hops (e.g. 1), or 'false' when exposed directly.
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('false')
+    .transform(value => (/^\d+$/.test(value) ? Number(value) : value === 'true')),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const DEFAULT_OTP_HASH_SECRET = 'change-this-secret';
+
+/**
+ * Production must not run on development conveniences. Each of these silently
+ * weakens security if forgotten, so the process refuses to start instead.
+ */
+const productionSafeEnvSchema = envSchema.superRefine((value, ctx) => {
+  if (value.NODE_ENV !== 'production') return;
+
+  const problem = (path: string, message: string) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+
+  if (!process.env.CORS_ORIGIN || value.CORS_ORIGIN.trim() === '*') {
+    problem('CORS_ORIGIN', 'Set CORS_ORIGIN to the web app origin(s); "*" is not allowed in production');
+  }
+  if (!process.env.OTP_HASH_SECRET || value.OTP_HASH_SECRET === DEFAULT_OTP_HASH_SECRET) {
+    problem('OTP_HASH_SECRET', 'Set a unique OTP_HASH_SECRET (at least 16 characters) in production');
+  }
+  if (value.BILLING_ALLOW_MOCK) {
+    problem('BILLING_ALLOW_MOCK', 'Mock billing activates plans without payment and cannot be enabled in production');
+  }
+  if (value.PAYPACK_CLIENT_ID && !value.PAYPACK_WEBHOOK_SECRET) {
+    problem('PAYPACK_WEBHOOK_SECRET', 'Paypack is configured but PAYPACK_WEBHOOK_SECRET is missing, so payments can never be confirmed');
+  }
+  if (!value.EMAIL_LOG_ONLY && !(value.SMTP_HOST && value.SMTP_PORT)) {
+    problem('SMTP_HOST', 'Set SMTP_HOST and SMTP_PORT (or EMAIL_LOG_ONLY=true); otherwise invites, sign-in codes and password resets are never sent');
+  }
+});
+
+const parsed = productionSafeEnvSchema.safeParse(process.env);
 if (!parsed.success) {
   console.error('Invalid environment configuration', parsed.error.flatten());
   throw new Error('Invalid environment configuration');

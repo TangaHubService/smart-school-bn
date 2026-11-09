@@ -350,7 +350,7 @@ export class AnnouncementsService {
    * includes ALL, role-name, and individual-user matches, plus (for students and teachers)
    * conditions derived from their actual enrollment/teaching assignments.
    */
-  private async buildViewerAudienceConditions(tenantId: string, actor: JwtUser) {
+  async buildViewerAudienceConditions(tenantId: string, actor: JwtUser) {
     const roles = actor.roles ?? [];
     const conditions: Record<string, unknown>[] = [{ audience: AnnouncementAudience.ALL }];
 

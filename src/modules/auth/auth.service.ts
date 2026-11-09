@@ -1,4 +1,4 @@
-import { UserStatus } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -16,8 +16,28 @@ import { resolvePrimaryRole } from '../audit/audit-log.utils';
 import { EmailService } from '../notifications/email.service';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
-import { ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, SelectSchoolInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
-import { generateOtp, hashOtp } from './otp.utils';
+import { CompletePasswordChangeInput, ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, SelectSchoolInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
+import {
+  isStarterCredential,
+  issueAuthChallenge,
+  passwordFingerprint,
+  readAuthChallenge,
+} from './auth-challenge.utils';
+import { generateOtp, hashOtp, verifyOtpHash } from './otp.utils';
+
+const PRIVILEGED_ROLES = ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'];
+
+const LOGIN_USER_INCLUDE = {
+  tenant: {
+    select: {
+      name: true,
+      school: { select: { displayName: true } },
+    },
+  },
+  userRoles: { include: { role: true } },
+} satisfies Prisma.UserInclude;
+
+type LoginCandidate = Prisma.UserGetPayload<{ include: typeof LOGIN_USER_INCLUDE }>;
 
 const PUBLIC_LEARNER_PERMISSIONS = [
   'students.my_courses.read',
@@ -37,12 +57,21 @@ export class AuthService {
     const { identifier, password } = input;
     const trimmedIdentifier = identifier.trim();
 
-    // 1. Find all users matching the identifier (email, username, or studentCode)
+    // 1. Find every active account this identifier can name: email, username, or the
+    //    student code of a linked student profile. Passwords are always checked with
+    //    bcrypt; a student code is never accepted as proof on its own.
     const users = await prisma.user.findMany({
       where: {
         OR: [
           { email: { equals: trimmedIdentifier, mode: 'insensitive' } },
           { username: { equals: trimmedIdentifier, mode: 'insensitive' } },
+          {
+            studentProfile: {
+              studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
+              deletedAt: null,
+              isActive: true,
+            },
+          },
         ],
         deletedAt: null,
         status: UserStatus.ACTIVE,
@@ -50,70 +79,10 @@ export class AuthService {
           isActive: true,
         },
       },
-      include: {
-        tenant: {
-          select: {
-            name: true,
-            school: {
-              select: {
-                displayName: true,
-              },
-            },
-          },
-        },
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
+      include: LOGIN_USER_INCLUDE,
     });
 
-    // 1b. If no user found by email/username, try studentCode
     if (!users.length) {
-      const studentMatch = await prisma.student.findFirst({
-        where: {
-          studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
-          deletedAt: null,
-          isActive: true,
-          userId: { not: null },
-        },
-        select: { userId: true, tenantId: true, studentCode: true },
-      });
-
-      if (studentMatch?.userId) {
-        const studentUser = await prisma.user.findFirst({
-          where: {
-            id: studentMatch.userId,
-            deletedAt: null,
-            status: UserStatus.ACTIVE,
-            tenantId: studentMatch.tenantId,
-          },
-          include: {
-            tenant: {
-              select: {
-                name: true,
-                school: { select: { displayName: true } },
-              },
-            },
-            userRoles: { include: { role: true } },
-          },
-        });
-
-        if (studentUser) {
-          // Check if password matches studentCode
-          const isCodeMatch = password === studentMatch.studentCode;
-          if (isCodeMatch) {
-            const userRoles = (studentUser.userRoles ?? []).map(ur => ur.role.name);
-            const isPrivileged = userRoles.some(
-              role => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
-            );
-            if (isPrivileged) return this.handleTwoFactorLogin(studentUser, context);
-            return this.completeLogin(studentUser.tenantId, studentUser, context);
-          }
-        }
-      }
-
       throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
@@ -170,94 +139,33 @@ export class AuthService {
       );
     }
 
-    // Check if user has privileged role
-    const userRoles = (resolvedUser.userRoles ?? []).map(ur => ur.role.name);
-    const isPrivileged = userRoles.some(
-      role => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
-    );
-
-    if (isPrivileged) {
-      return this.handleTwoFactorLogin(resolvedUser, context);
-    }
-
-    return this.completeLogin(resolvedUser.tenantId, resolvedUser, context);
+    return this.continueAfterPassword(resolvedUser, password, context);
   }
 
   async selectSchool(input: SelectSchoolInput, context: RequestAuditContext) {
     const { identifier, password, tenantId } = input;
     const trimmedIdentifier = identifier.trim();
 
-    let user = await prisma.user.findFirst({
+    const user = await prisma.user.findFirst({
       where: {
         tenantId,
         OR: [
           { email: { equals: trimmedIdentifier, mode: 'insensitive' } },
           { username: { equals: trimmedIdentifier, mode: 'insensitive' } },
+          {
+            studentProfile: {
+              studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
+              deletedAt: null,
+              isActive: true,
+            },
+          },
         ],
         deletedAt: null,
         status: UserStatus.ACTIVE,
+        tenant: { isActive: true },
       },
-      include: {
-        tenant: {
-          select: {
-            name: true,
-            school: {
-              select: {
-                displayName: true,
-              },
-            },
-          },
-        },
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
+      include: LOGIN_USER_INCLUDE,
     });
-
-    // Fallback: look up by studentCode
-    if (!user) {
-      const studentMatch = await prisma.student.findFirst({
-        where: {
-          tenantId,
-          studentCode: { equals: trimmedIdentifier, mode: 'insensitive' },
-          deletedAt: null,
-          isActive: true,
-          userId: { not: null },
-        },
-        select: { userId: true, studentCode: true },
-      });
-
-      if (studentMatch?.userId) {
-        const studentUser = await prisma.user.findFirst({
-          where: {
-            id: studentMatch.userId,
-            tenantId,
-            deletedAt: null,
-            status: UserStatus.ACTIVE,
-          },
-          include: {
-            tenant: {
-              select: {
-                name: true,
-                school: { select: { displayName: true } },
-              },
-            },
-            userRoles: { include: { role: true } },
-          },
-        });
-
-        if (studentUser && password === studentMatch.studentCode) {
-          const userRoles = (studentUser.userRoles ?? []).map((ur) => ur.role.name);
-          const isPrivileged = userRoles.some(
-            (role) => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
-          );
-          if (isPrivileged) return this.handleTwoFactorLogin(studentUser, context);
-          return this.completeLogin(studentUser.tenantId, studentUser, context);
-        }
-      }
-    }
 
     if (!user) {
       throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
@@ -277,16 +185,100 @@ export class AuthService {
       throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
     }
 
-    const userRoles = (user.userRoles ?? []).map((ur) => ur.role.name);
-    const isPrivileged = userRoles.some(
-      (role) => ['SUPER_ADMIN', 'ADMIN', 'SCHOOL_ADMIN', 'TEACHER', 'GOV_AUDITOR'].includes(role)
-    );
+    return this.continueAfterPassword(user, password, context);
+  }
 
-    if (isPrivileged) {
+  /**
+   * Single place that decides what happens once a password has been verified:
+   * 1. a starter credential (password = username / student code) must be replaced first;
+   * 2. privileged roles then go through an emailed one-time code;
+   * 3. everyone else gets a session.
+   */
+  private async continueAfterPassword(
+    user: LoginCandidate,
+    password: string | null,
+    context: RequestAuditContext
+  ) {
+    if (password !== null && (await this.isUsingStarterCredential(user, password))) {
+      await this.auditService.log({
+        tenantId: user.tenantId,
+        actorUserId: user.id,
+        event: AUDIT_EVENT.AUTH_LOGIN_FAILED,
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        payload: { reason: 'PASSWORD_CHANGE_REQUIRED' },
+      });
+      return {
+        requiresPasswordChange: true as const,
+        challengeToken: issueAuthChallenge(user, 'password_change'),
+      };
+    }
+
+    const roles = (user.userRoles ?? []).map(ur => ur.role.name);
+    if (roles.some(role => PRIVILEGED_ROLES.includes(role))) {
       return this.handleTwoFactorLogin(user, context);
     }
 
     return this.completeLogin(user.tenantId, user, context);
+  }
+
+  private async isUsingStarterCredential(user: LoginCandidate, password: string) {
+    const student = await prisma.student.findFirst({
+      where: { userId: user.id, tenantId: user.tenantId },
+      select: { studentCode: true },
+    });
+    return isStarterCredential(password, [user.username, student?.studentCode]);
+  }
+
+  async completePasswordChange(input: CompletePasswordChangeInput, context: RequestAuditContext) {
+    const challenge = readAuthChallenge(input.challengeToken, 'password_change');
+
+    const user = await prisma.user.findFirst({
+      where: {
+        id: challenge.sub,
+        tenantId: challenge.tid,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        tenant: { isActive: true },
+      },
+      include: LOGIN_USER_INCLUDE,
+    });
+
+    if (!user || passwordFingerprint(user.passwordHash) !== challenge.pwf) {
+      throw new AppError(
+        401,
+        'AUTH_CHALLENGE_INVALID',
+        'This sign-in step has expired. Please sign in again.'
+      );
+    }
+
+    if (await this.isUsingStarterCredential(user, input.newPassword)) {
+      throw new AppError(
+        400,
+        'AUTH_PASSWORD_TOO_WEAK',
+        'Choose a password that is different from your username or student code.'
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(input.newPassword, env.BCRYPT_ROUNDS);
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+      include: LOGIN_USER_INCLUDE,
+    });
+
+    await this.auditService.log({
+      tenantId: user.tenantId,
+      actorUserId: user.id,
+      event: AUDIT_EVENT.USER_PASSWORD_RESET_SUCCESS,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: { reason: 'STARTER_PASSWORD_REPLACED' },
+    });
+
+    return this.continueAfterPassword(updated, null, context);
   }
 
   async register(input: RegisterInput, context: RequestAuditContext) {
@@ -735,31 +727,37 @@ export class AuthService {
     return { roles, permissions };
   }
 
-  async verifyTwoFactor(input: VerifyTwoFactorInput, context: RequestAuditContext) {
-    const { email, otp } = input;
-    const normalized = email.toLowerCase().trim();
-
+  private async loadTwoFactorUser(challengeToken: string) {
+    const challenge = readAuthChallenge(challengeToken, 'two_factor');
     const user = await prisma.user.findFirst({
       where: {
-        email: normalized,
-        otpHash: { not: null },
-        otpExpiresAt: { gt: new Date() },
-        isTwoFactorVerified: false,
+        id: challenge.sub,
+        tenantId: challenge.tid,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        tenant: { isActive: true },
       },
-      include: {
-        userRoles: {
-          include: { role: true },
-        },
-        tenant: {
-          select: {
-            name: true,
-            school: { select: { displayName: true } },
-          },
-        },
-      },
+      include: LOGIN_USER_INCLUDE,
     });
+    if (!user || passwordFingerprint(user.passwordHash) !== challenge.pwf) {
+      throw new AppError(
+        401,
+        'AUTH_CHALLENGE_INVALID',
+        'This sign-in step has expired. Please sign in again.'
+      );
+    }
+    return user;
+  }
 
-    if (!user) {
+  async verifyTwoFactor(input: VerifyTwoFactorInput, context: RequestAuditContext) {
+    const user = await this.loadTwoFactorUser(input.challengeToken);
+
+    if (
+      !user.otpHash ||
+      !user.otpExpiresAt ||
+      user.otpExpiresAt <= new Date() ||
+      user.isTwoFactorVerified
+    ) {
       throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid or expired OTP');
     }
 
@@ -767,12 +765,10 @@ export class AuthService {
       throw new AppError(429, 'AUTH_OTP_ATTEMPT_LIMIT', 'Maximum OTP attempts exceeded');
     }
 
-    const isValid = hashOtp(otp) === user.otpHash;
-
-    if (!isValid) {
+    if (!verifyOtpHash(input.otp, user.otpHash)) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { otpAttempts: (user.otpAttempts ?? 0) + 1 },
+        data: { otpAttempts: { increment: 1 } },
       });
       throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid OTP');
     }
@@ -793,16 +789,8 @@ export class AuthService {
     return this.completeLogin(user.tenantId, user, context);
   }
 
-  async resendTwoFactorOtp(input: ResendTwoFactorOtpInput, context: RequestAuditContext) {
-    const { email } = input;
-    const normalized = email.toLowerCase().trim();
-
-    const user = await prisma.user.findFirst({
-      where: { email: normalized },
-    });
-    if (!user) {
-      throw new AppError(404, 'AUTH_USER_NOT_FOUND', 'User not found');
-    }
+  async resendTwoFactorOtp(input: ResendTwoFactorOtpInput, _context: RequestAuditContext) {
+    const user = await this.loadTwoFactorUser(input.challengeToken);
 
     const now = new Date();
     if (user.lastOtpSentAt && now.getTime() - user.lastOtpSentAt.getTime() < env.OTP_RESEND_COOLDOWN_MIN * 60 * 1000) {
@@ -813,12 +801,12 @@ export class AuthService {
     const otpHash = hashOtp(otp);
     const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
 
+    // Failed attempts are kept across resends so resending cannot reset the guess budget.
     await prisma.user.update({
       where: { id: user.id },
       data: {
         otpHash,
         otpExpiresAt: expiresAt,
-        otpAttempts: 0,
         lastOtpSentAt: now,
         isTwoFactorVerified: false,
       },
@@ -830,7 +818,7 @@ export class AuthService {
       expiresAt,
     });
 
-    return { message: 'OTP resent successfully' };
+    return { message: 'OTP resent successfully', expiresAt: expiresAt.toISOString() };
   }
 
   async forgotPassword(input: RequestPasswordResetInput, context: RequestAuditContext) {
@@ -981,7 +969,7 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
-  private async handleTwoFactorLogin(user: any, context: RequestAuditContext) {
+  private async handleTwoFactorLogin(user: LoginCandidate, _context: RequestAuditContext) {
     const otp = generateOtp();
     const otpHash = hashOtp(otp);
     const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
@@ -1003,6 +991,19 @@ export class AuthService {
       expiresAt,
     });
 
-    return { requiresTwoFactor: true };
+    return {
+      requiresTwoFactor: true as const,
+      challengeToken: issueAuthChallenge(user, 'two_factor'),
+      expiresAt: expiresAt.toISOString(),
+      destination: maskEmail(user.email),
+    };
   }
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '';
+  const visible = local.slice(0, Math.min(2, local.length));
+  // Fixed-length mask: hides the address length too, and stays readable on small screens.
+  return `${visible}****@${domain}`;
 }

@@ -24,6 +24,7 @@
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:integration": "jest --config jest.integration.config.ts",
+    "test:db": "jest --config jest.db.config.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

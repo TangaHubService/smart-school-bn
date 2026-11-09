@@ -7,7 +7,7 @@ import { assessmentsRoutes } from '../modules/assessments/assessments.routes';
 import { dashboardRoutes } from '../modules/dashboard/dashboard.routes';
 import { conductMarksRoutes } from '../modules/conduct-marks/conduct-marks.routes';
 import { healthRoutes } from '../modules/health/health.routes';
-import { examsRoutes } from '../modules/exams/exams.routes';
+import { examsPublicRoutes, examsRoutes } from '../modules/exams/exams.routes';
 import { filesRoutes } from '../modules/files/files.routes';
 import { lmsRoutes } from '../modules/lms/lms.routes';
 import { metaRoutes } from '../modules/meta/meta.routes';
@@ -22,7 +22,7 @@ import { timetableRoutes } from '../modules/timetable/timetable.routes';
 import { announcementsRoutes } from '../modules/announcements/announcements.routes';
 import { auditRoutes } from '../modules/audit/audit.routes';
 import { subscriptionsRoutes } from '../modules/subscriptions/subscriptions.routes';
-import { billingRoutes } from '../modules/billing/billing.routes';
+import { billingRoutes, billingWebhookRoutes } from '../modules/billing/billing.routes';
 import { systemAnnouncementsRoutes } from '../modules/system-announcements/system-announcements.routes';
 import { usersRoutes } from '../modules/users/users.routes';
 import { publicAcademyRouter } from '../modules/public-academy/public-academy.routes';
@@ -38,15 +38,29 @@ import { env } from '../config/env';
 
 export const apiRouter = Router();
 
+// ---------------------------------------------------------------------------
+// PUBLIC SECTION — everything reachable without a session goes here, FIRST.
+//
+// Many routers below are mounted at `/` and call `router.use(authenticate, …)`.
+// That middleware runs for every request entering the router, whatever its
+// path, so any public route mounted after one of them silently becomes private
+// (this is how QR verification, the location lookups and the school billing
+// webhook all ended up returning 401). Keep public routes above this line's
+// end, and keep test/integration/public-routes.int.spec.ts in sync.
+// ---------------------------------------------------------------------------
 apiRouter.use('/health', healthRoutes);
 apiRouter.use('/meta', metaRoutes);
 apiRouter.use('/public-academy', publicAcademyRouter);
 apiRouter.use('/auth', authRoutes);
-// NOTE: supportRoutes is mounted before any `/`-mounted router that applies
-// global `authenticate` (e.g. billing/attendance/conduct-marks), otherwise
-// their router-level middleware would 401 the public contact endpoint
-// POST /support/tickets/public before it is ever reached.
+apiRouter.use('/locations', locationsRoutes);
+apiRouter.use('/', examsPublicRoutes);
+apiRouter.use('/', billingWebhookRoutes);
+// Mixed router: its public contact endpoint uses optional auth per route.
 apiRouter.use('/', supportRoutes);
+
+// ---------------------------------------------------------------------------
+// AUTHENTICATED SECTION
+// ---------------------------------------------------------------------------
 apiRouter.use('/', usersRoutes);
 apiRouter.use('/', auditRoutes);
 apiRouter.use('/', subscriptionsRoutes);
@@ -54,7 +68,6 @@ apiRouter.use('/', billingRoutes);
 apiRouter.use('/', systemAnnouncementsRoutes);
 apiRouter.use('/tenants', tenantsRoutes);
 apiRouter.use('/schools', schoolsRoutes);
-apiRouter.use('/locations', locationsRoutes);
 apiRouter.use('/staff', staffRoutes);
 apiRouter.use('/', academicRoutes);
 apiRouter.use('/', attendanceRoutes);

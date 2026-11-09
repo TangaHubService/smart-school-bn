@@ -11,6 +11,7 @@ import {
   paySubscriptionInvoiceSchema,
   recordManualPaymentSchema,
 } from './billing.schemas';
+import { isValidPaypackSignature } from '../../common/utils/paypack-signature';
 
 const service = new BillingService();
 
@@ -67,15 +68,13 @@ export class BillingController {
    * the raw request body, mirroring the public-academy webhook contract.
    */
   async handlePaypackWebhook(req: Request, res: Response): Promise<Response> {
-    const signature = req.get('X-Paypack-Signature');
-    const webhookSecret = env.PAYPACK_WEBHOOK_SECRET;
-
-    if (!webhookSecret || !signature || !req.rawBody) {
-      return res.status(401).send('Invalid Signature');
-    }
-
-    const hash = crypto.createHmac('sha256', webhookSecret).update(req.rawBody).digest('base64');
-    if (hash !== signature) {
+    if (
+      !isValidPaypackSignature(
+        env.PAYPACK_WEBHOOK_SECRET,
+        req.get('X-Paypack-Signature'),
+        req.rawBody
+      )
+    ) {
       return res.status(401).send('Invalid Signature');
     }
 

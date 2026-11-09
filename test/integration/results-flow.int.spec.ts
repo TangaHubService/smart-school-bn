@@ -439,8 +439,8 @@ describe('results integration flow', () => {
       context
     );
 
-    expect(locked.status).toBe('LOCKED');
-    expect(locked.snapshotsCreated).toBe(2);
+    expect(locked!.status).toBe('LOCKED');
+    expect(locked!.snapshotsCreated).toBe(2);
 
     mockedPrisma.resultSnapshot.findMany.mockResolvedValue([
       { id: 'snapshot-1' },
@@ -455,7 +455,7 @@ describe('results integration flow', () => {
       context
     );
 
-    expect(published.status).toBe('PUBLISHED');
+    expect(published!.status).toBe('PUBLISHED');
 
     mockedPrisma.student.findFirst.mockResolvedValue({
       id: 'student-1',

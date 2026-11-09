@@ -45,6 +45,20 @@ export const ACADEMY_CHECKOUT_PLANS = {
 } as const;
 
 export type AcademyCheckoutPlanId = keyof typeof ACADEMY_CHECKOUT_PLANS;
+
+/**
+ * The 100 RWF / 1 day "test" plan exists to smoke-test the Paypack flow. It is
+ * hidden from learners and refused at checkout unless ACADEMY_TEST_PLAN_ENABLED=true.
+ */
+export function isAcademyPlanOffered(planId: AcademyCheckoutPlanId): boolean {
+  return planId !== 'test' || env.ACADEMY_TEST_PLAN_ENABLED;
+}
+
+function assertAcademyPlanOffered(planId: AcademyCheckoutPlanId) {
+  if (!isAcademyPlanOffered(planId)) {
+    throw new AppError(400, 'ACADEMY_PLAN_UNAVAILABLE', 'This plan is not available');
+  }
+}
 type AcademySubscriptionDb = Prisma.TransactionClient | typeof prisma;
 type AcademyEnrollmentRow = Prisma.ClassEnrollmentGetPayload<{
   include: {
@@ -91,11 +105,11 @@ function academyStatusToApi(status: AcademySubscriptionStatus) {
 
 /**
  * Mock academy payments are allowed for demos/tests only — same rule as
- * school billing: explicit opt-in, or Paypack unconfigured outside production.
+ * school billing: explicit BILLING_ALLOW_MOCK=true, and never in production.
  * NEVER enable in production: it activates paid plans without real payment.
  */
 export function isMockAcademyBillingEnabled(): boolean {
-  return env.BILLING_ALLOW_MOCK || (!env.PAYPACK_CLIENT_ID && env.NODE_ENV !== 'production');
+  return env.BILLING_ALLOW_MOCK && env.NODE_ENV !== 'production';
 }
 
 export class AcademySubscriptionService {
@@ -446,6 +460,7 @@ export class AcademySubscriptionService {
     tenantId: string,
     input: { planId: AcademyCheckoutPlanId; phoneNumber: string }
   ) {
+    assertAcademyPlanOffered(input.planId);
     const subscription = await this.ensureTrialSubscription(userId, tenantId);
     const plan = ACADEMY_CHECKOUT_PLANS[input.planId];
 
@@ -505,6 +520,7 @@ export class AcademySubscriptionService {
         'Mock checkout is only available in development/demo environments.'
       );
     }
+    assertAcademyPlanOffered(planId);
     const subscription = await this.ensureTrialSubscription(userId, tenantId);
     const plan = ACADEMY_CHECKOUT_PLANS[planId];
 

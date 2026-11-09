@@ -103,11 +103,13 @@ export class BillingService {
     );
   }
 
-  /** Mock payments only for demos/tests; production must use a real provider. */
+  /**
+   * Mock payments only for demos/tests, and only when explicitly enabled.
+   * (Previously a missing PAYPACK_CLIENT_ID switched mock on whenever NODE_ENV was
+   * not literally "production", which an unset NODE_ENV satisfies.)
+   */
   private isMockBillingEnabled(): boolean {
-    return (
-      env.BILLING_ALLOW_MOCK || (!env.PAYPACK_CLIENT_ID && env.NODE_ENV !== 'production')
-    );
+    return env.BILLING_ALLOW_MOCK && env.NODE_ENV !== 'production';
   }
 
   private async loadBillableTenant(tenantId: string) {

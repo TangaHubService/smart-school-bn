@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PublicAcademyController } from './public-academy.controller';
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { validateBody } from '../../common/middleware/validate.middleware';
+import { webhookLimiter } from '../../common/middleware/rate-limit.middleware';
 import {
   academyPlanCheckoutSchema,
   academyClassSelectionSchema,
@@ -21,7 +22,7 @@ router.get('/classes/:id', PublicAcademyController.getClassById);
 router.get('/programs/:id', PublicAcademyController.getClassById);
 router.head('/webhook/paypack', PublicAcademyController.webhookProbe);
 router.get('/webhook/paypack', PublicAcademyController.webhookProbe);
-router.post('/webhook/paypack', PublicAcademyController.handleWebhook);
+router.post('/webhook/paypack', webhookLimiter, PublicAcademyController.handleWebhook);
 
 // Authenticated routes
 router.get('/subscription', authenticate, PublicAcademyController.getSubscriptionSummary);

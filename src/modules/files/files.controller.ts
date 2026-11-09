@@ -25,7 +25,8 @@ export class FilesController {
   async streamFile(req: Request, res: Response): Promise<void> {
     const { body, mimeType, originalName } = await filesService.streamFile(
       req.tenantId!,
-      req.params.assetId
+      req.params.assetId,
+      req.user!
     );
 
     res.setHeader('Content-Type', mimeType);

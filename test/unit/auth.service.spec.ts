@@ -5,7 +5,7 @@ import { AuthService } from '../../src/modules/auth/auth.service';
 jest.mock('../../src/db/prisma', () => {
   const prisma = {
     user: { findMany: jest.fn(), update: jest.fn() },
-    student: { findMany: jest.fn() },
+    student: { findMany: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     refreshToken: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
@@ -96,7 +96,13 @@ describe('AuthService', () => {
       }
     );
 
-    expect(result).toEqual({ requiresTwoFactor: true });
+    expect(result).toEqual({
+      requiresTwoFactor: true,
+      challengeToken: expect.any(String),
+      expiresAt: expect.any(String),
+      destination: expect.stringContaining('@school.rw'),
+    });
+    expect(result).not.toHaveProperty('accessToken');
     expect(mockedPrisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'user-1' },

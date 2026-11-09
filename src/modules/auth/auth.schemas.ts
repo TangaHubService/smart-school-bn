@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 export const loginSchema = z.object({
   identifier: z.string().trim().toLowerCase().min(1, 'Email or username is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  // Login only checks presence: the password policy is enforced when a password is set.
+  // (Starter passwords are student codes, which can be shorter than 8 characters.)
+  password: z.string().min(1, 'Password is required').max(128),
 });
 
 export const refreshSchema = z.object({
@@ -74,22 +76,34 @@ export const verifyOtpSchema = z.object({
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 
 export const verifyTwoFactorSchema = z.object({
-  email: z.string().trim().email(),
-  otp: z.string().length(6, 'OTP must be 6 digits'),
+  challengeToken: z.string().min(20).max(2048),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits'),
 });
 
 export type VerifyTwoFactorInput = z.infer<typeof verifyTwoFactorSchema>;
 
 export const resendTwoFactorOtpSchema = z.object({
-  email: z.string().trim().email(),
+  challengeToken: z.string().min(20).max(2048),
 });
 
 export type ResendTwoFactorOtpInput = z.infer<typeof resendTwoFactorOtpSchema>;
 
 export const selectSchoolSchema = z.object({
   identifier: z.string().trim().toLowerCase().min(1),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  password: z.string().min(1, 'Password is required').max(128),
   tenantId: z.string().uuid('Invalid tenant ID'),
 });
 
 export type SelectSchoolInput = z.infer<typeof selectSchoolSchema>;
+
+export const completePasswordChangeSchema = z.object({
+  challengeToken: z.string().min(20).max(2048),
+  newPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(128)
+    .regex(/[A-Za-z]/, 'Must include a letter')
+    .regex(/[0-9]/, 'Must include a number'),
+});
+
+export type CompletePasswordChangeInput = z.infer<typeof completePasswordChangeSchema>;

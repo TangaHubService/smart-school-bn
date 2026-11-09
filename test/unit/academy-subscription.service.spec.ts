@@ -1,3 +1,6 @@
+// Mock checkout is opt-in only (never implied by a missing Paypack config).
+process.env.BILLING_ALLOW_MOCK = 'true';
+
 const mockResolveAcademyCatalogTenantId = jest.fn();
 const mockCashin = jest.fn();
 
@@ -223,21 +226,30 @@ describe('AcademySubscriptionService', () => {
     });
 
     const result = await service.startPlanCheckout('user-1', 'academy-tenant', {
-      planId: 'test',
+      planId: 'weekly',
       phoneNumber: '0780000000',
     });
 
     expect(mockedPrisma.academySubscriptionPayment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          planCode: AcademyPlanCode.TEST,
-          amount: 100,
-          durationDays: 1,
+          planCode: AcademyPlanCode.WEEKLY,
+          amount: 2000,
+          durationDays: 7,
           status: PaymentStatus.PENDING,
         }),
       })
     );
     expect(result.paypackRef).toBe('trx-1');
+  });
+
+  it('refuses the hidden 100 RWF test plan at checkout', async () => {
+    await expect(
+      service.startPlanCheckout('user-1', 'academy-tenant', {
+        planId: 'test',
+        phoneNumber: '0780000000',
+      })
+    ).rejects.toMatchObject({ code: 'ACADEMY_PLAN_UNAVAILABLE' });
   });
 
   describe('mock checkout (development/demo)', () => {

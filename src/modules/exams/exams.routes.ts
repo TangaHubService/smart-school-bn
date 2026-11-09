@@ -23,17 +23,24 @@ import {
 
 const examsController = new ExamsController();
 
-export const examsRoutes = Router();
+/**
+ * Anonymous report-card verification (target of the QR code printed on every
+ * report card). Mounted in the public section of routes/index.ts, ahead of any
+ * router that applies authentication to everything it sees.
+ */
+export const examsPublicRoutes = Router();
 
-examsRoutes.get(
+examsPublicRoutes.get(
   '/report-cards/verify/:snapshotId',
   asyncHandler((req, res) => examsController.verifyReportCard(req, res))
 );
 
-examsRoutes.get(
+examsPublicRoutes.get(
   '/report-cards/public/:snapshotId/pdf',
   asyncHandler((req, res) => examsController.downloadPublicReportCardPdf(req, res))
 );
+
+export const examsRoutes = Router();
 
 examsRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 

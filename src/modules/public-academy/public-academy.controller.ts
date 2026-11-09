@@ -13,6 +13,7 @@ import type {
   AcademyPlanCheckoutInput,
   AcademyClassSelectionInput,
 } from './public-academy.schemas';
+import { isValidPaypackSignature } from '../../common/utils/paypack-signature';
 
 const academySubscriptionService = new AcademySubscriptionService();
 const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' });
@@ -103,10 +104,15 @@ export class PublicAcademyController {
    */
   static async getPlans(req: Request, res: Response, next: NextFunction) {
     try {
-      const { ACADEMY_CHECKOUT_PLANS, isMockAcademyBillingEnabled } = await import(
-        './academy-subscription.service'
-      );
-      const plans = Object.entries(ACADEMY_CHECKOUT_PLANS).map(([id, plan]) => ({
+      const { ACADEMY_CHECKOUT_PLANS, isAcademyPlanOffered, isMockAcademyBillingEnabled } =
+        await import('./academy-subscription.service');
+      const plans = (
+        Object.entries(ACADEMY_CHECKOUT_PLANS) as Array<
+          [keyof typeof ACADEMY_CHECKOUT_PLANS, (typeof ACADEMY_CHECKOUT_PLANS)[keyof typeof ACADEMY_CHECKOUT_PLANS]]
+        >
+      )
+        .filter(([id]) => isAcademyPlanOffered(id))
+        .map(([id, plan]) => ({
         id,
         name: id.charAt(0).toUpperCase() + id.slice(1),
         amount: plan.amount,
@@ -496,23 +502,19 @@ export class PublicAcademyController {
 
   static async handleWebhook(req: Request, res: Response) {
     try {
-      const signature = req.get('X-Paypack-Signature');
-      const webhookSecret = env.PAYPACK_WEBHOOK_SECRET;
-
-      if (webhookSecret && signature) {
-        const rawBody = req.rawBody;
-        if (rawBody) {
-          const crypto = await import('crypto');
-          const hash = crypto
-            .createHmac('sha256', webhookSecret)
-            .update(rawBody)
-            .digest('base64');
-
-          if (hash !== signature) {
-            academyWebhookLog.warn('Rejected Paypack webhook with invalid signature');
-            return res.status(401).send('Invalid Signature');
-          }
-        }
+      // Fail closed: an unsigned or unverifiable callback must never activate a plan.
+      if (
+        !isValidPaypackSignature(
+          env.PAYPACK_WEBHOOK_SECRET,
+          req.get('X-Paypack-Signature'),
+          req.rawBody
+        )
+      ) {
+        academyWebhookLog.warn(
+          { configured: Boolean(env.PAYPACK_WEBHOOK_SECRET) },
+          'Rejected Paypack webhook with missing or invalid signature'
+        );
+        return res.status(401).send('Invalid Signature');
       }
 
       const payload = req.body;

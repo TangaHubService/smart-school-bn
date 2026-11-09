@@ -4,6 +4,7 @@ import {
   authenticate,
   optionalAuthenticate,
 } from '../../common/middleware/authenticate.middleware';
+import { publicFormLimiter } from '../../common/middleware/rate-limit.middleware';
 import { requirePermissions } from '../../common/middleware/require-permissions.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
@@ -16,6 +17,7 @@ export const supportRoutes = Router();
 // Public contact form → ticket (optional auth so logged-in users are linked)
 supportRoutes.post(
   '/support/tickets/public',
+  publicFormLimiter,
   optionalAuthenticate,
   asyncHandler((req, res) => controller.createPublicTicket(req, res))
 );

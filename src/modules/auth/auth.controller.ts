@@ -4,6 +4,7 @@ import { sendSuccess } from '../../common/utils/response';
 import { StaffService } from '../staff/staff.service';
 import { AuthService } from './auth.service';
 import {
+  CompletePasswordChangeInput,
   ForgotPasswordInput,
   LoginInput,
   LogoutInput,
@@ -85,6 +86,14 @@ export class AuthController {
   async resendTwoFactorOtp(req: Request, res: Response): Promise<Response> {
     const result = await authService.resendTwoFactorOtp(
       req.body as ResendTwoFactorOtpInput,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
+
+  async completePasswordChange(req: Request, res: Response): Promise<Response> {
+    const result = await authService.completePasswordChange(
+      req.body as CompletePasswordChangeInput,
       buildContext(req)
     );
     return sendSuccess(req, res, result);

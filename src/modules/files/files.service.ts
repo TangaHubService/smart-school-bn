@@ -4,6 +4,7 @@ import { JwtUser } from '../../common/types/auth.types';
 import { AppError } from '../../common/errors/app-error';
 import { env } from '../../config/env';
 import { prisma } from '../../db/prisma';
+import { canReadFileAsset } from './file-access';
 import { SignUploadInput } from './files.schemas';
 
 export class FilesService {
@@ -45,13 +46,19 @@ export class FilesService {
     };
   }
 
-  async getFileViewUrl(tenantId: string, assetId: string, _actor: JwtUser) {
+  /** Tenant-scoped lookup plus relationship check; unreadable files look missing. */
+  private async getReadableAsset(tenantId: string, assetId: string, actor: JwtUser) {
     const asset = await prisma.fileAsset.findFirst({
       where: { id: assetId, tenantId },
     });
-    if (!asset) {
+    if (!asset || !(await canReadFileAsset(tenantId, asset, actor))) {
       throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
     }
+    return asset;
+  }
+
+  async getFileViewUrl(tenantId: string, assetId: string, actor: JwtUser) {
+    const asset = await this.getReadableAsset(tenantId, assetId, actor);
     const secureUrl = asset.secureUrl.includes('cloudinary')
       ? asset.secureUrl.replace('/upload/', '/upload/fl_attachment:false/')
       : asset.secureUrl;
@@ -68,13 +75,8 @@ export class FilesService {
    * is never sent to the browser. Used to protect PDF learning resources from
    * being copied straight out of API responses.
    */
-  async streamFile(tenantId: string, assetId: string) {
-    const asset = await prisma.fileAsset.findFirst({
-      where: { id: assetId, tenantId },
-    });
-    if (!asset) {
-      throw new AppError(404, 'FILE_NOT_FOUND', 'File not found');
-    }
+  async streamFile(tenantId: string, assetId: string, actor: JwtUser) {
+    const asset = await this.getReadableAsset(tenantId, assetId, actor);
 
     const upstream = await fetch(asset.secureUrl);
     if (!upstream.ok || !upstream.body) {

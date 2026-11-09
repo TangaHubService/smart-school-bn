@@ -1,6 +1,8 @@
 import { prisma } from '../../src/db/prisma';
 import { TimetableService } from '../../src/modules/timetable/timetable.service';
-import { AppError } from '../../src/common/errors/app-error';
+import { resetDatabase } from './fixtures';
+
+const context = { requestId: 'timetable-db-test', ipAddress: null, userAgent: null };
 
 describe('Timetable Teacher Conflict Validation', () => {
   const service = new TimetableService();
@@ -14,7 +16,7 @@ describe('Timetable Teacher Conflict Validation', () => {
   let courseBId: string;
 
   beforeAll(async () => {
-    // Setup test data
+    await resetDatabase();
     const tenant = await prisma.tenant.create({
       data: {
         code: `test-timetable-${Date.now()}`,
@@ -94,17 +96,7 @@ describe('Timetable Teacher Conflict Validation', () => {
     courseBId = courseB.id;
   });
 
-  afterAll(async () => {
-    // Cleanup
-    await prisma.timetableSlot.deleteMany({ where: { tenantId } });
-    await prisma.course.deleteMany({ where: { tenantId } });
-    await prisma.classRoom.deleteMany({ where: { tenantId } });
-    await prisma.gradeLevel.deleteMany({ where: { tenantId } });
-    await prisma.term.deleteMany({ where: { tenantId } });
-    await prisma.academicYear.deleteMany({ where: { tenantId } });
-    await prisma.user.deleteMany({ where: { tenantId } });
-    await prisma.tenant.delete({ where: { id: tenantId } });
-  });
+  afterAll(() => prisma.$disconnect());
 
   it('should allow creating a slot if teacher is available', async () => {
     const slot = await service.createSlot(
@@ -119,7 +111,8 @@ describe('Timetable Teacher Conflict Validation', () => {
         startTime: '08:00',
         endTime: '08:45',
       },
-      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
+      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
+      context
     );
     expect(slot).toBeDefined();
   });
@@ -138,15 +131,10 @@ describe('Timetable Teacher Conflict Validation', () => {
           startTime: '08:00',
           endTime: '08:45',
         },
-        { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
+        { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
+        context
       )
-    ).rejects.toThrow(
-      new AppError(
-        400,
-        'TEACHER_TIMETABLE_CONFLICT',
-        'Teacher John Doe is already assigned to Math Class A in class Class A (A) during this period on day 1.'
-      )
-    );
+    ).rejects.toMatchObject({ statusCode: 400, code: 'TEACHER_TIMETABLE_CONFLICT' });
   });
 
   it('should allow the same teacher at different periods', async () => {
@@ -162,7 +150,8 @@ describe('Timetable Teacher Conflict Validation', () => {
         startTime: '08:45',
         endTime: '09:30',
       },
-      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any
+      { sub: teacherId, roles: ['SUPER_ADMIN'], tenantId } as any,
+      context
     );
     expect(slot).toBeDefined();
   });
