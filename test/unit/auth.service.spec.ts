@@ -41,12 +41,12 @@ const mockedBcrypt = bcrypt as unknown as {
 
 type LoginResult = Awaited<ReturnType<AuthService['login']>>;
 
-/** Narrows the login union so 2FA challenges fail the test with a clear message. */
+/** Narrows the login union so sign-in challenges fail the test with a clear message. */
 function expectLoginSuccess(
   result: LoginResult
 ): asserts result is Extract<LoginResult, { accessToken: string }> {
   if (!('accessToken' in result)) {
-    throw new Error('Expected a full login result but received a two-factor challenge');
+    throw new Error('Expected a full login result but received a sign-in challenge');
   }
 }
 
@@ -63,7 +63,7 @@ describe('AuthService', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('challenges privileged staff roles with two-factor before issuing tokens', async () => {
+  it('logs in privileged staff directly without a two-factor step', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -96,19 +96,10 @@ describe('AuthService', () => {
       }
     );
 
-    expect(result).toEqual({
-      requiresTwoFactor: true,
-      challengeToken: expect.any(String),
-      expiresAt: expect.any(String),
-      destination: expect.stringContaining('@school.rw'),
-    });
-    expect(result).not.toHaveProperty('accessToken');
-    expect(mockedPrisma.user.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'user-1' },
-        data: expect.objectContaining({ isTwoFactorVerified: false }),
-      })
-    );
+    expectLoginSuccess(result);
+    expect(result).not.toHaveProperty('requiresTwoFactor');
+    expect(result.accessToken).toEqual(expect.any(String));
+    expect(result.roles).toEqual(['SCHOOL_ADMIN']);
   });
 
   it('logs in non-privileged staff by email and returns access/refresh tokens', async () => {

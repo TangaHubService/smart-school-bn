@@ -128,7 +128,7 @@ const productionSafeEnvSchema = envSchema.superRefine((value, ctx) => {
     problem('PAYPACK_WEBHOOK_SECRET', 'Paypack is configured but PAYPACK_WEBHOOK_SECRET is missing, so payments can never be confirmed');
   }
   if (!value.EMAIL_LOG_ONLY && !(value.SMTP_HOST && value.SMTP_PORT)) {
-    problem('SMTP_HOST', 'Set SMTP_HOST and SMTP_PORT (or EMAIL_LOG_ONLY=true); otherwise invites, sign-in codes and password resets are never sent');
+    problem('SMTP_HOST', 'Set SMTP_HOST and SMTP_PORT (or EMAIL_LOG_ONLY=true); otherwise invites, verification codes and password resets are never sent');
   }
 });
 

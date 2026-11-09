@@ -21,8 +21,6 @@ import {
   resetPasswordSchema,
   selectSchoolSchema,
   verifyOtpSchema,
-  verifyTwoFactorSchema,
-  resendTwoFactorOtpSchema,
   completePasswordChangeSchema,
 } from './auth.schemas';
 
@@ -84,20 +82,6 @@ authRoutes.post(
   codeAttemptLimiter,
   validateBody(resetPasswordSchema),
   asyncHandler((req, res) => authController.resetPassword(req, res))
-);
-
-authRoutes.post(
-  '/verify-two-factor',
-  codeAttemptLimiter,
-  validateBody(verifyTwoFactorSchema),
-  asyncHandler((req, res) => authController.verifyTwoFactor(req, res))
-);
-
-authRoutes.post(
-  '/resend-two-factor-otp',
-  codeAttemptLimiter,
-  validateBody(resendTwoFactorOtpSchema),
-  asyncHandler((req, res) => authController.resendTwoFactorOtp(req, res))
 );
 
 authRoutes.post(

@@ -13,8 +13,6 @@ import {
   ResetPasswordInput,
   SelectSchoolInput,
   VerifyOtpInput,
-  VerifyTwoFactorInput,
-  ResendTwoFactorOtpInput,
 } from './auth.schemas';
 
 const authService = new AuthService();
@@ -70,22 +68,6 @@ export class AuthController {
   async resetPassword(req: Request, res: Response): Promise<Response> {
     const result = await authService.resetPassword(
       req.body as ResetPasswordInput,
-      buildContext(req)
-    );
-    return sendSuccess(req, res, result);
-  }
-
-  async verifyTwoFactor(req: Request, res: Response): Promise<Response> {
-    const result = await authService.verifyTwoFactor(
-      req.body as VerifyTwoFactorInput,
-      buildContext(req)
-    );
-    return sendSuccess(req, res, result);
-  }
-
-  async resendTwoFactorOtp(req: Request, res: Response): Promise<Response> {
-    const result = await authService.resendTwoFactorOtp(
-      req.body as ResendTwoFactorOtpInput,
       buildContext(req)
     );
     return sendSuccess(req, res, result);
