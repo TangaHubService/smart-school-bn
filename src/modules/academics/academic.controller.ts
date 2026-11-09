@@ -75,6 +75,26 @@ export class AcademicsController {
     return sendSuccess(req, res, result);
   }
 
+  async createLevelGroup(req: Request, res: Response): Promise<Response> {
+    const result = await academicsService.createLevelGroup(req.tenantId!, req.body);
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listLevelGroups(req: Request, res: Response): Promise<Response> {
+    const result = await academicsService.listLevelGroups(req.tenantId!);
+    return sendSuccess(req, res, result);
+  }
+
+  async updateLevelGroup(req: Request, res: Response): Promise<Response> {
+    const result = await academicsService.updateLevelGroup(req.tenantId!, req.params.id, req.body);
+    return sendSuccess(req, res, result);
+  }
+
+  async deleteLevelGroup(req: Request, res: Response): Promise<Response> {
+    const result = await academicsService.deleteLevelGroup(req.tenantId!, req.params.id);
+    return sendSuccess(req, res, result);
+  }
+
   async createGradeLevel(req: Request, res: Response): Promise<Response> {
     const result = await academicsService.createGradeLevel(
       req.tenantId!,

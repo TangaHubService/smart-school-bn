@@ -15,11 +15,13 @@ import {
   createAcademicYearSchema,
   createClassRoomSchema,
   createGradeLevelSchema,
+  createLevelGroupSchema,
   createSubjectSchema,
   createTermSchema,
   updateAcademicYearSchema,
   updateClassRoomSchema,
   updateGradeLevelSchema,
+  updateLevelGroupSchema,
   updateSubjectSchema,
   updateTermSchema,
 } from './academic.schemas';
@@ -94,6 +96,32 @@ academicRoutes.delete(
   '/terms/:id',
   requirePermissions([PERMISSIONS.TERM_MANAGE]),
   asyncHandler((req, res) => academicsController.deleteTerm(req, res))
+);
+
+academicRoutes.post(
+  '/level-groups',
+  requirePermissions([PERMISSIONS.GRADE_LEVEL_MANAGE]),
+  validateBody(createLevelGroupSchema),
+  asyncHandler((req, res) => academicsController.createLevelGroup(req, res))
+);
+
+academicRoutes.get(
+  '/level-groups',
+  requirePermissions([PERMISSIONS.GRADE_LEVEL_MANAGE]),
+  asyncHandler((req, res) => academicsController.listLevelGroups(req, res))
+);
+
+academicRoutes.patch(
+  '/level-groups/:id',
+  requirePermissions([PERMISSIONS.GRADE_LEVEL_MANAGE]),
+  validateBody(updateLevelGroupSchema),
+  asyncHandler((req, res) => academicsController.updateLevelGroup(req, res))
+);
+
+academicRoutes.delete(
+  '/level-groups/:id',
+  requirePermissions([PERMISSIONS.GRADE_LEVEL_MANAGE]),
+  asyncHandler((req, res) => academicsController.deleteLevelGroup(req, res))
 );
 
 academicRoutes.post(

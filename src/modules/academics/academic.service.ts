@@ -9,12 +9,14 @@ import {
   CreateAcademicYearInput,
   CreateClassRoomInput,
   CreateGradeLevelInput,
+  CreateLevelGroupInput,
   CreateSubjectInput,
   CreateTermInput,
   ListTermsQueryInput,
   UpdateAcademicYearInput,
   UpdateClassRoomInput,
   UpdateGradeLevelInput,
+  UpdateLevelGroupInput,
   UpdateSubjectInput,
   UpdateTermInput,
 } from './academic.schemas';
@@ -260,12 +262,94 @@ export class AcademicsService {
     return { deleted: true };
   }
 
+  async createLevelGroup(tenantId: string, input: CreateLevelGroupInput) {
+    await this.assertLevelGroupNameFree(tenantId, input.name);
+    return prisma.levelGroup.create({
+      data: {
+        tenantId,
+        name: input.name,
+        description: input.description ?? null,
+        thumbnail: input.thumbnail ?? null,
+        rank: input.rank,
+      },
+    });
+  }
+
+  async listLevelGroups(tenantId: string) {
+    const groups = await prisma.levelGroup.findMany({
+      where: { tenantId, isActive: true },
+      include: {
+        gradeLevels: {
+          where: { isActive: true },
+          select: { id: true, name: true, rank: true },
+          orderBy: { rank: 'asc' },
+        },
+      },
+      orderBy: [{ rank: 'asc' }, { name: 'asc' }],
+    });
+    return groups;
+  }
+
+  async updateLevelGroup(tenantId: string, id: string, input: UpdateLevelGroupInput) {
+    const existing = await prisma.levelGroup.findFirst({ where: { id, tenantId, isActive: true } });
+    if (!existing) {
+      throw new AppError(404, 'LEVEL_GROUP_NOT_FOUND', 'Level group not found');
+    }
+    if (input.name && input.name.toLowerCase() !== existing.name.toLowerCase()) {
+      await this.assertLevelGroupNameFree(tenantId, input.name);
+    }
+    return prisma.levelGroup.update({ where: { id }, data: input });
+  }
+
+  /** Soft-deletes the group; its grade levels stay and simply become ungrouped. */
+  async deleteLevelGroup(tenantId: string, id: string) {
+    const deleted = await prisma.$transaction(async tx => {
+      const result = await tx.levelGroup.updateMany({
+        where: { id, tenantId, isActive: true },
+        data: { isActive: false },
+      });
+      if (!result.count) return false;
+      await tx.gradeLevel.updateMany({
+        where: { tenantId, levelGroupId: id },
+        data: { levelGroupId: null },
+      });
+      return true;
+    });
+    if (!deleted) {
+      throw new AppError(404, 'LEVEL_GROUP_NOT_FOUND', 'Level group not found');
+    }
+    return { deleted: true };
+  }
+
+  private async assertLevelGroupNameFree(tenantId: string, name: string) {
+    const clash = await prisma.levelGroup.findFirst({
+      where: { tenantId, isActive: true, name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new AppError(409, 'UNIQUE_CONSTRAINT_VIOLATION', 'A level group with this name already exists');
+    }
+  }
+
+  /** A grade can only join an active group of the same school. */
+  private async assertLevelGroupUsable(tenantId: string, levelGroupId: string | null | undefined) {
+    if (!levelGroupId) return;
+    const group = await prisma.levelGroup.findFirst({
+      where: { id: levelGroupId, tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (!group) {
+      throw new AppError(400, 'LEVEL_GROUP_NOT_FOUND', 'Level group not found');
+    }
+  }
+
   async createGradeLevel(
     tenantId: string,
     input: CreateGradeLevelInput,
     actor: JwtUser,
     context: RequestAuditContext
   ) {
+    await this.assertLevelGroupUsable(tenantId, input.levelGroupId);
     try {
       const created = await prisma.gradeLevel.create({
         data: {
@@ -273,6 +357,7 @@ export class AcademicsService {
           code: input.code,
           name: input.name,
           rank: input.rank,
+          levelGroupId: input.levelGroupId ?? null,
           isActive: true,
         },
       });
@@ -298,11 +383,13 @@ export class AcademicsService {
   async listGradeLevels(tenantId: string) {
     return prisma.gradeLevel.findMany({
       where: { tenantId, isActive: true },
+      include: { levelGroup: { select: { id: true, name: true, isActive: true } } },
       orderBy: [{ rank: 'asc' }],
     });
   }
 
   async updateGradeLevel(tenantId: string, id: string, input: UpdateGradeLevelInput) {
+    await this.assertLevelGroupUsable(tenantId, input.levelGroupId);
     const result = await prisma.gradeLevel.updateMany({
       where: { id, tenantId, isActive: true },
       data: input,

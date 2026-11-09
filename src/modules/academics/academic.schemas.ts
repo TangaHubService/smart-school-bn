@@ -36,10 +36,47 @@ export const listTermsQuerySchema = z.object({
   academicYearId: z.string().uuid().optional(),
 });
 
+const optionalPicture = z
+  .string()
+  .trim()
+  .max(1000)
+  .url()
+  .or(z.literal(''))
+  .nullable()
+  .optional()
+  // Omitted stays omitted (so a partial update keeps it); empty clears it.
+  .transform(value => (value === undefined ? undefined : value || null));
+
+const optionalDescription = z
+  .string()
+  .trim()
+  .max(300)
+  .nullable()
+  .optional()
+  // Omitted stays omitted (so a partial update keeps it); empty clears it.
+  .transform(value => (value === undefined ? undefined : value || null));
+
+export const createLevelGroupSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  description: optionalDescription,
+  thumbnail: optionalPicture,
+  rank: z.number().int().min(1).max(50).optional().default(1),
+});
+
+export const updateLevelGroupSchema = z
+  .object({
+    name: z.string().trim().min(2).max(80).optional(),
+    description: optionalDescription,
+    thumbnail: optionalPicture,
+    rank: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
 export const createGradeLevelSchema = z.object({
   code: z.string().trim().min(1).max(30),
   name: z.string().trim().min(2).max(80),
   rank: z.number().int().min(1).max(20),
+  levelGroupId: z.string().uuid().nullable().optional(),
 });
 
 export const updateGradeLevelSchema = z
@@ -47,6 +84,7 @@ export const updateGradeLevelSchema = z
     code: z.string().trim().min(1).max(30).optional(),
     name: z.string().trim().min(2).max(80).optional(),
     rank: z.number().int().min(1).max(20).optional(),
+    levelGroupId: z.string().uuid().nullable().optional(),
     isActive: z.boolean().optional(),
   })
   .strict();
@@ -98,6 +136,8 @@ export type UpdateAcademicYearInput = z.infer<typeof updateAcademicYearSchema>;
 export type CreateTermInput = z.infer<typeof createTermSchema>;
 export type UpdateTermInput = z.infer<typeof updateTermSchema>;
 export type ListTermsQueryInput = z.infer<typeof listTermsQuerySchema>;
+export type CreateLevelGroupInput = z.infer<typeof createLevelGroupSchema>;
+export type UpdateLevelGroupInput = z.infer<typeof updateLevelGroupSchema>;
 export type CreateGradeLevelInput = z.infer<typeof createGradeLevelSchema>;
 export type UpdateGradeLevelInput = z.infer<typeof updateGradeLevelSchema>;
 export type CreateClassRoomInput = z.infer<typeof createClassRoomSchema>;

@@ -183,7 +183,7 @@ export class PublicAcademyController {
     try {
       const catalogTenantId = await resolveAcademyCatalogTenantId();
       if (!catalogTenantId) {
-        return sendSuccess(req, res, { academicYears: [] }, 200, null, {
+        return sendSuccess(req, res, { academicYears: [], levelGroups: [] }, 200, null, {
           academyCatalog: { resolved: false, publicProgramCount: 0 },
         });
       }
@@ -228,6 +228,7 @@ export class PublicAcademyController {
             id: string;
             name: string;
             rank: number;
+            levelGroupId: string | null;
             classRooms: Map<
               string,
               {
@@ -273,6 +274,7 @@ export class PublicAcademyController {
           id: gradeLevel.id,
           name: gradeLevel.name,
           rank: gradeLevel.rank,
+          levelGroupId: gradeLevel.levelGroupId,
           classRooms: new Map(),
         };
         year.gradeLevels.set(gradeLevel.id, gradeNode);
@@ -314,6 +316,7 @@ export class PublicAcademyController {
               id: grade.id,
               name: grade.name,
               rank: grade.rank,
+              levelGroupId: grade.levelGroupId,
               classRooms: [...grade.classRooms.values()]
                 .map(classRoom => ({
                   id: classRoom.id,
@@ -331,7 +334,15 @@ export class PublicAcademyController {
         }))
         .sort((a, b) => (a.isCurrent === b.isCurrent ? 0 : a.isCurrent ? -1 : 1));
 
-      return sendSuccess(req, res, { academicYears });
+      // Level groups the academy admin created (e.g. "Lower Primary"). Grades
+      // point at them through levelGroupId; the page groups levels by them.
+      const levelGroups = await prisma.levelGroup.findMany({
+        where: { tenantId: catalogTenantId, isActive: true },
+        select: { id: true, name: true, description: true, thumbnail: true, rank: true },
+        orderBy: [{ rank: 'asc' }, { name: 'asc' }],
+      });
+
+      return sendSuccess(req, res, { academicYears, levelGroups });
     } catch (error) {
       next(error);
     }

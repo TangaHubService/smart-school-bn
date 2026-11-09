@@ -151,4 +151,81 @@ describe('public academy school (real database)', () => {
     const classes = await request(app).get('/public-academy/classes');
     expect(classes.body.data.map((c: any) => c.id)).not.toContain(hidden.body.data.id);
   });
+
+  it('lets the admin create level groups and puts grades in them on the public page', async () => {
+    const lower = await request(app)
+      .post('/level-groups')
+      .set(auth)
+      .send({ name: 'Lower Primary', description: 'P1 to P3', rank: 1 });
+    expect(lower.status).toBe(201);
+    const upper = await request(app)
+      .post('/level-groups')
+      .set(auth)
+      .send({ name: 'Upper Primary', rank: 2, thumbnail: '' });
+    expect(upper.status).toBe(201);
+    expect(upper.body.data.thumbnail).toBeNull();
+
+    const duplicate = await request(app)
+      .post('/level-groups')
+      .set(auth)
+      .send({ name: 'lower primary' });
+    expect(duplicate.status).toBe(409);
+
+    const grade = await request(app)
+      .post('/grade-levels')
+      .set(auth)
+      .send({ code: 'P4', name: 'Primary 4', rank: 4, levelGroupId: upper.body.data.id });
+    expect(grade.status).toBe(201);
+    expect(grade.body.data.levelGroupId).toBe(upper.body.data.id);
+
+    const year = await prisma.academicYear.findFirstOrThrow({ where: { name: '2027 Intake' } });
+    const room = await request(app)
+      .post('/classes')
+      .set(auth)
+      .send({ gradeLevelId: grade.body.data.id, code: 'P4-PUB', name: 'Primary 4 Online', listedInPublicCatalog: true });
+    expect(room.status).toBe(201);
+    const course = await request(app)
+      .post('/courses')
+      .set(auth)
+      .send({ academicYearId: year.id, classRoomId: room.body.data.id, title: 'P4 Maths' });
+    expect(course.status).toBe(201);
+
+    // Renaming keeps the description it was not sent.
+    const renamed = await request(app)
+      .patch(`/level-groups/${lower.body.data.id}`)
+      .set(auth)
+      .send({ name: 'Lower Primary (P1-P3)' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.data.description).toBe('P1 to P3');
+
+    const tree = await request(app).get('/public-academy/catalog/tree');
+    expect(tree.body.data.levelGroups.map((g: any) => g.name)).toEqual([
+      'Lower Primary (P1-P3)',
+      'Upper Primary',
+    ]);
+    const publicGrade = tree.body.data.academicYears
+      .flatMap((y: any) => y.gradeLevels)
+      .find((g: any) => g.id === grade.body.data.id);
+    expect(publicGrade.levelGroupId).toBe(upper.body.data.id);
+
+    // Deleting a group keeps its grades; they just lose the group.
+    const removed = await request(app).delete(`/level-groups/${upper.body.data.id}`).set(auth);
+    expect(removed.status).toBe(200);
+    const after = await prisma.gradeLevel.findUniqueOrThrow({ where: { id: grade.body.data.id } });
+    expect(after.levelGroupId).toBeNull();
+    expect(after.isActive).toBe(true);
+
+    const listed = await request(app).get('/level-groups').set(auth);
+    expect(listed.body.data.map((g: any) => g.name)).toEqual(['Lower Primary (P1-P3)']);
+  });
+
+  it('refuses a level group from another school', async () => {
+    const other = await createSchool('Other');
+    const foreign = await prisma.levelGroup.create({ data: { tenantId: other.tenant.id, name: 'Theirs' } });
+    const res = await request(app)
+      .post('/grade-levels')
+      .set(auth)
+      .send({ code: 'P5', name: 'Primary 5', rank: 5, levelGroupId: foreign.id });
+    expect(res.status).toBe(400);
+  });
 });
