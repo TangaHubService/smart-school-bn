@@ -16,6 +16,9 @@ import type {
 import { isValidPaypackSignature } from '../../common/utils/paypack-signature';
 
 const academySubscriptionService = new AcademySubscriptionService();
+
+/** Catalog bucket for courses that have no subject. */
+const GENERAL_SUBJECT_ID = 'general';
 const academyWebhookLog = rootLogger.child({ module: 'public-academy-webhook' });
 
 type CatalogClassRow = {
@@ -284,20 +287,21 @@ export class PublicAcademyController {
         };
         gradeNode.classRooms.set(classRoom.id, classNode);
 
-        if (course.subject) {
-          const subjectNode = classNode.subjects.get(course.subject.id) ?? {
-            id: course.subject.id,
-            name: course.subject.name,
-            courseCount: 0,
-            courses: [] as Array<{ id: string; title: string }>,
-          };
-          subjectNode.courseCount += 1;
-          subjectNode.courses.push({ id: course.id, title: course.title });
-          subjectNode.courses.sort((a: { title: string }, b: { title: string }) =>
-            a.title.localeCompare(b.title)
-          );
-          classNode.subjects.set(course.subject.id, subjectNode);
-        }
+        // Courses may be created without a subject; list them under "General"
+        // so every published course stays visible to the public.
+        const subjectKey = course.subject?.id ?? GENERAL_SUBJECT_ID;
+        const subjectNode = classNode.subjects.get(subjectKey) ?? {
+          id: subjectKey,
+          name: course.subject?.name ?? 'General',
+          courseCount: 0,
+          courses: [] as Array<{ id: string; title: string }>,
+        };
+        subjectNode.courseCount += 1;
+        subjectNode.courses.push({ id: course.id, title: course.title });
+        subjectNode.courses.sort((a: { title: string }, b: { title: string }) =>
+          a.title.localeCompare(b.title)
+        );
+        classNode.subjects.set(subjectKey, subjectNode);
       }
 
       const academicYears = [...years.values()]
