@@ -41,12 +41,12 @@ const mockedBcrypt = bcrypt as unknown as {
 
 type LoginResult = Awaited<ReturnType<AuthService['login']>>;
 
-/** Narrows the login union so sign-in challenges fail the test with a clear message. */
+/** Narrows the login union so 2FA challenges fail the test with a clear message. */
 function expectLoginSuccess(
   result: LoginResult
 ): asserts result is Extract<LoginResult, { accessToken: string }> {
   if (!('accessToken' in result)) {
-    throw new Error('Expected a full login result but received a sign-in challenge');
+    throw new Error('Expected a full login result but received a two-factor challenge');
   }
 }
 
@@ -63,7 +63,7 @@ describe('AuthService', () => {
     mockedPrisma.student.findMany.mockResolvedValue([]);
   });
 
-  it('logs in privileged staff directly without a two-factor step', async () => {
+  it('challenges admins with a one-time code before issuing tokens', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-1',
@@ -96,13 +96,22 @@ describe('AuthService', () => {
       }
     );
 
-    expectLoginSuccess(result);
-    expect(result).not.toHaveProperty('requiresTwoFactor');
-    expect(result.accessToken).toEqual(expect.any(String));
-    expect(result.roles).toEqual(['SCHOOL_ADMIN']);
+    expect(result).toEqual({
+      requiresTwoFactor: true,
+      challengeToken: expect.any(String),
+      expiresAt: expect.any(String),
+      destination: expect.stringContaining('@school.rw'),
+    });
+    expect(result).not.toHaveProperty('accessToken');
+    expect(mockedPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-1' },
+        data: expect.objectContaining({ isTwoFactorVerified: false }),
+      })
+    );
   });
 
-  it('logs in non-privileged staff by email and returns access/refresh tokens', async () => {
+  it('also challenges other staff roles (e.g. librarian) with a one-time code', async () => {
     mockedPrisma.user.findMany.mockResolvedValue([
       {
         id: 'user-2',
@@ -111,11 +120,34 @@ describe('AuthService', () => {
         passwordHash: 'hash',
         firstName: 'Library',
         lastName: 'Staff',
+        userRoles: [{ role: { name: 'LIBRARIAN', permissions: ['library.read'] } }],
+      },
+    ]);
+    mockedBcrypt.compare.mockResolvedValue(true);
+
+    const result = await authService.login(
+      { identifier: 'librarian@school.rw', password: 'Library@12345' },
+      { requestId: 'req-1', ipAddress: '127.0.0.1', userAgent: 'jest' }
+    );
+
+    expect(result).toMatchObject({ requiresTwoFactor: true });
+    expect(result).not.toHaveProperty('accessToken');
+  });
+
+  it('logs in a parent with a password alone and returns access/refresh tokens', async () => {
+    mockedPrisma.user.findMany.mockResolvedValue([
+      {
+        id: 'user-2',
+        tenantId: 'tenant-1',
+        email: 'parent@school.rw',
+        passwordHash: 'hash',
+        firstName: 'Parent',
+        lastName: 'User',
         userRoles: [
           {
             role: {
-              name: 'LIBRARIAN',
-              permissions: ['library.read'],
+              name: 'PARENT',
+              permissions: ['children.read'],
             },
           },
         ],
@@ -125,8 +157,8 @@ describe('AuthService', () => {
 
     const result = await authService.login(
       {
-        identifier: 'librarian@school.rw',
-        password: 'Library@12345',
+        identifier: 'parent@school.rw',
+        password: 'Parent@12345',
       },
       {
         requestId: 'req-1',
@@ -139,7 +171,7 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toEqual(expect.any(String));
     expect(result.refreshToken).toEqual(expect.any(String));
-    expect(result.roles).toContain('LIBRARIAN');
+    expect(result.roles).toContain('PARENT');
 
     const decoded = jwt.verify(
       result.accessToken,

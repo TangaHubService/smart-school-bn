@@ -75,6 +75,19 @@ export const verifyOtpSchema = z.object({
 
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 
+export const verifyTwoFactorSchema = z.object({
+  challengeToken: z.string().min(20).max(2048),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits'),
+});
+
+export type VerifyTwoFactorInput = z.infer<typeof verifyTwoFactorSchema>;
+
+export const resendTwoFactorOtpSchema = z.object({
+  challengeToken: z.string().min(20).max(2048),
+});
+
+export type ResendTwoFactorOtpInput = z.infer<typeof resendTwoFactorOtpSchema>;
+
 export const selectSchoolSchema = z.object({
   identifier: z.string().trim().toLowerCase().min(1),
   password: z.string().min(1, 'Password is required').max(128),

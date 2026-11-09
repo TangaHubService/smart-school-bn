@@ -6,7 +6,7 @@ import { AppError } from '../../common/errors/app-error';
 
 /**
  * Short-lived, signed tokens that carry a half-finished login between steps
- * (forced password change). They replace the old
+ * (two-factor code entry, forced password change). They replace the old
  * "send your email back" contract, which broke username logins and looked
  * users up across every school.
  *
@@ -14,7 +14,7 @@ import { AppError } from '../../common/errors/app-error';
  * different from it, so a challenge token can never pass `authenticate` as an
  * access token.
  */
-export type AuthChallengePurpose = 'password_change';
+export type AuthChallengePurpose = 'two_factor' | 'password_change';
 
 interface AuthChallengePayload {
   sub: string;
@@ -25,6 +25,7 @@ interface AuthChallengePayload {
 }
 
 const CHALLENGE_TTL_SECONDS: Record<AuthChallengePurpose, number> = {
+  two_factor: 15 * 60,
   password_change: 15 * 60,
 };
 

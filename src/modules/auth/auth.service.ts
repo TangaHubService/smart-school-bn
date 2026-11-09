@@ -16,7 +16,7 @@ import { resolvePrimaryRole } from '../audit/audit-log.utils';
 import { EmailService } from '../notifications/email.service';
 import { resolveAcademyCatalogTenantId } from '../public-academy/academy-catalog';
 import { AcademySubscriptionService } from '../public-academy/academy-subscription.service';
-import { CompletePasswordChangeInput, ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, SelectSchoolInput, VerifyOtpInput } from './auth.schemas';
+import { CompletePasswordChangeInput, ForgotPasswordInput, LoginInput, LogoutInput, RefreshInput, RegisterInput, RequestPasswordResetInput, ResetPasswordInput, SelectSchoolInput, VerifyOtpInput, VerifyTwoFactorInput, ResendTwoFactorOtpInput } from './auth.schemas';
 import {
   isStarterCredential,
   issueAuthChallenge,
@@ -24,6 +24,17 @@ import {
   readAuthChallenge,
 } from './auth-challenge.utils';
 import { generateOtp, hashOtp, verifyOtpHash } from './otp.utils';
+
+/**
+ * Roles that sign in with a password alone. Every other account (admins,
+ * teachers, auditors, staff with custom roles, or no role at all) must also
+ * enter a one-time code emailed to them. Academy learners count as students.
+ */
+const PASSWORD_ONLY_ROLES = ['STUDENT', 'PARENT', 'LEARNER', 'PUBLIC_LEARNER'];
+
+function requiresSignInCode(roles: string[]): boolean {
+  return roles.length === 0 || roles.some(role => !PASSWORD_ONLY_ROLES.includes(role));
+}
 
 const LOGIN_USER_INCLUDE = {
   tenant: {
@@ -189,8 +200,8 @@ export class AuthService {
   /**
    * Single place that decides what happens once a password has been verified:
    * 1. a starter credential (password = username / student code) must be replaced first;
-   * 2. privileged roles then go through an emailed one-time code;
-   * 3. everyone else gets a session.
+   * 2. everyone except students and parents then enters an emailed one-time code;
+   * 3. students and parents get a session straight away.
    */
   private async continueAfterPassword(
     user: LoginCandidate,
@@ -211,6 +222,11 @@ export class AuthService {
         requiresPasswordChange: true as const,
         challengeToken: issueAuthChallenge(user, 'password_change'),
       };
+    }
+
+    const roles = (user.userRoles ?? []).map(ur => ur.role.name);
+    if (requiresSignInCode(roles)) {
+      return this.handleTwoFactorLogin(user, context);
     }
 
     return this.completeLogin(user.tenantId, user, context);
@@ -720,6 +736,100 @@ export class AuthService {
     return { roles, permissions };
   }
 
+  private async loadTwoFactorUser(challengeToken: string) {
+    const challenge = readAuthChallenge(challengeToken, 'two_factor');
+    const user = await prisma.user.findFirst({
+      where: {
+        id: challenge.sub,
+        tenantId: challenge.tid,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        tenant: { isActive: true },
+      },
+      include: LOGIN_USER_INCLUDE,
+    });
+    if (!user || passwordFingerprint(user.passwordHash) !== challenge.pwf) {
+      throw new AppError(
+        401,
+        'AUTH_CHALLENGE_INVALID',
+        'This sign-in step has expired. Please sign in again.'
+      );
+    }
+    return user;
+  }
+
+  async verifyTwoFactor(input: VerifyTwoFactorInput, context: RequestAuditContext) {
+    const user = await this.loadTwoFactorUser(input.challengeToken);
+
+    if (
+      !user.otpHash ||
+      !user.otpExpiresAt ||
+      user.otpExpiresAt <= new Date() ||
+      user.isTwoFactorVerified
+    ) {
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid or expired OTP');
+    }
+
+    if (user.otpAttempts && user.otpAttempts >= env.OTP_MAX_ATTEMPTS) {
+      throw new AppError(429, 'AUTH_OTP_ATTEMPT_LIMIT', 'Maximum OTP attempts exceeded');
+    }
+
+    if (!verifyOtpHash(input.otp, user.otpHash)) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { otpAttempts: { increment: 1 } },
+      });
+      throw new AppError(400, 'AUTH_INVALID_OTP', 'Invalid OTP');
+    }
+
+    // OTP correct – mark as verified and clear otp fields
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isTwoFactorVerified: true,
+        otpHash: null,
+        otpExpiresAt: null,
+        otpAttempts: 0,
+        lastOtpSentAt: null,
+      },
+    });
+
+    // Complete login after successful 2FA
+    return this.completeLogin(user.tenantId, user, context);
+  }
+
+  async resendTwoFactorOtp(input: ResendTwoFactorOtpInput, _context: RequestAuditContext) {
+    const user = await this.loadTwoFactorUser(input.challengeToken);
+
+    const now = new Date();
+    if (user.lastOtpSentAt && now.getTime() - user.lastOtpSentAt.getTime() < env.OTP_RESEND_COOLDOWN_MIN * 60 * 1000) {
+      throw new AppError(429, 'AUTH_OTP_RESEND_COOLDOWN', 'Please wait before resending OTP');
+    }
+
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+    // Failed attempts are kept across resends so resending cannot reset the guess budget.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        otpHash,
+        otpExpiresAt: expiresAt,
+        lastOtpSentAt: now,
+        isTwoFactorVerified: false,
+      },
+    });
+
+    await this.emailService.sendTwoFactorOtp({
+      toEmail: user.email,
+      otp,
+      expiresAt,
+    });
+
+    return { message: 'OTP resent successfully', expiresAt: expiresAt.toISOString() };
+  }
+
   async forgotPassword(input: RequestPasswordResetInput, context: RequestAuditContext) {
     const { email } = input;
     const normalized = email.toLowerCase().trim();
@@ -867,4 +977,42 @@ export class AuthService {
 
     return { message: 'Password reset successfully' };
   }
+
+  private async handleTwoFactorLogin(user: LoginCandidate, _context: RequestAuditContext) {
+    const otp = generateOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = new Date(Date.now() + env.OTP_TTL_MIN * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        otpHash,
+        otpExpiresAt: expiresAt,
+        otpAttempts: 0,
+        lastOtpSentAt: new Date(),
+        isTwoFactorVerified: false,
+      },
+    });
+
+    await this.emailService.sendTwoFactorOtp({
+      toEmail: user.email,
+      otp,
+      expiresAt,
+    });
+
+    return {
+      requiresTwoFactor: true as const,
+      challengeToken: issueAuthChallenge(user, 'two_factor'),
+      expiresAt: expiresAt.toISOString(),
+      destination: maskEmail(user.email),
+    };
+  }
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '';
+  const visible = local.slice(0, Math.min(2, local.length));
+  // Fixed-length mask: hides the address length too, and stays readable on small screens.
+  return `${visible}****@${domain}`;
 }
