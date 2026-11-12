@@ -26,6 +26,19 @@ import {
 import { generateOtp, hashOtp, verifyOtpHash } from './otp.utils';
 
 /**
+ * Local development only: print OTP codes to the server log so you can sign in
+ * without opening the email. Never runs when NODE_ENV is "test" or "production".
+ */
+function logOtpForLocalDev(flow: string, email: string | null | undefined, otp: string, expiresAt: Date) {
+  if (env.NODE_ENV !== 'development') return;
+  rootLogger.warn(
+    { flow, email, otp, expiresAt: expiresAt.toISOString() },
+    `[DEV ONLY] ${flow} OTP for ${email ?? 'unknown'}: ${otp}`
+  );
+}
+
+
+/**
  * Roles that sign in with a password alone. Every other account (admins,
  * teachers, auditors, staff with custom roles, or no role at all) must also
  * enter a one-time code emailed to them. Academy learners count as students.
@@ -821,6 +834,7 @@ export class AuthService {
       },
     });
 
+    logOtpForLocalDev('two-factor', user.email, otp, expiresAt);
     await this.emailService.sendTwoFactorOtp({
       toEmail: user.email,
       otp,
@@ -881,6 +895,8 @@ export class AuthService {
       userAgent: context.userAgent,
       payload: { email: user.email },
     });
+
+    logOtpForLocalDev('password-reset', user.email, otp, expiresAt);
 
     // 5. Send Email
     await this.emailService
@@ -994,6 +1010,7 @@ export class AuthService {
       },
     });
 
+    logOtpForLocalDev('two-factor', user.email, otp, expiresAt);
     await this.emailService.sendTwoFactorOtp({
       toEmail: user.email,
       otp,

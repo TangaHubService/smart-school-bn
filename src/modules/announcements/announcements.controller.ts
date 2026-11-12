@@ -7,6 +7,7 @@ import {
   listAnnouncementsQuerySchema,
   listMyAnnouncementsQuerySchema,
   updateAnnouncementSchema,
+  respondToAnnouncementSchema,
 } from './announcements.schemas';
 import { AnnouncementsService } from './announcements.service';
 
@@ -65,6 +66,17 @@ export class AnnouncementsController {
       req.user!,
       buildRequestAuditContext(req)
     );
+    return sendSuccess(req, res, result);
+  }
+
+  async respond(req: Request, res: Response) {
+    const input = respondToAnnouncementSchema.parse(req.body);
+    const result = await service.respond(req.tenantId!, req.params.id, input, req.user!);
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async listResponses(req: Request, res: Response) {
+    const result = await service.listResponses(req.tenantId!, req.params.id);
     return sendSuccess(req, res, result);
   }
 }

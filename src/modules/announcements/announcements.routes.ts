@@ -10,7 +10,7 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { AnnouncementsController } from './announcements.controller';
-import { createAnnouncementSchema, updateAnnouncementSchema } from './announcements.schemas';
+import { createAnnouncementSchema, updateAnnouncementSchema, respondToAnnouncementSchema } from './announcements.schemas';
 
 const controller = new AnnouncementsController();
 
@@ -38,6 +38,27 @@ announcementsRoutes.post(
   ]),
   enforceTenant,
   asyncHandler((req, res) => controller.markRead(req, res))
+);
+
+// Readers (parents, students, staff) acknowledge or reply to an announcement they received.
+announcementsRoutes.post(
+  '/announcements/:id/responses',
+  requireAnyPermissions([
+    PERMISSIONS.ANNOUNCEMENTS_READ,
+    PERMISSIONS.ANNOUNCEMENTS_MANAGE,
+    PERMISSIONS.ANNOUNCEMENTS_MY_READ,
+  ]),
+  enforceTenant,
+  validateBody(respondToAnnouncementSchema),
+  asyncHandler((req, res) => controller.respond(req, res))
+);
+
+// Staff see acknowledgements and replies.
+announcementsRoutes.get(
+  '/announcements/:id/responses',
+  requireAnyPermissions([PERMISSIONS.ANNOUNCEMENTS_READ, PERMISSIONS.ANNOUNCEMENTS_MANAGE]),
+  enforceTenant,
+  asyncHandler((req, res) => controller.listResponses(req, res))
 );
 
 announcementsRoutes.get(

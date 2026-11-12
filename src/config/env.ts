@@ -101,6 +101,17 @@ const envSchema = z.object({
     .string()
     .default('false')
     .transform(value => (/^\d+$/.test(value) ? Number(value) : value === 'true')),
+  /** Key used to encrypt secrets stored in the database (e.g. schools' OpenAI keys). */
+  SECRETS_ENCRYPTION_KEY: z.string().min(16).optional(),
+  /**
+   * AI study assistant (OpenAI). Each school admin adds their own key in the app; this
+   * one is an optional platform-wide fallback for schools that have not added a key.
+   */
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
+  /** Questions one student can ask the assistant per day. */
+  AI_ASSISTANT_DAILY_LIMIT: z.coerce.number().int().min(1).default(100),
 });
 
 const DEFAULT_OTP_HASH_SECRET = 'change-this-secret';

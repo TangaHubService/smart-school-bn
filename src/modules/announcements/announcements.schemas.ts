@@ -72,3 +72,10 @@ export type CreateAnnouncementInput = z.infer<typeof createAnnouncementSchema>;
 export type UpdateAnnouncementInput = z.infer<typeof updateAnnouncementSchema>;
 export type ListAnnouncementsQueryInput = z.infer<typeof listAnnouncementsQuerySchema>;
 export type ListMyAnnouncementsQueryInput = z.infer<typeof listMyAnnouncementsQuerySchema>;
+
+export const respondToAnnouncementSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('ACKNOWLEDGE') }).strict(),
+  z.object({ type: z.literal('REPLY'), message: z.string().trim().min(1, 'Write a reply').max(2000) }).strict(),
+]);
+
+export type RespondToAnnouncementInput = z.infer<typeof respondToAnnouncementSchema>;

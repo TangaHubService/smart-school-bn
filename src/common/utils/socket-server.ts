@@ -1,5 +1,8 @@
 import { Server, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
+import jwt from 'jsonwebtoken';
+
+import { env } from '../../config/env';
 
 import { rootLogger } from '../../config/logger';
 
@@ -93,6 +96,33 @@ export const initSocket = (server: HttpServer) => {
         { socketId: socket.id, transactionId, rooms },
         'Client joined transaction room'
       );
+    });
+
+    // Personal inbox room: chat-list updates (new messages, new chats) for one user.
+    // The client proves who it is with its access token, so nobody can listen in on
+    // someone else's inbox.
+    socket.on('inbox:join', ({ token }: { token?: string } = {}) => {
+      if (!token) {
+        socket.emit('inbox:rejected', { reason: 'invalid' });
+        return;
+      }
+      try {
+        const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET) as { sub?: string };
+        if (decoded.sub) {
+          socket.join(`user-${decoded.sub}`);
+          socket.emit('inbox:joined');
+        }
+      } catch (err) {
+        // Access tokens last 15 minutes; an expired one is normal after sleep or a
+        // reconnect. Tell the client so it refreshes its token and joins again.
+        const expired = err instanceof jwt.TokenExpiredError;
+        socket.emit('inbox:rejected', { reason: expired ? 'expired' : 'invalid' });
+        if (expired) {
+          socketLog.debug({ socketId: socket.id }, 'Inbox join with expired token; client will refresh');
+        } else {
+          socketLog.warn({ socketId: socket.id }, 'Rejected inbox join with invalid token');
+        }
+      }
     });
 
     socket.on('chat:join', ({ chatId, userId }: { chatId?: string; userId?: string }) => {

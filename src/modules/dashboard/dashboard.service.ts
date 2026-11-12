@@ -157,6 +157,18 @@ export interface SchoolAdminDashboardData {
   };
 }
 
+/**
+ * Percent with one decimal, computed from the raw counts (no integer rounding),
+ * so dashboards show the same figure the underlying records produce.
+ */
+function percentOf(part: number, whole: number): number {
+  return Number(((part / whole) * 100).toFixed(1));
+}
+
+function averageOf(a: number, b: number): number {
+  return Number(((a + b) / 2).toFixed(1));
+}
+
 export class DashboardService {
   private readonly announcementsService = new AnnouncementsService();
 
@@ -404,7 +416,7 @@ export class DashboardService {
     }
     const revenueChange =
       revenueLastMonth > 0
-        ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+        ? percentOf(revenueThisMonth - revenueLastMonth, revenueLastMonth)
         : 0;
 
     let enrollmentTrends: SuperAdminDashboardData['enrollmentTrends'] = { weekly: [], monthly: [] };
@@ -446,7 +458,7 @@ export class DashboardService {
         where: { isActive: false },
       });
       courseCompletionRate =
-        totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : null;
+        totalEnrollments > 0 ? percentOf(completedEnrollments, totalEnrollments) : null;
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
         throw e;
@@ -458,7 +470,7 @@ export class DashboardService {
         where: { autoScore: { not: null }, status: 'SUBMITTED' },
       });
       assessmentCompletionRate =
-        totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+        totalAttempts > 0 ? percentOf(scoredAttempts, totalAttempts) : null;
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021')) {
         throw e;
@@ -466,7 +478,7 @@ export class DashboardService {
     }
     const overallRate =
       courseCompletionRate !== null && assessmentCompletionRate !== null
-        ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+        ? averageOf(courseCompletionRate, assessmentCompletionRate)
         : (courseCompletionRate ?? assessmentCompletionRate);
 
     let weeklyActive = 0;
@@ -599,11 +611,23 @@ export class DashboardService {
     passMark: number;
   }> {
     try {
-      const snapshots = await prisma.resultSnapshot.findMany({
-        where: { status: { in: [ResultSnapshotStatus.LOCKED, ResultSnapshotStatus.PUBLISHED] } },
-        select: { payload: true },
-        take: 5000,
-      });
+      // Read every locked/published snapshot in batches (no sample cap), so the rate
+      // reflects all results in the system.
+      const snapshots: { payload: Prisma.JsonValue }[] = [];
+      const batchSize = 2000;
+      let cursor: string | undefined;
+      for (;;) {
+        const batch = await prisma.resultSnapshot.findMany({
+          where: { status: { in: [ResultSnapshotStatus.LOCKED, ResultSnapshotStatus.PUBLISHED] } },
+          select: { id: true, payload: true },
+          orderBy: { id: 'asc' },
+          take: batchSize,
+          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        });
+        snapshots.push(...batch);
+        if (batch.length < batchSize) break;
+        cursor = batch[batch.length - 1].id;
+      }
       let eligible = 0;
       let passed = 0;
       for (const s of snapshots) {
@@ -826,6 +850,7 @@ export class DashboardService {
           })
         : null;
     const effectiveClassRoomId = classRoomId ?? selectedCourse?.classRoomId;
+    const isScopedView = Boolean(filters?.academicYear || effectiveClassRoomId || selectedCourse);
 
     const enrollmentWhere: Prisma.StudentEnrollmentWhereInput = {
       tenantId,
@@ -901,7 +926,11 @@ export class DashboardService {
       weeklyActive,
       monthlyActive,
     ] = await prisma.$transaction([
-      prisma.studentEnrollment.count({ where: enrollmentWhere }),
+      // Unfiltered: count exactly what the Students page lists. Filtered by year/class/course:
+      // count active enrollments in that scope.
+      isScopedView
+        ? prisma.studentEnrollment.count({ where: enrollmentWhere })
+        : prisma.student.count({ where: { tenantId, deletedAt: null } }),
       prisma.classRoom.count({
         where: {
           tenantId,
@@ -986,7 +1015,17 @@ export class DashboardService {
       }),
     ]);
 
-    const teachersCount = teacherCourses.length;
+    // Unfiltered: count exactly what the Staff page lists under the Teacher role.
+    // Filtered: teachers assigned to courses in that scope.
+    const teachersCount = isScopedView
+      ? teacherCourses.length
+      : await prisma.user.count({
+          where: {
+            tenantId,
+            deletedAt: null,
+            userRoles: { some: { role: { name: 'TEACHER' } } },
+          },
+        });
     const subjectsCount = academicYearId
       ? subjectCourses.length
       : await prisma.subject.count({ where: { tenantId, isActive: true } });
@@ -1032,7 +1071,7 @@ export class DashboardService {
     }
     const revenueChange =
       revenueLastMonth > 0
-        ? Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100)
+        ? percentOf(revenueThisMonth - revenueLastMonth, revenueLastMonth)
         : 0;
 
     const monthStarts = Array.from({ length: 8 }, (_, index) => {
@@ -1167,7 +1206,7 @@ export class DashboardService {
       const totalCourses = await prisma.course.count({ where: { tenantId } });
       const completedCourses = await prisma.course.count({ where: { tenantId, isActive: false } });
       courseCompletionRate =
-        totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : null;
+        totalCourses > 0 ? percentOf(completedCourses, totalCourses) : null;
     } catch {
       // best-effort
     }
@@ -1179,13 +1218,13 @@ export class DashboardService {
         where: { tenantId, autoScore: { not: null }, status: 'SUBMITTED' },
       });
       assessmentCompletionRate =
-        totalAttempts > 0 ? Math.round((scoredAttempts / totalAttempts) * 100) : null;
+        totalAttempts > 0 ? percentOf(scoredAttempts, totalAttempts) : null;
     } catch {
       // best-effort
     }
     const overallRate =
       courseCompletionRate !== null && assessmentCompletionRate !== null
-        ? Math.round((courseCompletionRate + assessmentCompletionRate) / 2)
+        ? averageOf(courseCompletionRate, assessmentCompletionRate)
         : (courseCompletionRate ?? assessmentCompletionRate);
 
     const [
@@ -1498,7 +1537,7 @@ export class DashboardService {
 
     const [
       school,
-      pendingAssignments,
+      submittedAssignments,
       assessments,
       reportCards,
       attRecords,
@@ -1509,15 +1548,17 @@ export class DashboardService {
         where: { tenantId },
         select: { displayName: true, city: true },
       }),
+      // Submitted work stays counted after it is graded.
       prisma.submission.count({
         where: {
           studentUserId: userId,
-          status: 'SUBMITTED',
+          status: { in: ['SUBMITTED', 'GRADED'] },
           assignment: { tenantId },
         },
       }),
+      // Only finished (submitted) attempts in this school.
       prisma.assessmentAttempt.count({
-        where: { studentUserId: userId },
+        where: { tenantId, studentUserId: userId, status: 'SUBMITTED' },
       }),
       prisma.resultSnapshot.count({
         where: { studentId: student.id, status: ResultSnapshotStatus.PUBLISHED },
@@ -1551,20 +1592,20 @@ export class DashboardService {
         status: 'SUBMITTED',
         submittedAt: { not: null },
         maxScore: { gt: 0 },
-        autoScore: { not: null },
+        // Scored either automatically or by the teacher.
+        OR: [{ manualScore: { not: null } }, { autoScore: { not: null } }],
       },
-      select: { autoScore: true, maxScore: true },
-      take: 80,
-      orderBy: { submittedAt: 'desc' },
+      select: { autoScore: true, manualScore: true, maxScore: true },
     });
     let avgAssessmentScorePercent: number | null = null;
     if (scoredAttempts.length > 0) {
       const pctSum = scoredAttempts.reduce((acc, a) => {
         const m = a.maxScore ?? 0;
-        const s = a.autoScore ?? 0;
+        // Teacher's mark takes precedence over the automatic score.
+        const s = a.manualScore ?? a.autoScore ?? 0;
         return acc + (m > 0 ? (s / m) * 100 : 0);
       }, 0);
-      avgAssessmentScorePercent = Math.round(pctSum / scoredAttempts.length);
+      avgAssessmentScorePercent = Number((pctSum / scoredAttempts.length).toFixed(1));
     }
 
     // Count what the course list shows, so the dashboard and the list always agree.
@@ -1649,7 +1690,7 @@ export class DashboardService {
       },
       metrics: {
         myCourses: courseList.pagination.totalItems,
-        assignmentsSubmitted: pendingAssignments,
+        assignmentsSubmitted: submittedAssignments,
         myAssessments: assessments,
         reportCards,
       },
@@ -1661,7 +1702,7 @@ export class DashboardService {
       upcomingExams,
       latestReports: [
         { id: 'report-cards', name: 'Published report cards', value: reportCards },
-        { id: 'assignments', name: 'Assignments submitted', value: pendingAssignments },
+        { id: 'assignments', name: 'Assignments submitted', value: submittedAssignments },
         { id: 'assessments', name: 'Test attempts', value: assessments },
       ],
       recentAnnouncements: announcementsList.items.slice(0, 3).map(a => ({

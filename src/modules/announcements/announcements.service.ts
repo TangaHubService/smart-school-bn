@@ -1,4 +1,4 @@
-import { AnnouncementAudience } from '@prisma/client';
+import { AnnouncementAudience, AnnouncementResponseType } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
 import { RequestAuditContext } from '../../common/types/auth.types';
@@ -17,6 +17,7 @@ import {
   ListAnnouncementsQueryInput,
   ListMyAnnouncementsQueryInput,
   UpdateAnnouncementInput,
+  RespondToAnnouncementInput,
 } from './announcements.schemas';
 
 const announcementInclude = {
@@ -113,6 +114,11 @@ export class AnnouncementsService {
         include: {
           ...announcementInclude,
           reads: { where: { userId: actor.sub }, select: { readAt: true } },
+          responses: {
+            where: { userId: actor.sub },
+            select: { id: true, type: true, message: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+          },
         },
         orderBy: [{ publishedAt: 'desc' }],
       }),
@@ -124,9 +130,129 @@ export class AnnouncementsService {
     );
 
     return {
-      items: items.map(a => this.mapAnnouncement(a, actor.sub)),
+      items: items.map(a => ({
+        ...this.mapAnnouncement(a, actor.sub),
+        acknowledged: a.responses.some(r => r.type === AnnouncementResponseType.ACKNOWLEDGE),
+        myReplies: a.responses.filter(r => r.type === AnnouncementResponseType.REPLY),
+      })),
       systemBroadcasts,
       pagination: buildPagination(page, pageSize, totalItems),
+    };
+  }
+
+  /** The announcement must be published and addressed to this viewer. */
+  private async loadVisibleForViewer(tenantId: string, id: string, actor: JwtUser) {
+    const now = new Date();
+    const audienceConditions = await this.buildViewerAudienceConditions(tenantId, actor);
+    const announcement = await prisma.announcement.findFirst({
+      where: {
+        id,
+        tenantId,
+        publishedAt: { lte: now },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        AND: [{ OR: audienceConditions as never }],
+      },
+      select: { id: true },
+    });
+    if (!announcement) throw new AppError(404, 'ANNOUNCEMENT_NOT_FOUND', 'Announcement not found');
+    return announcement;
+  }
+
+  /** Acknowledge (once) or reply to an announcement the viewer received. */
+  async respond(tenantId: string, id: string, input: RespondToAnnouncementInput, actor: JwtUser) {
+    await this.loadVisibleForViewer(tenantId, id, actor);
+
+    if (input.type === 'ACKNOWLEDGE') {
+      const existing = await prisma.announcementResponse.findFirst({
+        where: { announcementId: id, userId: actor.sub, type: AnnouncementResponseType.ACKNOWLEDGE },
+      });
+      if (!existing) {
+        await prisma.announcementResponse.create({
+          data: { tenantId, announcementId: id, userId: actor.sub, type: AnnouncementResponseType.ACKNOWLEDGE },
+        });
+      }
+    } else {
+      await prisma.announcementResponse.create({
+        data: {
+          tenantId,
+          announcementId: id,
+          userId: actor.sub,
+          type: AnnouncementResponseType.REPLY,
+          message: input.message,
+        },
+      });
+    }
+    // Responding implies the announcement was read.
+    await prisma.announcementRead.upsert({
+      where: { announcementId_userId: { announcementId: id, userId: actor.sub } },
+      update: {},
+      create: { tenantId, announcementId: id, userId: actor.sub },
+    });
+
+    const mine = await prisma.announcementResponse.findMany({
+      where: { announcementId: id, userId: actor.sub },
+      select: { id: true, type: true, message: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return {
+      acknowledged: mine.some(r => r.type === AnnouncementResponseType.ACKNOWLEDGE),
+      myReplies: mine.filter(r => r.type === AnnouncementResponseType.REPLY),
+    };
+  }
+
+  /** Staff view: who acknowledged and what people replied (parents show their children). */
+  async listResponses(tenantId: string, id: string) {
+    const announcement = await prisma.announcement.findFirst({ where: { id, tenantId }, select: { id: true } });
+    if (!announcement) throw new AppError(404, 'ANNOUNCEMENT_NOT_FOUND', 'Announcement not found');
+
+    const [responses, readCount] = await Promise.all([
+      prisma.announcementResponse.findMany({
+        where: { announcementId: id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          type: true,
+          message: true,
+          createdAt: true,
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              userRoles: { select: { role: { select: { name: true } } } },
+              parentProfile: {
+                select: {
+                  students: {
+                    select: { student: { select: { firstName: true, lastName: true } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.announcementRead.count({ where: { announcementId: id } }),
+    ]);
+
+    const items = responses.map(r => ({
+      id: r.id,
+      type: r.type,
+      message: r.message,
+      createdAt: r.createdAt,
+      user: {
+        id: r.user.id,
+        firstName: r.user.firstName,
+        lastName: r.user.lastName,
+        roles: r.user.userRoles.map(ur => ur.role.name),
+        children: (r.user.parentProfile?.students ?? []).map(c => `${c.student.firstName} ${c.student.lastName}`),
+      },
+    }));
+
+    return {
+      readCount,
+      acknowledgedCount: items.filter(i => i.type === AnnouncementResponseType.ACKNOWLEDGE).length,
+      replyCount: items.filter(i => i.type === AnnouncementResponseType.REPLY).length,
+      items,
     };
   }
 
@@ -411,6 +537,40 @@ export class AnnouncementsService {
             });
           }
         }
+      }
+    }
+
+    // Parents see announcements for their children's classes, grades and subjects.
+    if (roles.includes('PARENT')) {
+      const links = await prisma.parentStudent.findMany({
+        where: { tenantId, parent: { userId: actor.sub, deletedAt: null } },
+        select: {
+          student: {
+            select: {
+              enrollments: {
+                where: { isActive: true },
+                select: { classRoomId: true, classRoom: { select: { gradeLevelId: true } } },
+              },
+            },
+          },
+        },
+      });
+      const enrollments = links.flatMap(l => l.student.enrollments);
+      const classRoomIds = [...new Set(enrollments.map(e => e.classRoomId))];
+      const gradeLevelIds = [...new Set(enrollments.map(e => e.classRoom?.gradeLevelId).filter(Boolean))] as string[];
+      if (classRoomIds.length) {
+        conditions.push({ audience: AnnouncementAudience.CLASS_ROOM, targetClassRoomIds: { hasSome: classRoomIds } });
+        const courses = await prisma.course.findMany({
+          where: { tenantId, classRoomId: { in: classRoomIds }, isActive: true, subjectId: { not: null } },
+          select: { subjectId: true },
+        });
+        const subjectIds = [...new Set(courses.map(c => c.subjectId).filter(Boolean))] as string[];
+        if (subjectIds.length) {
+          conditions.push({ audience: AnnouncementAudience.SUBJECT, targetSubjectIds: { hasSome: subjectIds } });
+        }
+      }
+      if (gradeLevelIds.length) {
+        conditions.push({ audience: AnnouncementAudience.GRADE_LEVEL, targetGradeLevelIds: { hasSome: gradeLevelIds } });
       }
     }
 

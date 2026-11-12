@@ -9,12 +9,28 @@ import {
   listMessagesQuerySchema,
   reactionSchema,
   getOrCreateChatQuerySchema,
+  createGroupSchema,
+  updateGroupSchema,
+  directChatSchema,
+  addMembersSchema,
+  contactsQuerySchema,
 } from './chat.schemas';
 
 const service = new ChatService();
 
 function chatRoom(chatId: string) {
   return `chat-${chatId}`;
+}
+
+function userRoom(userId: string) {
+  return `user-${userId}`;
+}
+
+/** Tell each participant's chat list to refresh (new message, new chat, member change). */
+async function notifyInbox(tenantId: string, chatId: string, extraUserIds: string[] = []) {
+  const ids = new Set([...(await service.listParticipantUserIds(tenantId, chatId)), ...extraUserIds]);
+  const io = getIO();
+  for (const id of ids) io.to(userRoom(id)).emit('chat:inbox', { chatId });
 }
 
 export class ChatController {
@@ -29,6 +45,7 @@ export class ChatController {
     const input = sendMessageSchema.parse(req.body);
     const result = await service.sendMessage(req.tenantId!, req.params.chatId, input, req.user!);
     getIO().to(chatRoom(req.params.chatId)).emit('chat:newMessage', result);
+    void notifyInbox(req.tenantId!, req.params.chatId);
     return sendSuccess(req, res, result, 201);
   }
 
@@ -78,11 +95,66 @@ export class ChatController {
   async markRead(req: Request, res: Response) {
     const result = await service.markRead(req.tenantId!, req.params.chatId, req.user!);
     getIO().to(chatRoom(req.params.chatId)).emit('chat:read', { userId: req.user!.sub, chatId: req.params.chatId });
+    getIO().to(userRoom(req.user!.sub)).emit('chat:inbox', { chatId: req.params.chatId });
     return sendSuccess(req, res, result);
   }
 
   async getReadReceipts(req: Request, res: Response) {
     const result = await service.getReadReceipts(req.tenantId!, req.params.chatId, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async listMyChats(req: Request, res: Response) {
+    const result = await service.listMyChats(req.tenantId!, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async listContacts(req: Request, res: Response) {
+    const query = contactsQuerySchema.parse(req.query);
+    const result = await service.listContacts(req.tenantId!, query, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async getChat(req: Request, res: Response) {
+    const result = await service.getChat(req.tenantId!, req.params.chatId, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async createGroup(req: Request, res: Response) {
+    const input = createGroupSchema.parse(req.body);
+    const result = await service.createGroup(req.tenantId!, input, req.user!);
+    void notifyInbox(req.tenantId!, result.id);
+    return sendSuccess(req, res, result, 201);
+  }
+
+  async openDirectChat(req: Request, res: Response) {
+    const input = directChatSchema.parse(req.body);
+    const result = await service.getOrCreateDirectChat(req.tenantId!, input.userId, req.user!);
+    if (result.created) void notifyInbox(req.tenantId!, result.id);
+    return sendSuccess(req, res, result, result.created ? 201 : 200);
+  }
+
+  async updateGroup(req: Request, res: Response) {
+    const input = updateGroupSchema.parse(req.body);
+    const result = await service.updateGroup(req.tenantId!, req.params.chatId, input, req.user!);
+    void notifyInbox(req.tenantId!, req.params.chatId);
+    getIO().to(chatRoom(req.params.chatId)).emit('chat:updated', { chatId: req.params.chatId });
+    return sendSuccess(req, res, result);
+  }
+
+  async addMembers(req: Request, res: Response) {
+    const input = addMembersSchema.parse(req.body);
+    const result = await service.addMembers(req.tenantId!, req.params.chatId, input.userIds, req.user!);
+    void notifyInbox(req.tenantId!, req.params.chatId);
+    getIO().to(chatRoom(req.params.chatId)).emit('chat:updated', { chatId: req.params.chatId });
+    return sendSuccess(req, res, result);
+  }
+
+  async removeMember(req: Request, res: Response) {
+    const result = await service.removeMember(req.tenantId!, req.params.chatId, req.params.userId, req.user!);
+    // The removed person also needs their list refreshed (they are no longer a participant).
+    void notifyInbox(req.tenantId!, req.params.chatId, [req.params.userId]);
+    getIO().to(chatRoom(req.params.chatId)).emit('chat:updated', { chatId: req.params.chatId });
     return sendSuccess(req, res, result);
   }
 }

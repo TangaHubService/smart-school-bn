@@ -277,6 +277,11 @@ model Tenant {
   chatMessages                 GroupChatMessage[]
   chatReactions                GroupChatReaction[]
   chatReads                    StudentGroupChatRead[]
+  chatMembers                  ChatMember[]
+  aiConversations              AiConversation[]
+  aiMessages                   AiMessage[]
+  aiSettings                   TenantAiSettings?
+  announcementResponses        AnnouncementResponse[]
   academicYearPreferences      UserAcademicYearPreference[]
   supportTickets               SupportTicket[]
   ticketReplies                TicketReply[]
@@ -407,6 +412,10 @@ model User {
   deletedChatMessages              GroupChatMessage[]           @relation("GroupChatMessageDeletedBy")
   chatReactions                    GroupChatReaction[]
   chatReads                        StudentGroupChatRead[]
+  chatMemberships                  ChatMember[]
+  createdChats                     StudentGroupChat[]           @relation("StudentGroupChatCreatedBy")
+  aiConversations                  AiConversation[]
+  announcementResponses            AnnouncementResponse[]
   academicYearPreference           UserAcademicYearPreference?
   supportTicketsCreated            SupportTicket[]              @relation("SupportTicketCreatedBy")
   ticketRepliesAuthored            TicketReply[]                @relation("TicketReplyAuthor")
@@ -1809,6 +1818,7 @@ model Announcement {
   author      User                     @relation("AnnouncementAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
   attachments AnnouncementAttachment[]
   reads       AnnouncementRead[]
+  responses   AnnouncementResponse[]
 
   @@index([tenantId, publishedAt])
   @@index([tenantId, audience])
@@ -2054,26 +2064,101 @@ model TeacherLessonPlanRevision {
   @@index([tenantId, planId, createdAt])
 }
 
+enum ChatType {
+  CLASS
+  GROUP
+  DIRECT
+}
+
+enum ChatMemberRole {
+  ADMIN
+  MEMBER
+}
+
 model StudentGroupChat {
-  id             String   @id @default(uuid())
-  tenantId       String
-  classRoomId    String
-  academicYearId String
-  title          String
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String    @id @default(uuid())
+  tenantId        String
+  /// CLASS = one per class per year (members come from enrollments); GROUP = created by a
+  /// student with chosen members; DIRECT = one-to-one conversation.
+  type            ChatType  @default(CLASS)
+  classRoomId     String?
+  academicYearId  String?
+  title           String
+  description     String?
+  createdByUserId String?
+  /// DIRECT chats only: "<tenantId>:<smallerUserId>:<largerUserId>" so a pair has one chat.
+  directKey       String?   @unique
+  lastMessageAt   DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  classRoom    ClassRoom              @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
-  academicYear AcademicYear           @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  classRoom    ClassRoom?             @relation(fields: [classRoomId], references: [id], onDelete: Restrict)
+  academicYear AcademicYear?          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  createdBy    User?                  @relation("StudentGroupChatCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   messages     GroupChatMessage[]
   reads        StudentGroupChatRead[]
+  members      ChatMember[]
 
   // One conversation per class per academic year — a new cohort in the same physical
   // classroom does not see a previous year's messages.
   @@unique([tenantId, classRoomId, academicYearId])
   @@index([tenantId, classRoomId])
+  @@index([tenantId, type])
+}
+
+/// Membership for GROUP and DIRECT chats (CLASS chat membership comes from enrollments).
+model ChatMember {
+  id       String         @id @default(uuid())
+  tenantId String
+  chatId   String
+  userId   String
+  role     ChatMemberRole @default(MEMBER)
+  joinedAt DateTime       @default(now())
+
+  tenant Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  chat   StudentGroupChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([tenantId, userId])
+}
+
+enum AiMessageRole {
+  USER
+  ASSISTANT
+}
+
+/// A student's conversation with the AI study assistant, optionally about one course.
+model AiConversation {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String
+  courseId  String?
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([tenantId, userId, updatedAt])
+}
+
+model AiMessage {
+  id             String        @id @default(uuid())
+  tenantId       String
+  conversationId String
+  role           AiMessageRole
+  content        String
+  createdAt      DateTime      @default(now())
+
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
 }
 
 model GroupChatMessage {
@@ -2214,4 +2299,44 @@ model TicketAttachment {
   fileAsset FileAsset?    @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
 
   @@index([ticketId, createdAt])
+}
+
+/// Per-school AI assistant settings, managed by the school admin.
+model TenantAiSettings {
+  tenantId              String   @id
+  /// OpenAI key encrypted with secret-box (never returned by the API).
+  openaiApiKeyEncrypted String?
+  /// Last 4 characters, so admins can tell which key is saved.
+  keyLast4              String?
+  model                 String   @default("gpt-4o-mini")
+  enabled               Boolean  @default(true)
+  dailyLimitPerStudent  Int      @default(100)
+  updatedByUserId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+enum AnnouncementResponseType {
+  ACKNOWLEDGE
+  REPLY
+}
+
+/// A reader's response to an announcement: "acknowledged" (once per person) or a written reply.
+model AnnouncementResponse {
+  id             String                   @id @default(uuid())
+  tenantId       String
+  announcementId String
+  userId         String
+  type           AnnouncementResponseType
+  message        String?
+  createdAt      DateTime                 @default(now())
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([announcementId, createdAt])
+  @@index([tenantId, userId])
 }

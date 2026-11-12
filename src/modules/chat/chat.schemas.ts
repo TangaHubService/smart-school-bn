@@ -36,7 +36,7 @@ export const sendMessageSchema = z
 
 export const listMessagesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  pageSize: z.coerce.number().int().min(1).max(500).default(50),
   q: z.string().trim().max(200).optional(),
 });
 
@@ -45,6 +45,35 @@ export const reactionSchema = z
     emoji: z.string().trim().min(1).max(16),
   })
   .strict();
+
+export const createGroupSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    description: z.string().trim().max(300).optional(),
+    memberUserIds: z.array(z.string().uuid()).min(1).max(255),
+  })
+  .strict();
+
+export const updateGroupSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80).optional(),
+    description: z.string().trim().max(300).nullable().optional(),
+  })
+  .strict();
+
+export const directChatSchema = z.object({ userId: z.string().uuid() }).strict();
+
+export const addMembersSchema = z
+  .object({ userIds: z.array(z.string().uuid()).min(1).max(255) })
+  .strict();
+
+export const contactsQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+});
+
+export type CreateGroupInput = z.infer<typeof createGroupSchema>;
+export type UpdateGroupInput = z.infer<typeof updateGroupSchema>;
+export type ContactsQueryInput = z.infer<typeof contactsQuerySchema>;
 
 export type ChatAttachmentUploadInput = z.infer<typeof chatAttachmentUploadSchema>;
 export type GetOrCreateChatQueryInput = z.infer<typeof getOrCreateChatQuerySchema>;

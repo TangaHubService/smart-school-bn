@@ -75,6 +75,12 @@ export class EmailService {
     return result;
   }
 
+  /** In log mode (local dev), print the code on one line that is easy to spot. */
+  private printCode(kind: string, to: string, code: string): void {
+    if (this.mode !== 'log') return;
+    console.info(`\n========== ${kind} for ${to}: ${code} ==========\n`);
+  }
+
   async sendPasswordResetOtp(input: PasswordResetEmailInput): Promise<void> {
     const subject = `Your Smart School Rwanda Password Reset Code`;
     const expirationTime = input.expiresAt.toLocaleTimeString([], {
@@ -150,6 +156,7 @@ export class EmailService {
       text,
       html,
     });
+    this.printCode('PASSWORD RESET CODE', input.toEmail, input.otp);
   }
 
   async sendTwoFactorOtp(input: { toEmail: string; otp: string; expiresAt: Date }): Promise<void> {
@@ -232,6 +239,7 @@ export class EmailService {
       text,
       html,
     });
+    this.printCode('LOGIN CODE', input.toEmail, input.otp);
   }
 
   async sendStaffInvite(input: StaffInviteEmailInput): Promise<void> {

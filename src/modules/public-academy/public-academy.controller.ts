@@ -306,6 +306,74 @@ export class PublicAcademyController {
         classNode.subjects.set(subjectKey, subjectNode);
       }
 
+      // Classes with no courses yet still belong in the catalog, so a newly
+      // added class shows up right away. They carry no academic year of their
+      // own, so they join the current year (or the first year already listed).
+      const placedClassIds = new Set<string>();
+      for (const year of years.values()) {
+        for (const grade of year.gradeLevels.values()) {
+          for (const id of grade.classRooms.keys()) placedClassIds.add(id);
+        }
+      }
+      const unplacedClasses = classes.filter(c => !placedClassIds.has(c.id));
+      // Levels with no public class yet still show, so an admin sees every
+      // level they put in a level group on the public page.
+      const placedGradeIds = new Set<string>(classes.map(c => c.gradeLevelId));
+      const emptyGrades = await prisma.gradeLevel.findMany({
+        where: { tenantId: catalogTenantId, isActive: true, id: { notIn: [...placedGradeIds] } },
+      });
+      if (unplacedClasses.length || emptyGrades.length) {
+        let hostYear = [...years.values()].find(y => y.isCurrent) ?? [...years.values()][0];
+        if (!hostYear) {
+          const dbYear =
+            (await prisma.academicYear.findFirst({
+              where: { tenantId: catalogTenantId, isCurrent: true },
+              select: { id: true, name: true, isCurrent: true },
+            })) ??
+            (await prisma.academicYear.findFirst({
+              where: { tenantId: catalogTenantId },
+              select: { id: true, name: true, isCurrent: true },
+              orderBy: { createdAt: 'desc' },
+            }));
+          hostYear = {
+            id: dbYear?.id ?? 'catalog',
+            name: dbYear?.name ?? 'Catalog',
+            isCurrent: dbYear?.isCurrent ?? true,
+            gradeLevels: new Map(),
+          };
+          years.set(hostYear.id, hostYear);
+        }
+        for (const classRoom of unplacedClasses) {
+          const gradeLevel = classRoom.gradeLevel;
+          const gradeNode = hostYear.gradeLevels.get(gradeLevel.id) ?? {
+            id: gradeLevel.id,
+            name: gradeLevel.name,
+            rank: gradeLevel.rank,
+            levelGroupId: gradeLevel.levelGroupId,
+            classRooms: new Map(),
+          };
+          hostYear.gradeLevels.set(gradeLevel.id, gradeNode);
+          gradeNode.classRooms.set(classRoom.id, {
+            id: classRoom.id,
+            name: classRoom.name,
+            price: classRoom.price,
+            thumbnail: classRoom.thumbnail,
+            enrolledCount: enrolledByClassId.get(classRoom.id) ?? 0,
+            subjects: new Map(),
+          });
+        }
+        for (const gradeLevel of emptyGrades) {
+          if (hostYear.gradeLevels.has(gradeLevel.id)) continue;
+          hostYear.gradeLevels.set(gradeLevel.id, {
+            id: gradeLevel.id,
+            name: gradeLevel.name,
+            rank: gradeLevel.rank,
+            levelGroupId: gradeLevel.levelGroupId,
+            classRooms: new Map(),
+          });
+        }
+      }
+
       const academicYears = [...years.values()]
         .map(year => ({
           id: year.id,
