@@ -255,6 +255,20 @@ export class LmsService {
       where.teacherUserId = query.teacherUserId;
     }
 
+    if (query.subjectId) {
+      where.subjectId = query.subjectId;
+    }
+
+    if (query.search) {
+      const contains = query.search;
+      where.OR = [
+        { title: { contains, mode: 'insensitive' } },
+        { classRoom: { name: { contains, mode: 'insensitive' } } },
+        { classRoom: { code: { contains, mode: 'insensitive' } } },
+        { subject: { name: { contains, mode: 'insensitive' } } },
+      ];
+    }
+
     if (this.isTeacherOnly(actor)) {
       where.teacherUserId = actor.sub;
     }

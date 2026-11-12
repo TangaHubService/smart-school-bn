@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academicYearFilterSchema } from '../../common/utils/academic-year-scope';
 
 export const createLessonPlanSchema = z.object({
   title: z.string().trim().min(2).max(200),
@@ -33,7 +34,7 @@ export const lessonPlanFeedbackSchema = z.object({
 }).strict();
 
 export const listLessonPlansQuerySchema = z.object({
-  academicYearId: z.string().uuid().optional(),
+  academicYearId: academicYearFilterSchema,
   classRoomId: z.string().uuid().optional(),
   subjectId: z.string().uuid().optional(),
   teacherUserId: z.string().uuid().optional(),

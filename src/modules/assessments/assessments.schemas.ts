@@ -1,5 +1,6 @@
 import { AssessmentAttemptStatus, AssessmentQuestionType, AssessmentType } from '@prisma/client';
 import { z } from 'zod';
+import { academicYearFilterSchema } from '../../common/utils/academic-year-scope';
 
 function htmlToPlainText(value: string | undefined) {
   return (value ?? '')
@@ -158,7 +159,7 @@ export const publishAssessmentSchema = z
 export const listAssessmentsQuerySchema = z.object({
   courseId: z.string().uuid().optional(),
   classId: z.string().uuid().optional(),
-  academicYearId: z.string().uuid().optional(),
+  academicYearId: academicYearFilterSchema,
   q: z.string().trim().max(120).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(10),
