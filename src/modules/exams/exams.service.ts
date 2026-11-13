@@ -46,6 +46,16 @@ type GradingBand = {
   remark?: string;
 };
 
+/** CAT / EXAM parts of a subject total shown on the marks ledger (CAT + EXAM = TOT). */
+type LedgerMarkParts = {
+  catShare: number | null;
+  examShare: number | null;
+  catObtained: number;
+  catMax: number;
+  examObtained: number;
+  examMax: number;
+};
+
 export class ExamsService {
   private readonly auditService = new AuditService();
 
@@ -916,7 +926,7 @@ export class ExamsService {
       testMarks: number | null;
       examMarks: number | null;
       total: number;
-    };
+    } & LedgerMarkParts;
 
     type GroupLedgerRow = {
       academicYear: { id: string; name: string };
@@ -939,7 +949,7 @@ export class ExamsService {
         subjectScore: number;
         grade: string;
         remark: string;
-      }>;
+      } & LedgerMarkParts>;
     };
 
     const groupRows: GroupLedgerRow[] = [];
@@ -1023,6 +1033,12 @@ export class ExamsService {
             testMarks: score.testPercent,
             examMarks: score.examPercent,
             total: score.hasAny ? score.total : 0,
+            catShare: score.catShare,
+            examShare: score.examShare,
+            catObtained: score.catObtained,
+            catMax: score.catMax,
+            examObtained: score.examObtained,
+            examMax: score.examMax,
           };
         });
         const rowTotal = subjectMarks.reduce((sum, s) => sum + s.total, 0);
@@ -1057,6 +1073,12 @@ export class ExamsService {
             testPercent: sm.testMarks,
             examPercent: sm.examMarks,
             subjectScore: sm.total,
+            catShare: sm.catShare,
+            examShare: sm.examShare,
+            catObtained: sm.catObtained,
+            catMax: sm.catMax,
+            examObtained: sm.examObtained,
+            examMax: sm.examMax,
             grade: band.grade,
             remark: band.remark,
           };
@@ -1164,13 +1186,13 @@ export class ExamsService {
       const termBand = this.resolveBand(rules, g.studentTermAverage);
       const scores: Record<
         string,
-        {
+        ({
           testPercent: number | null;
           examPercent: number | null;
           subjectScore: number;
           grade: string;
           remark: string;
-        } | null
+        } & LedgerMarkParts) | null
       > = {};
       for (const sid of subjectIdsOrdered) {
         const found = g.subjectScores.find(x => x.subjectId === sid);
@@ -1179,6 +1201,12 @@ export class ExamsService {
               testPercent: found.testPercent,
               examPercent: found.examPercent,
               subjectScore: found.subjectScore,
+              catShare: found.catShare,
+              examShare: found.examShare,
+              catObtained: found.catObtained,
+              catMax: found.catMax,
+              examObtained: found.examObtained,
+              examMax: found.examMax,
               grade: found.grade,
               remark: found.remark,
             }

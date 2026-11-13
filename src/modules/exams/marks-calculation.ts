@@ -53,6 +53,13 @@ export type SubjectScore = {
   examPercent: number | null;
   /** Canonical subject total: raw-sum percentage 0–100 */
   total: number;
+  /**
+   * CAT and EXAM parts of `total` on the same 0–100 scale, so catShare + examShare = total.
+   * When the papers are out of 100 combined (e.g. CAT /30 + EXAM /70) these are the raw marks.
+   * null when the student has no paper of that kind.
+   */
+  catShare: number | null;
+  examShare: number | null;
   hasAny: boolean;
 };
 
@@ -92,6 +99,11 @@ export function computeSubjectScore(input: SubjectScoreInput): SubjectScore {
   const testPercent = cat.max > 0 ? round2((cat.obtained / cat.max) * 100) : null;
   const examPercent = exam.max > 0 ? round2((exam.obtained / exam.max) * 100) : null;
   const total = hasAny && totalMax > 0 ? round2((totalObtained / totalMax) * 100) : 0;
+  const catShare =
+    hasAny && totalMax > 0 && cat.max > 0 ? round2((cat.obtained / totalMax) * 100) : null;
+  // Derived from the total so rounding never makes CAT + EXAM differ from TOT.
+  const examShare =
+    hasAny && totalMax > 0 && exam.max > 0 ? round2(total - (catShare ?? 0)) : null;
 
   return {
     catObtained: cat.obtained,
@@ -103,6 +115,8 @@ export function computeSubjectScore(input: SubjectScoreInput): SubjectScore {
     testPercent,
     examPercent,
     total,
+    catShare,
+    examShare,
     hasAny,
   };
 }

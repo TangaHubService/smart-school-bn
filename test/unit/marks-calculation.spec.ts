@@ -46,3 +46,34 @@ describe('marks-calculation: CAT + Exam = Total (Revision #27)', () => {
     expect(r.successRate).toBeCloseTo(66.67, 1);
   });
 });
+
+describe('marks-calculation: CAT and EXAM parts shown on the marks sheet', () => {
+  it('shows raw marks when the papers add up to 100 (CAT /30 + EXAM /70)', () => {
+    const s = computeSubjectScore({
+      cat: [{ obtained: 25, max: 30, present: true }],
+      exam: [{ obtained: 53, max: 70, present: true }],
+    });
+    expect(s.catShare).toBe(25);
+    expect(s.examShare).toBe(53);
+    expect(s.total).toBe(78);
+  });
+
+  it('keeps CAT + EXAM equal to TOT on other scales, even with rounding', () => {
+    const s = computeSubjectScore({
+      cat: [
+        { obtained: 7, max: 10, present: true },
+        { obtained: 8, max: 20, present: true },
+      ],
+      exam: [{ obtained: 41, max: 60, present: true }],
+    });
+    expect((s.catShare ?? 0) + (s.examShare ?? 0)).toBeCloseTo(s.total, 10);
+    expect(s.catShare).toBeCloseTo((15 / 90) * 100, 2);
+  });
+
+  it('leaves the part empty when there is no paper of that kind', () => {
+    const s = computeSubjectScore({ cat: [], exam: [{ obtained: 40, max: 50, present: true }] });
+    expect(s.catShare).toBeNull();
+    expect(s.examShare).toBe(80);
+    expect(s.total).toBe(80);
+  });
+});
