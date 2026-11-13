@@ -10,8 +10,11 @@ import { sendSuccess } from '../../common/utils/response';
 import { PERMISSIONS } from '../../constants/permissions';
 import { createConversationSchema, sendAiMessageSchema, updateAiSettingsSchema } from './ai-assistant.schemas';
 import { AiAssistantService } from './ai-assistant.service';
+import { draftLessonPlanSchema, generateAssessmentQuestionsSchema } from './ai-teacher.schemas';
+import { AiTeacherService } from './ai-teacher.service';
 
 const service = new AiAssistantService();
+const teacherService = new AiTeacherService();
 export const aiAssistantRoutes = Router();
 
 aiAssistantRoutes.use('/ai', authenticate, enforceTenant);
@@ -39,6 +42,38 @@ aiAssistantRoutes.delete(
   '/ai/settings/key',
   manageSettings,
   asyncHandler(async (req: Request, res: Response) => sendSuccess(req, res, await service.removeKey(req.tenantId!, req.user!)))
+);
+
+// Teacher tools: AI drafts lesson plans and test questions. The teacher edits before saving.
+aiAssistantRoutes.use(
+  '/ai/teacher',
+  requireActiveSubscription,
+  requireAnyPermissions([PERMISSIONS.COURSES_MANAGE, PERMISSIONS.ASSESSMENTS_MANAGE])
+);
+
+aiAssistantRoutes.get(
+  '/ai/teacher/status',
+  asyncHandler(async (req: Request, res: Response) => sendSuccess(req, res, await teacherService.getStatus(req.tenantId!)))
+);
+
+aiAssistantRoutes.post(
+  '/ai/teacher/lesson-plan-draft',
+  requirePermissions([PERMISSIONS.COURSES_MANAGE]),
+  validateBody(draftLessonPlanSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = draftLessonPlanSchema.parse(req.body);
+    return sendSuccess(req, res, await teacherService.draftLessonPlan(req.tenantId!, input, req.user!));
+  })
+);
+
+aiAssistantRoutes.post(
+  '/ai/teacher/assessment-questions',
+  requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
+  validateBody(generateAssessmentQuestionsSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = generateAssessmentQuestionsSchema.parse(req.body);
+    return sendSuccess(req, res, await teacherService.generateAssessmentQuestions(req.tenantId!, input, req.user!));
+  })
 );
 
 // Students (anyone who can read their own courses) use the study assistant.

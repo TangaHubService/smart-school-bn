@@ -43,6 +43,10 @@ export const listLessonPlansQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const teachingOptionsQuerySchema = z.object({
+  academicYearId: academicYearFilterSchema,
+});
+
 export type CreateLessonPlanInput = z.infer<typeof createLessonPlanSchema>;
 export type UpdateLessonPlanInput = z.infer<typeof updateLessonPlanSchema>;
 export type ReviewLessonPlanInput = z.infer<typeof reviewLessonPlanSchema>;

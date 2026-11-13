@@ -20,6 +20,7 @@ export const lessonPlansRoutes = Router();
 lessonPlansRoutes.use(authenticate, enforceTenant, requireActiveSubscription);
 
 lessonPlansRoutes.get('/lesson-plans', requirePermissions([PERMISSIONS.COURSES_READ]), asyncHandler((req, res) => controller.list(req, res)));
+lessonPlansRoutes.get('/lesson-plans/teaching-options', requirePermissions([PERMISSIONS.COURSES_MANAGE]), asyncHandler((req, res) => controller.teachingOptions(req, res)));
 lessonPlansRoutes.post('/lesson-plans', requirePermissions([PERMISSIONS.COURSES_MANAGE]), validateBody(createLessonPlanSchema), asyncHandler((req, res) => controller.create(req, res)));
 lessonPlansRoutes.patch('/lesson-plans/:planId', requirePermissions([PERMISSIONS.COURSES_MANAGE]), validateBody(updateLessonPlanSchema), asyncHandler((req, res) => controller.update(req, res)));
 lessonPlansRoutes.post('/lesson-plans/:planId/submit', requirePermissions([PERMISSIONS.COURSES_MANAGE]), asyncHandler((req, res) => controller.submit(req, res)));

@@ -9,7 +9,7 @@ import { prisma } from '../../db/prisma';
 import { LmsService } from '../lms/lms.service';
 import { CreateConversationInput, SendAiMessageInput, UpdateAiSettingsInput } from './ai-assistant.schemas';
 
-type AiConfig = { apiKey: string | null; model: string; enabled: boolean; dailyLimit: number; source: 'school' | 'platform' | 'none' };
+export type AiConfig = { apiKey: string | null; model: string; enabled: boolean; dailyLimit: number; source: 'school' | 'platform' | 'none' };
 
 const log = rootLogger.child({ module: 'ai-assistant' });
 
@@ -40,9 +40,9 @@ How to help:
 - Keep everything age-appropriate. Politely decline requests that are harmful, unsafe, or not suitable for a school setting.
 - Never ask for or reveal personal information.`;
 
-type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
-function stripHtml(value: string) {
+export function stripHtml(value: string) {
   return value
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -60,7 +60,7 @@ export class AiAssistantService {
    * The school's own key (added by its admin) wins; the platform key in .env is only a
    * fallback. A school admin can also switch the assistant off for their school.
    */
-  private async resolveConfig(tenantId: string): Promise<AiConfig> {
+  async resolveConfig(tenantId: string): Promise<AiConfig> {
     const settings = await prisma.tenantAiSettings.findUnique({ where: { tenantId } });
     const schoolKey = settings?.openaiApiKeyEncrypted ? decryptSecret(settings.openaiApiKeyEncrypted) : null;
     if (settings?.openaiApiKeyEncrypted && !schoolKey) {
@@ -340,7 +340,15 @@ export class AiAssistantService {
     };
   }
 
-  private async callOpenAi(messages: ChatMessage[], config: AiConfig): Promise<string> {
+  /**
+   * Shared by the student assistant and the teacher tools. `json` asks the model for a
+   * single JSON object (used when the reply is parsed, e.g. generated questions).
+   */
+  async callOpenAi(
+    messages: ChatMessage[],
+    config: AiConfig,
+    options: { json?: boolean; maxTokens?: number; temperature?: number } = {}
+  ): Promise<string> {
     let response: Response;
     try {
       response = await fetch(`${env.OPENAI_BASE_URL}/chat/completions`, {
@@ -352,10 +360,11 @@ export class AiAssistantService {
         body: JSON.stringify({
           model: config.model,
           messages,
-          temperature: 0.4,
-          max_tokens: 1500,
+          temperature: options.temperature ?? 0.4,
+          max_tokens: options.maxTokens ?? 1500,
+          ...(options.json ? { response_format: { type: 'json_object' } } : {}),
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(90_000),
       });
     } catch (err) {
       log.error({ err }, 'OpenAI request failed');

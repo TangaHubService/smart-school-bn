@@ -12,6 +12,10 @@ jest.mock('../../src/db/prisma', () => {
       create: jest.fn(),
       findMany: jest.fn(),
     },
+    course: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
   return { prisma };
@@ -31,6 +35,8 @@ const mockedPrisma = prisma as unknown as {
     count: jest.Mock;
   };
   teacherLessonPlanRevision: { create: jest.Mock; findMany: jest.Mock };
+  course: { findFirst: jest.Mock; findMany: jest.Mock };
+  $transaction: jest.Mock;
 };
 
 function actor(overrides: Partial<JwtUser> = {}): JwtUser {
@@ -171,5 +177,77 @@ describe('LessonPlansService', () => {
       statusCode: 409,
     });
     expect(mockedPrisma.teacherLessonPlan.delete).not.toHaveBeenCalled();
+  });
+
+  describe('teacher assignment, auditors and list scope', () => {
+    const createInput = {
+      title: 'Fractions',
+      academicYearId: '11111111-1111-4111-8111-111111111111',
+      classRoomId: '22222222-2222-4222-8222-222222222222',
+      subjectId: '33333333-3333-4333-8333-333333333333',
+    };
+
+    it('blocks a teacher from creating a plan for a class and subject they do not teach', async () => {
+      mockedPrisma.course.findFirst.mockResolvedValue(null);
+      await expect(new LessonPlansService().create('tenant-1', createInput, actor())).rejects.toMatchObject({
+        statusCode: 403,
+        code: 'LESSON_PLAN_NOT_ASSIGNED',
+      });
+      expect(mockedPrisma.course.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            teacherUserId: 'teacher-1',
+            classRoomId: createInput.classRoomId,
+            subjectId: createInput.subjectId,
+            academicYearId: createInput.academicYearId,
+            isActive: true,
+          }),
+        })
+      );
+      expect(mockedPrisma.teacherLessonPlan.create).not.toHaveBeenCalled();
+    });
+
+    it('lets a teacher create a plan for a class and subject they teach', async () => {
+      mockedPrisma.course.findFirst.mockResolvedValue({ id: 'course-1' });
+      mockedPrisma.teacherLessonPlan.create.mockResolvedValue({ ...basePlan, title: 'Fractions' });
+      mockedPrisma.teacherLessonPlanRevision.create.mockResolvedValue({});
+      await new LessonPlansService().create('tenant-1', createInput, actor());
+      expect(mockedPrisma.teacherLessonPlan.create).toHaveBeenCalled();
+    });
+
+    it('lets a government auditor read the revision history of any plan', async () => {
+      mockedPrisma.teacherLessonPlan.findFirst.mockResolvedValue(basePlan);
+      mockedPrisma.teacherLessonPlanRevision.findMany.mockResolvedValue([]);
+      await expect(
+        new LessonPlansService().listRevisions('tenant-1', 'plan-1', actor({ sub: 'auditor-1', roles: ['GOV_AUDITOR'] }))
+      ).resolves.toEqual([]);
+    });
+
+    it('still blocks another teacher from reading a plan history', async () => {
+      mockedPrisma.teacherLessonPlan.findFirst.mockResolvedValue(basePlan);
+      await expect(
+        new LessonPlansService().listRevisions('tenant-1', 'plan-1', actor({ sub: 'teacher-2' }))
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it.each([
+      ['a teacher', ['TEACHER'], true],
+      ['a user with no school-wide role', ['PARENT'], true],
+      ['a school admin', ['SCHOOL_ADMIN'], false],
+      ['a government auditor', ['GOV_AUDITOR'], false],
+    ])('scopes the list to own plans for %s: %s', async (_label, roles, ownOnly) => {
+      mockedPrisma.$transaction.mockResolvedValue([0, []]);
+      await new LessonPlansService().list(
+        'tenant-1',
+        { page: 1, pageSize: 20 } as any,
+        actor({ sub: 'user-1', roles: roles as string[] })
+      );
+      const where = mockedPrisma.teacherLessonPlan.count.mock.calls.at(-1)?.[0]?.where;
+      if (ownOnly) {
+        expect(where).toMatchObject({ teacherUserId: 'user-1' });
+      } else {
+        expect(where?.teacherUserId).toBeUndefined();
+      }
+    });
   });
 });

@@ -12,10 +12,50 @@ import {
 
 const EDITABLE_STATUSES = ['DRAFT', 'REJECTED'];
 
+/** Roles that can see every lesson plan in the school. Auditors are read-only. */
+const SCHOOL_WIDE_VIEW_ROLES = ['SCHOOL_ADMIN', 'SUPER_ADMIN', 'GOV_AUDITOR'];
+
+function canSeeAllPlans(actor: JwtUser) {
+  return Boolean(actor.roles?.some(role => SCHOOL_WIDE_VIEW_ROLES.includes(role)));
+}
+
+/**
+ * A teacher teaches a class + subject when they own an active course for that pair
+ * in that academic year (the same rule the course subject options use).
+ */
+export async function teacherTeachesClassSubject(
+  tenantId: string,
+  teacherUserId: string,
+  academicYearId: string,
+  classRoomId: string,
+  subjectId: string
+) {
+  const course = await prisma.course.findFirst({
+    where: { tenantId, teacherUserId, academicYearId, classRoomId, subjectId, isActive: true },
+    select: { id: true },
+  });
+  return Boolean(course);
+}
+
 export class LessonPlansService {
   async create(tenantId: string, input: CreateLessonPlanInput, actor: JwtUser) {
     if (!actor.roles?.includes('TEACHER')) {
       throw new AppError(403, 'FORBIDDEN', 'Only teachers can create lesson plans');
+    }
+
+    const teaches = await teacherTeachesClassSubject(
+      tenantId,
+      actor.sub,
+      input.academicYearId,
+      input.classRoomId,
+      input.subjectId
+    );
+    if (!teaches) {
+      throw new AppError(
+        403,
+        'LESSON_PLAN_NOT_ASSIGNED',
+        'You can only plan for a class and subject you teach this academic year. Ask your school admin to assign you a course for it.'
+      );
     }
 
     const created = await prisma.teacherLessonPlan.create({
@@ -188,10 +228,45 @@ export class LessonPlansService {
     }));
   }
 
+  /** The class + subject pairs the teacher can plan for (from their active courses). */
+  async listTeachingOptions(tenantId: string, academicYearId: string | undefined, actor: JwtUser) {
+    const courses = await prisma.course.findMany({
+      where: {
+        tenantId,
+        teacherUserId: actor.sub,
+        isActive: true,
+        subjectId: { not: null },
+        ...(academicYearId ? { academicYearId } : {}),
+      },
+      select: {
+        academicYearId: true,
+        classRoom: { select: { id: true, code: true, name: true } },
+        subject: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [{ classRoom: { name: 'asc' } }],
+    });
+
+    const seen = new Set<string>();
+    const options: Array<{
+      academicYearId: string;
+      classRoom: { id: string; code: string; name: string };
+      subject: { id: string; code: string; name: string };
+    }> = [];
+    for (const course of courses) {
+      if (!course.subject) continue;
+      const key = `${course.academicYearId}:${course.classRoom.id}:${course.subject.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({ academicYearId: course.academicYearId, classRoom: course.classRoom, subject: course.subject });
+    }
+    return options;
+  }
+
   async list(tenantId: string, query: ListLessonPlansQueryInput, actor: JwtUser) {
     const where: any = { tenantId };
 
-    if (actor.roles?.includes('TEACHER') && !actor.roles?.includes('SCHOOL_ADMIN') && !actor.roles?.includes('SUPER_ADMIN')) {
+    // Teachers (and anyone else who is not a school-wide viewer) only see their own plans.
+    if (!canSeeAllPlans(actor)) {
       where.teacherUserId = actor.sub;
     }
     if (query.academicYearId) where.academicYearId = query.academicYearId;
@@ -224,7 +299,7 @@ export class LessonPlansService {
   }
 
   private ensureCanViewPlan(teacherUserId: string, actor: JwtUser) {
-    if (actor.roles?.includes('SCHOOL_ADMIN') || actor.roles?.includes('SUPER_ADMIN')) return;
+    if (canSeeAllPlans(actor)) return;
     if (actor.roles?.includes('TEACHER') && actor.sub === teacherUserId) return;
     throw new AppError(403, 'FORBIDDEN', 'You do not have access to this lesson plan');
   }

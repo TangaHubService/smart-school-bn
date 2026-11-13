@@ -8,6 +8,7 @@ import {
   reviewLessonPlanSchema,
   lessonPlanFeedbackSchema,
   listLessonPlansQuerySchema,
+  teachingOptionsQuerySchema,
 } from './lesson-plans.schemas';
 
 const service = new LessonPlansService();
@@ -49,6 +50,13 @@ export class LessonPlansController {
 
   async listRevisions(req: Request, res: Response) {
     const result = await service.listRevisions(req.tenantId!, req.params.planId, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
+  async teachingOptions(req: Request, res: Response) {
+    const query = teachingOptionsQuerySchema.parse(req.query);
+    const academicYearId = await resolveAcademicYearId(req, query.academicYearId);
+    const result = await service.listTeachingOptions(req.tenantId!, academicYearId, req.user!);
     return sendSuccess(req, res, result);
   }
 
