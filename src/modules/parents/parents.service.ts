@@ -10,6 +10,7 @@ import { PERMISSIONS } from '../../constants/permissions';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
 import {
+  BulkCreateParentsInput,
   CreateParentInput,
   ListLinkableStudentsQueryInput,
   LinkParentStudentInput,
@@ -274,6 +275,109 @@ export class ParentsService {
       this.handleUniqueError(error, 'Parent code/email already exists');
       throw error;
     }
+  }
+
+  async bulkCreateParents(
+    tenantId: string,
+    input: BulkCreateParentsInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const studentCodes = Array.from(
+      new Set(
+        input.parents
+          .map(row => row.studentCode?.trim())
+          .filter((code): code is string => Boolean(code))
+      )
+    );
+
+    const students = studentCodes.length
+      ? await prisma.student.findMany({
+          where: {
+            tenantId,
+            studentCode: { in: studentCodes, mode: 'insensitive' },
+            deletedAt: null,
+            isActive: true,
+          },
+          select: { id: true, studentCode: true },
+        })
+      : [];
+    const studentIdByCode = new Map(
+      students.map(student => [student.studentCode.toLowerCase(), student.id])
+    );
+
+    const results: Array<{
+      row: number;
+      status: 'created' | 'failed';
+      parent?: { id: string; firstName: string; lastName: string; email: string | null };
+      linkedStudentCode?: string;
+      warning?: string;
+      error?: string;
+    }> = [];
+
+    for (const [index, row] of input.parents.entries()) {
+      const rowNumber = index + 1;
+      const { studentCode, relationship, isPrimary, ...parentInput } = row;
+
+      const studentId = studentCode ? studentIdByCode.get(studentCode.toLowerCase()) : undefined;
+      if (studentCode && !studentId) {
+        results.push({
+          row: rowNumber,
+          status: 'failed',
+          error: `Student with code "${studentCode}" was not found`,
+        });
+        continue;
+      }
+
+      try {
+        const created = await this.createParent(tenantId, parentInput, actor, context);
+        const entry: (typeof results)[number] = {
+          row: rowNumber,
+          status: 'created',
+          parent: {
+            id: created.id,
+            firstName: created.firstName,
+            lastName: created.lastName,
+            email: created.email,
+          },
+        };
+
+        if (studentId) {
+          try {
+            await this.linkStudent(
+              tenantId,
+              created.id,
+              { studentId, relationship, isPrimary },
+              actor,
+              context
+            );
+            entry.linkedStudentCode = studentCode;
+          } catch (linkError) {
+            entry.warning = `Parent created but student link failed: ${
+              linkError instanceof Error ? linkError.message : 'unknown error'
+            }`;
+          }
+        }
+
+        results.push(entry);
+      } catch (error) {
+        results.push({
+          row: rowNumber,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Could not create parent',
+        });
+      }
+    }
+
+    const createdCount = results.filter(result => result.status === 'created').length;
+
+    return {
+      total: input.parents.length,
+      created: createdCount,
+      failed: input.parents.length - createdCount,
+      linked: results.filter(result => result.linkedStudentCode).length,
+      results,
+    };
   }
 
   async updateParent(

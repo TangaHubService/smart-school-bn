@@ -37,6 +37,17 @@ export class ParentsController {
     return sendSuccess(req, res, result, 201);
   }
 
+  async bulkCreateParents(req: Request, res: Response): Promise<Response> {
+    const result = await parentsService.bulkCreateParents(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
+
+    return sendSuccess(req, res, result, 201);
+  }
+
   async updateParent(req: Request, res: Response): Promise<Response> {
     const result = await parentsService.updateParent(
       req.tenantId!,

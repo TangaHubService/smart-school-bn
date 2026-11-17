@@ -11,6 +11,16 @@ export const createParentSchema = z.object({
   password: z.string().min(8).max(128).optional(),
 });
 
+export const bulkParentRowSchema = createParentSchema.extend({
+  studentCode: z.string().trim().min(1).max(60).optional(),
+  relationship: z.nativeEnum(ParentRelationship).default(ParentRelationship.GUARDIAN),
+  isPrimary: z.boolean().default(false),
+});
+
+export const bulkCreateParentsSchema = z.object({
+  parents: z.array(bulkParentRowSchema).min(1).max(500),
+});
+
 export const updateParentSchema = z
   .object({
     parentCode: z.string().trim().min(1).max(40).optional(),
@@ -62,6 +72,8 @@ export const parentStudentAttendanceHistoryQuerySchema = z
   });
 
 export type CreateParentInput = z.infer<typeof createParentSchema>;
+export type BulkParentRowInput = z.infer<typeof bulkParentRowSchema>;
+export type BulkCreateParentsInput = z.infer<typeof bulkCreateParentsSchema>;
 export type UpdateParentInput = z.infer<typeof updateParentSchema>;
 export type LinkParentStudentInput = z.infer<typeof linkParentStudentSchema>;
 export type ListParentsQueryInput = z.infer<typeof listParentsQuerySchema>;

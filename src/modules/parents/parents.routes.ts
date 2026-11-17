@@ -8,7 +8,9 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { PERMISSIONS } from '../../constants/permissions';
 import { ParentsController } from './parents.controller';
-import { createParentSchema, linkParentStudentSchema, updateParentSchema } from './parents.schemas';
+import {
+  bulkCreateParentsSchema,
+  createParentSchema, linkParentStudentSchema, updateParentSchema } from './parents.schemas';
 
 const parentsController = new ParentsController();
 
@@ -27,6 +29,13 @@ parentsRoutes.post(
   requirePermissions([PERMISSIONS.PARENTS_MANAGE]),
   validateBody(createParentSchema),
   asyncHandler((req, res) => parentsController.createParent(req, res))
+);
+
+parentsRoutes.post(
+  '/parents/bulk',
+  requirePermissions([PERMISSIONS.PARENTS_MANAGE]),
+  validateBody(bulkCreateParentsSchema),
+  asyncHandler((req, res) => parentsController.bulkCreateParents(req, res))
 );
 
 parentsRoutes.patch(
