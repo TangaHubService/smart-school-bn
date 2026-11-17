@@ -643,8 +643,8 @@ model Subject {
   timetableSlots            TimetableSlot[]
   lessonPlans               TeacherLessonPlan[]
 
+  // Codes are unique per school; different subjects may share a name.
   @@unique([tenantId, code])
-  @@unique([tenantId, name])
   @@index([tenantId, isCore, isActive])
 }
 
