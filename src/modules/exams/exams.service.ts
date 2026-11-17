@@ -22,6 +22,7 @@ import {
   ParentReportCardsQueryInput,
   ReportCardsCatalogQueryInput,
   ReportCardsQueryInput,
+  MidTermReportQueryInput,
   ResultsActionInput,
   UpdateExamInput,
 } from './exams.schemas';
@@ -32,7 +33,12 @@ import {
   loadTermConductNumbersMap,
   loadYearlyConductDisplayMap,
 } from '../conduct-marks/conduct-marks.helpers';
-import { buildReportCardPdfBuffer, type ReportCardPayload } from './report-card-pdf';
+import {
+  buildReportCardPdfBuffer,
+  buildReportCardsPdfBuffer,
+  type ReportCardPayload,
+  type ReportCardTemplateData,
+} from './report-card-pdf';
 import {
   buildYearlyReportCardSubjects,
   isYearlyAggregationTerm,
@@ -2481,14 +2487,9 @@ export class ExamsService {
       throw new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found');
     }
 
-    const payload = this.buildPayloadWithVerification(
-      snapshot.payload as unknown as ReportCardPayload,
-      snapshot.id
-    );
-
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(payload),
+      buffer: await this.renderSnapshotPdf(snapshot),
     };
   }
 
@@ -2532,14 +2533,9 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
-    const payload = this.buildPayloadWithVerification(
-      snapshot.payload as unknown as ReportCardPayload,
-      snapshot.id
-    );
-
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(payload),
+      buffer: await this.renderSnapshotPdf(snapshot),
     };
   }
 
@@ -2565,14 +2561,9 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
-    const payload = this.buildPayloadWithVerification(
-      snapshot.payload as unknown as ReportCardPayload,
-      snapshot.id
-    );
-
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(payload),
+      buffer: await this.renderSnapshotPdf(snapshot),
     };
   }
 
@@ -2613,14 +2604,9 @@ export class ExamsService {
 
     await this.logReportCardViewed(tenantId, actor.sub, snapshot.id, context);
 
-    const payload = this.buildPayloadWithVerification(
-      snapshot.payload as unknown as ReportCardPayload,
-      snapshot.id
-    );
-
     return {
       fileName: this.buildReportFileName(snapshot),
-      buffer: await buildReportCardPdfBuffer(payload),
+      buffer: await this.renderSnapshotPdf(snapshot),
     };
   }
 
@@ -3256,6 +3242,364 @@ export class ExamsService {
       ...payload,
       verificationUrl: this.buildVerificationUrl(snapshotId),
     };
+  }
+
+  /**
+   * Mid-term report cards (template sheet "Mid Term Report"): a progress report built
+   * live from the marks entered so far this term. Nothing is locked or stored; exams
+   * with no marks yet are left out, so they do not pull averages down.
+   */
+  async getMidTermReportCardsPdf(tenantId: string, actor: JwtUser, query: MidTermReportQueryInput) {
+    const scope = await this.getResultScope(tenantId, query.termId, query.classRoomId);
+    const term = await prisma.term.findFirst({
+      where: { id: query.termId, tenantId },
+      select: { name: true, sequence: true, startDate: true, endDate: true },
+    });
+    if (!term) throw new AppError(404, 'TERM_NOT_FOUND', 'Term not found');
+    if (isYearlyAggregationTerm(term)) {
+      throw new AppError(400, 'MID_TERM_NOT_FOR_YEARLY', 'Pick Term 1, 2 or 3 for a mid-term report');
+    }
+
+    if (this.isTeacherOnly(actor)) {
+      const teaches = await prisma.course.findFirst({
+        where: {
+          tenantId,
+          teacherUserId: actor.sub,
+          academicYearId: scope.academicYear.id,
+          classRoomId: query.classRoomId,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      if (!teaches) {
+        throw new AppError(403, 'REPORT_CARD_FORBIDDEN', 'You can only print reports for a class you teach');
+      }
+    }
+
+    const upToEnd = query.upTo ? new Date(`${query.upTo}T23:59:59.999Z`) : null;
+    const exams = (
+      await prisma.exam.findMany({
+        where: {
+          tenantId,
+          termId: query.termId,
+          classRoomId: query.classRoomId,
+          isActive: true,
+          ...(upToEnd ? { OR: [{ examDate: null }, { examDate: { lte: upToEnd } }] } : {}),
+        },
+        include: {
+          subject: { select: { id: true, name: true, code: true } },
+          teacherUser: { select: { firstName: true, lastName: true } },
+          marks: { select: { studentId: true, marksObtained: true, status: true } },
+        },
+        orderBy: [{ subject: { name: 'asc' } }, { name: 'asc' }],
+      })
+    ).filter(exam => exam.marks.some(m => m.marksObtained != null || m.status !== MarkStatus.PRESENT));
+    if (!exams.length) {
+      throw new AppError(409, 'MID_TERM_NO_MARKS', 'No marks have been entered for this class and term yet');
+    }
+
+    let students = await this.getClassStudents(tenantId, scope.academicYear.id, query.classRoomId);
+    if (!students.length) {
+      throw new AppError(409, 'RESULTS_NO_STUDENTS', 'No active students found in this class and academic year');
+    }
+
+    const [gradingScheme, policies, conductByStudentId] = await Promise.all([
+      this.getGradingSchemeForUse(tenantId),
+      prisma.subjectAssessmentPolicy.findMany({
+        where: {
+          tenantId,
+          termId: query.termId,
+          classRoomId: query.classRoomId,
+          subjectId: { in: [...new Set(exams.map(e => e.subjectId))] },
+        },
+      }),
+      this.getConductGradesForScope(
+        tenantId,
+        scope.academicYear.id,
+        query.termId,
+        query.classRoomId,
+        students.map(s => s.id)
+      ),
+    ]);
+    const policyBySubjectId = new Map(policies.map(p => [p.subjectId, p]));
+
+    const drafts = students.map(student =>
+      this.buildStudentSnapshot({
+        schoolName: scope.schoolName,
+        school: scope.school,
+        academicYear: scope.academicYear,
+        term: scope.term,
+        classRoom: scope.classRoom,
+        student,
+        exams,
+        gradingScheme,
+        policyBySubjectId,
+        conduct: conductByStudentId.get(student.id),
+      })
+    );
+
+    // Mid-term: a subject the student has no mark in yet shows "-" and is left out of
+    // the average and the rankings (instead of counting as 0%).
+    const rules = gradingScheme.rules as unknown as GradingBand[];
+    const unmarked = new Map<string, Set<string>>();
+    for (const d of drafts) {
+      const missing = new Set(
+        d.payload.subjects
+          .filter(s => !s.exams.some(e => e.marksObtained != null || (e.status && e.status !== MarkStatus.PRESENT)))
+          .map(s => s.subjectId!)
+      );
+      unmarked.set(d.studentId, missing);
+      const marked = d.payload.subjects.filter(s => !missing.has(s.subjectId!));
+      for (const s of d.payload.subjects) {
+        if (missing.has(s.subjectId!)) {
+          s.grade = '';
+          s.remark = '';
+        }
+      }
+      if (!marked.length) {
+        d.payload.totals = { ...d.payload.totals, averagePercentage: Number.NaN, grade: '', remark: '' };
+        d.payload.metadata = { ...d.payload.metadata, teacherComment: 'No marks entered yet.' };
+        continue;
+      }
+      const average = Number(
+        (marked.reduce((acc, s) => acc + (s.finalPercent ?? s.averagePercentage), 0) / marked.length).toFixed(2)
+      );
+      const band = this.resolveBand(rules, average);
+      d.payload.totals = {
+        ...d.payload.totals,
+        totalMarksObtained: marked.reduce((acc, s) => acc + (s.finalPercent ?? s.averagePercentage), 0),
+        totalMarksPossible: marked.length * 100,
+        averagePercentage: average,
+        grade: band.grade,
+        remark: band.remark,
+      };
+      d.payload.metadata = { ...d.payload.metadata, teacherComment: this.buildTeacherComment(average, band.remark) };
+    }
+
+    // Ranks with ties sharing a place (two students on 80% are both 1st, the next is 3rd).
+    const rankOf = (score: number, all: number[]) => all.filter(other => other > score).length + 1;
+    const averages = drafts.map(d => d.payload.totals.averagePercentage).filter(Number.isFinite);
+    const subjectScores = new Map<string, number[]>();
+    for (const d of drafts) {
+      for (const subject of d.payload.subjects) {
+        if (unmarked.get(d.studentId)?.has(subject.subjectId!)) continue;
+        const list = subjectScores.get(subject.subjectId!) ?? [];
+        list.push(subject.finalPercent ?? subject.averagePercentage);
+        subjectScores.set(subject.subjectId!, list);
+      }
+    }
+
+    // Lates and absences from the start of the term to the cut-off day (or the end of term).
+    const attendanceEnd = upToEnd && upToEnd < term.endDate ? upToEnd : term.endDate;
+    const attendance = await prisma.attendanceRecord.groupBy({
+      by: ['studentId', 'status'],
+      where: {
+        tenantId,
+        studentId: { in: students.map(s => s.id) },
+        status: { in: ['LATE', 'ABSENT'] },
+        attendanceDate: { gte: term.startDate, lte: attendanceEnd },
+      },
+      _count: { _all: true },
+    });
+    const attendanceCount = (studentId: string, status: 'LATE' | 'ABSENT') =>
+      attendance.find(a => a.studentId === studentId && a.status === status)?._count._all ?? 0;
+
+    const classRoom = await prisma.classRoom.findFirst({
+      where: { id: query.classRoomId, tenantId },
+      select: { gradeLevel: { select: { name: true, levelGroup: { select: { name: true } } } } },
+    });
+    const option = classRoom?.gradeLevel?.levelGroup?.name ?? classRoom?.gradeLevel?.name ?? null;
+
+    const selected = query.studentId ? drafts.filter(d => d.studentId === query.studentId) : drafts;
+    if (!selected.length) {
+      throw new AppError(404, 'STUDENT_NOT_IN_CLASS', 'This student is not in the selected class');
+    }
+    selected.sort((a, b) =>
+      `${a.payload.student.lastName} ${a.payload.student.firstName}`.localeCompare(
+        `${b.payload.student.lastName} ${b.payload.student.firstName}`
+      )
+    );
+
+    const payloads: ReportCardPayload[] = selected.map(d => ({
+      ...d.payload,
+      reportKind: 'MID_TERM',
+      totals: {
+        ...d.payload.totals,
+        position: Number.isFinite(d.payload.totals.averagePercentage)
+          ? rankOf(d.payload.totals.averagePercentage, averages)
+          : 0,
+        classSize: drafts.length,
+      },
+      template: {
+        option,
+        attendance: { lates: attendanceCount(d.studentId, 'LATE'), absences: attendanceCount(d.studentId, 'ABSENT') },
+        subjectRanks: Object.fromEntries(
+          d.payload.subjects.filter(s => !unmarked.get(d.studentId)?.has(s.subjectId!)).map(s => [
+            s.subjectId!,
+            rankOf(s.finalPercent ?? s.averagePercentage, subjectScores.get(s.subjectId!) ?? []),
+          ])
+        ),
+      },
+    }));
+
+    const termSlug = scope.term.name.replace(/\s+/g, '-');
+    const fileName =
+      payloads.length === 1
+        ? `${payloads[0].student.studentCode}-${termSlug}-mid-term-report.pdf`
+        : `${scope.classRoom.code}-${termSlug}-mid-term-reports.pdf`;
+    return { fileName, buffer: await buildReportCardsPdfBuffer(payloads) };
+  }
+
+  /** Report card PDF in the official template layout (term or annual). */
+  private async renderSnapshotPdf(snapshot: {
+    id: string;
+    tenantId: string;
+    academicYearId: string;
+    termId: string;
+    classRoomId: string;
+    studentId: string;
+    payload: Prisma.JsonValue;
+    term: { sequence: number; name: string; startDate: Date; endDate: Date };
+  }) {
+    const payload = this.buildPayloadWithVerification(
+      snapshot.payload as unknown as ReportCardPayload,
+      snapshot.id
+    );
+    try {
+      payload.template = await this.buildReportTemplateData(snapshot, payload);
+    } catch (error) {
+      // The card still renders; only the extra template details are missing.
+      console.error('[report-card] could not load template details', error);
+    }
+    return buildReportCardPdfBuffer(payload);
+  }
+
+  /**
+   * Facts the template shows that the locked snapshot does not store: subject ranks,
+   * lates/absences, the class option (level), core subjects, and for the annual report
+   * each term's position, conduct and teacher comment. Read at download time so
+   * report cards locked before this layout existed show them too.
+   */
+  private async buildReportTemplateData(
+    snapshot: {
+      tenantId: string;
+      academicYearId: string;
+      termId: string;
+      classRoomId: string;
+      studentId: string;
+      term: { sequence: number; name: string; startDate: Date; endDate: Date };
+    },
+    payload: ReportCardPayload
+  ): Promise<ReportCardTemplateData> {
+    const { tenantId } = snapshot;
+    const yearly = payload.yearlyReport?.layout === 'three_terms' || isYearlyAggregationTerm(snapshot.term);
+    const subjectIds = payload.subjects.map(s => s.subjectId).filter((id): id is string => Boolean(id));
+    const subjectNames = payload.subjects.map(s => s.subjectName);
+
+    const [classRoom, coreSubjects] = await Promise.all([
+      prisma.classRoom.findFirst({
+        where: { id: snapshot.classRoomId, tenantId },
+        select: { gradeLevel: { select: { name: true, levelGroup: { select: { name: true } } } } },
+      }),
+      prisma.subject.findMany({
+        where: {
+          tenantId,
+          isCore: true,
+          OR: [{ id: { in: subjectIds } }, { name: { in: subjectNames } }],
+        },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const data: ReportCardTemplateData = {
+      option: classRoom?.gradeLevel?.levelGroup?.name ?? classRoom?.gradeLevel?.name ?? null,
+      coreSubjectKeys: coreSubjects.flatMap(s => [s.id, s.name]),
+    };
+
+    if (yearly) {
+      const termSnapshots = await prisma.resultSnapshot.findMany({
+        where: {
+          tenantId,
+          academicYearId: snapshot.academicYearId,
+          classRoomId: snapshot.classRoomId,
+          studentId: snapshot.studentId,
+          term: { sequence: { gte: 1, lte: 3 } },
+        },
+        select: { payload: true, term: { select: { sequence: true } } },
+      });
+      data.terms = termSnapshots.map(item => {
+        const p = item.payload as unknown as ReportCardPayload;
+        return {
+          sequence: item.term.sequence,
+          position: p.totals?.position ?? null,
+          classSize: p.totals?.classSize ?? null,
+          conduct: p.conduct?.grade ?? null,
+          observation: p.metadata?.teacherComment || p.totals?.remark || null,
+        };
+      });
+      data.logo = await this.fetchLogo(payload.school?.logoUrl);
+      return data;
+    }
+
+    // Term report: rank in each subject across the class, and attendance in the term.
+    const [classSnapshots, lates, absences] = await Promise.all([
+      prisma.resultSnapshot.findMany({
+        where: { tenantId, termId: snapshot.termId, classRoomId: snapshot.classRoomId },
+        select: { studentId: true, payload: true },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          tenantId,
+          studentId: snapshot.studentId,
+          status: 'LATE',
+          attendanceDate: { gte: snapshot.term.startDate, lte: snapshot.term.endDate },
+        },
+      }),
+      prisma.attendanceRecord.count({
+        where: {
+          tenantId,
+          studentId: snapshot.studentId,
+          status: 'ABSENT',
+          attendanceDate: { gte: snapshot.term.startDate, lte: snapshot.term.endDate },
+        },
+      }),
+    ]);
+    data.attendance = { lates, absences };
+
+    const subjectScore = (s: ReportCardPayload['subjects'][number]) => s.finalPercent ?? s.averagePercentage;
+    const ranks: Record<string, number> = {};
+    for (const subject of payload.subjects) {
+      const key = subject.subjectId ?? subject.subjectName;
+      const mine = subjectScore(subject);
+      if (mine == null || !Number.isFinite(mine)) continue;
+      let better = 0;
+      for (const other of classSnapshots) {
+        if (other.studentId === snapshot.studentId) continue;
+        const otherSubject = (other.payload as unknown as ReportCardPayload).subjects?.find(s =>
+          subject.subjectId ? s.subjectId === subject.subjectId : s.subjectName === subject.subjectName
+        );
+        const score = otherSubject ? subjectScore(otherSubject) : null;
+        if (score != null && score > mine) better += 1;
+      }
+      ranks[key] = better + 1;
+    }
+    data.subjectRanks = ranks;
+    return data;
+  }
+
+  /** School logo for the annual report header; PNG or JPEG only (what PDFKit can draw). */
+  private async fetchLogo(url?: string | null): Promise<Buffer | null> {
+    if (!url || !/^https?:\/\//i.test(url)) return null;
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!response.ok) return null;
+      const type = response.headers.get('content-type') ?? '';
+      if (!/image\/(png|jpe?g)/i.test(type)) return null;
+      const bytes = Buffer.from(await response.arrayBuffer());
+      return bytes.length <= 3 * 1024 * 1024 ? bytes : null;
+    } catch {
+      return null;
+    }
   }
 
   private async logReportCardViewed(

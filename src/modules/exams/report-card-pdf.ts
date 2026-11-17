@@ -3,12 +3,41 @@ import PDFDocument from 'pdfkit';
 
 import { qrCodeService } from '../../services/qr-code.service';
 
+/**
+ * Report card PDFs, drawn to match the school's official "REPORTS TEMPLATE.xlsx":
+ * - term report cards follow the "Term Report" sheet (portrait A4),
+ * - yearly report cards follow the "Annual School Report" sheet (portrait A4),
+ * - mid-term progress reports follow the "Mid Term Report" sheet (same grid as the term report).
+ */
+
 type GradingBand = {
   min: number;
   max: number;
   grade: string;
   remark?: string;
 };
+
+/** Extra facts filled in when the PDF is made (not stored in the locked snapshot). */
+export interface ReportCardTemplateData {
+  /** "Option" on the annual report, e.g. ORDINARY LEVEL (the class's level group). */
+  option?: string | null;
+  /** Term report: lates and absences recorded during the term. */
+  attendance?: { lates: number; absences: number } | null;
+  /** Term report: the student's rank in each subject, keyed by subjectId or subject name. */
+  subjectRanks?: Record<string, number>;
+  /** Subjects marked as core, keyed by subjectId or subject name. */
+  coreSubjectKeys?: string[];
+  /** Annual report: position, conduct and teacher comment of terms 1–3 (by sequence). */
+  terms?: Array<{
+    sequence: number;
+    position?: number | null;
+    classSize?: number | null;
+    conduct?: string | null;
+    observation?: string | null;
+  }>;
+  /** Annual report: school logo image (PNG/JPEG bytes). */
+  logo?: Buffer | null;
+}
 
 export interface ReportCardPayload {
   verificationUrl?: string;
@@ -54,7 +83,7 @@ export interface ReportCardPayload {
     classSize: number;
   };
   conduct?: { grade: string; remark?: string | null };
-  /** When set, yearly PDF uses Term 1–3 + year summary columns (see subjects[].yearlyTermBreakdown). */
+  /** When set, the PDF uses the annual layout (see subjects[].yearlyTermBreakdown). */
   yearlyReport?: {
     layout: 'three_terms';
     caMaxPerTerm: number;
@@ -62,6 +91,10 @@ export interface ReportCardPayload {
     yearGradeMethod?: string;
     yearRawMethod?: string;
   };
+  /** Render-time only; see ReportCardTemplateData. */
+  template?: ReportCardTemplateData;
+  /** MID_TERM: live progress report built from marks entered so far (not a locked snapshot). */
+  reportKind?: 'TERM' | 'MID_TERM';
   subjects: Array<{
     subjectId?: string;
     subjectName: string;
@@ -99,1085 +132,606 @@ export interface ReportCardPayload {
   }>;
 }
 
-function drawBox(
-  doc: PDFKit.PDFDocument,
+type Subject = ReportCardPayload['subjects'][number];
+type Doc = PDFKit.PDFDocument;
+type Align = 'left' | 'center' | 'right';
+type Font = 'Helvetica' | 'Helvetica-Bold' | 'Times-Roman' | 'Times-Bold';
+
+const DASH = '-';
+
+// ---------------------------------------------------------------------------
+// Drawing primitives
+// ---------------------------------------------------------------------------
+
+function line(doc: Doc, x1: number, y1: number, x2: number, y2: number, width = 0.5) {
+  doc.save().lineWidth(width).strokeColor('#000000').moveTo(x1, y1).lineTo(x2, y2).stroke().restore();
+}
+
+function rect(doc: Doc, x: number, y: number, w: number, h: number, width = 0.5) {
+  doc.save().lineWidth(width).strokeColor('#000000').rect(x, y, w, h).stroke().restore();
+}
+
+function doubleRule(doc: Doc, x: number, y: number, w: number) {
+  line(doc, x, y, x + w, y, 0.9);
+  line(doc, x, y + 2.5, x + w, y + 2.5, 0.9);
+}
+
+/** One line of text, shrunk until it fits the width, vertically centred in [y, y+h]. */
+function text(
+  doc: Doc,
+  value: string,
   x: number,
   y: number,
-  width: number,
-  height: number,
-  fillColor?: string,
-  lineWidth = 0.5
+  w: number,
+  h: number,
+  opts: { font?: Font; size?: number; align?: Align; pad?: number; minSize?: number } = {}
 ) {
-  doc.save();
-  doc.lineWidth(lineWidth);
-  if (fillColor) {
-    doc.rect(x, y, width, height).fillAndStroke(fillColor, '#000000');
-  } else {
-    doc.rect(x, y, width, height).stroke('#000000');
+  const pad = opts.pad ?? 2;
+  const font = opts.font ?? 'Helvetica';
+  let size = opts.size ?? 8;
+  const minSize = opts.minSize ?? 5;
+  const avail = Math.max(w - pad * 2, 1);
+  doc.font(font);
+  while (size > minSize && doc.fontSize(size).widthOfString(value) > avail) size -= 0.25;
+  doc.fontSize(size).fillColor('#000000');
+  let out = value;
+  if (doc.widthOfString(out) > avail) {
+    while (out.length > 1 && doc.widthOfString(`${out}…`) > avail) out = out.slice(0, -1);
+    out = `${out}…`;
   }
-  doc.restore();
+  const ty = y + (h - size) / 2 + size * 0.08;
+  doc.text(out, x + pad, ty, { width: avail, align: opts.align ?? 'left', lineBreak: false });
 }
 
-function drawText(
-  doc: PDFKit.PDFDocument,
-  text: string,
+/** Wrapped text inside a box (for comments / observations). */
+function paragraph(doc: Doc, value: string, x: number, y: number, w: number, h: number, size = 8) {
+  if (!value) return;
+  let s = size;
+  doc.font('Helvetica');
+  while (s > 5.5 && doc.fontSize(s).heightOfString(value, { width: w - 6 }) > h - 4) s -= 0.25;
+  doc.fontSize(s).fillColor('#000000').text(value, x + 3, y + 2, { width: w - 6, height: h - 4, ellipsis: true });
+}
+
+function cell(
+  doc: Doc,
   x: number,
   y: number,
-  width: number,
-  options: {
-    size?: number;
-    bold?: boolean;
-    align?: 'left' | 'center' | 'right';
-    color?: string;
-    lineGap?: number;
-  } = {}
+  w: number,
+  h: number,
+  value: string,
+  opts: { font?: Font; size?: number; align?: Align; border?: number; pad?: number } = {}
 ) {
-  doc
-    .font(options.bold ? 'Helvetica-Bold' : 'Helvetica')
-    .fontSize(options.size ?? 10)
-    .fillColor(options.color ?? '#000000')
-    .text(text, x, y, {
-      width,
-      align: options.align ?? 'left',
-      lineGap: options.lineGap ?? 0,
-    });
+  if (opts.border !== 0) rect(doc, x, y, w, h, opts.border ?? 0.5);
+  if (value) text(doc, value, x, y, w, h, opts);
 }
 
-function drawCell(
-  doc: PDFKit.PDFDocument,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  text: string,
-  options: {
-    fillColor?: string;
-    size?: number;
-    bold?: boolean;
-    align?: 'left' | 'center' | 'right';
-    color?: string;
-    paddingX?: number;
-    paddingY?: number;
-    lineWidth?: number;
-    /** Tighter horizontal padding in narrow columns (full text wraps; no truncation). */
-    compact?: boolean;
-  } = {}
-) {
-  const px = options.paddingX ?? (options.compact ? 2 : 4);
-  const py = options.paddingY ?? (options.compact ? 3 : 4);
-  const innerW = width - px * 2;
-  drawBox(doc, x, y, width, height, options.fillColor, options.lineWidth ?? 0.5);
-  drawText(doc, text, x + px, y + py, innerW, {
-    size: options.size ?? 8.5,
-    bold: options.bold,
-    align: options.align,
-    color: options.color,
-  });
+function checkbox(doc: Doc, x: number, y: number, size = 7) {
+  rect(doc, x, y, size, size, 0.6);
 }
 
-/**
- * Term table header: [max CAT|EXAM|TOTAL] | thick sep | [obt CAT|EXAM|TOTAL] | Rank | Comments
- * First triple = caps; second triple = marks (same labels as official form).
- */
-function drawTermTableHeader(
-  doc: PDFKit.PDFDocument,
-  tableX: number,
-  y: number,
-  colW: number[],
-  headerFill: string,
-  headerH: number
-): number {
-  const titleRowHeight = 12;
-  const labelsRowHeight = headerH - titleRowHeight;
-  let yPos = y;
-
-  drawCell(doc, tableX, yPos, colW[0], headerH, 'SUBJECT', {
-    fillColor: headerFill,
-    bold: true,
-    size: 8.5,
-    align: 'left',
-    paddingY: 4,
-  });
-
-  const maxWidth = colW[1] + colW[2] + colW[3];
-  drawCell(doc, tableX + colW[0], yPos, maxWidth, titleRowHeight, 'MAXIMUM', {
-    fillColor: headerFill,
-    bold: true,
-    size: 9,
-    align: 'center',
-    paddingY: 2,
-  });
-
-  const obtWidth = colW[4] + colW[5] + colW[6];
-  drawCell(doc, tableX + colW[0] + maxWidth, yPos, obtWidth, titleRowHeight, 'OBTAINED', {
-    fillColor: headerFill,
-    bold: true,
-    size: 9,
-    align: 'center',
-    paddingY: 2,
-  });
-
-  drawCell(
-    doc,
-    tableX + colW[0] + maxWidth + obtWidth,
-    yPos,
-    colW[7],
-    headerH,
-    'Rank',
-    {
-      fillColor: headerFill,
-      bold: true,
-      size: 9,
-      align: 'center',
-      paddingY: 5,
-    }
-  );
-
-  drawCell(
-    doc,
-    tableX + colW[0] + maxWidth + obtWidth + colW[7],
-    yPos,
-    colW[8],
-    headerH,
-    'Comments',
-    {
-      fillColor: headerFill,
-      bold: true,
-      size: 9,
-      align: 'center',
-      paddingY: 5,
-    }
-  );
-
-  yPos += titleRowHeight;
-
-  const labels = ['CAT', 'EXAM', 'TOTAL', 'CAT', 'EXAM', 'TOTAL'];
-  let gx = tableX + colW[0];
-  for (let i = 0; i < labels.length; i += 1) {
-    drawCell(doc, gx, yPos, colW[1 + i], labelsRowHeight, labels[i], {
-      fillColor: headerFill,
-      bold: true,
-      size: i < 6 ? 7.8 : 7.5,
-      align: 'center',
-      paddingY: 2,
-      compact: true,
-    });
-    gx += colW[1 + i];
-  }
-  const sepX = tableX + colW[0] + colW[1] + colW[2] + colW[3];
-  drawThickColumnSeparator(doc, sepX, yPos, labelsRowHeight);
-  return headerH;
-}
-
-/** Same six-cell layout as term (raw CAT / EXAM / TOTAL max then obtained) from yearly term breakdown. */
-function yearlyTermBreakdownSixCells(
-  t:
-    | {
-        caMax: number;
-        caObtained: number;
-        examMax: number;
-        examObtained: number;
-      }
-    | undefined
-): [string, string, string, string, string, string] {
-  if (!t) {
-    return ['—', '—', '—', '—', '—', '—'];
-  }
-  const mCat = t.caMax;
-  const mEx = t.examMax;
-  const mTot = mCat + mEx;
-  const oCat = t.caObtained;
-  const oEx = t.examObtained;
-  const oTot = oCat + oEx;
-  return [String(mCat), String(mEx), String(mTot), String(oCat), String(oEx), String(oTot)];
-}
-
-/**
- * Yearly: same grid as term report (CAT/EXAM/TOTAL max | thick sep | obt) × 3 terms,
- * then Year avg, Year total (max / Σ / %), Rank, Comments.
- * Row0 = term band labels + Year bands; Row1 = same labels as term (CAT…TOTAL × 2).
- */
-function drawYearlyTableHeader(
-  doc: PDFKit.PDFDocument,
-  tableX: number,
-  y: number,
-  colWY: number[],
-  headerFill: string,
-  h0: number,
-  h1: number,
-  termBandLabels: [string, string, string]
-): number {
-  const headerH = h0 + h1;
-  const y1 = y + h0;
-
-  drawCell(doc, tableX, y, colWY[0], headerH, 'SUBJECT', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'left',
-    paddingY: 4,
-  });
-
-  let gx = tableX + colWY[0];
-  for (let t = 0; t < 3; t += 1) {
-    const o = 1 + t * 6;
-    const bandW =
-      colWY[o] + colWY[o + 1] + colWY[o + 2] + colWY[o + 3] + colWY[o + 4] + colWY[o + 5];
-    drawCell(doc, gx, y, bandW, h0, termBandLabels[t], {
-      fillColor: headerFill,
-      bold: true,
-      size: 7.5,
-      align: 'center',
-      paddingY: 3,
-    });
-    gx += bandW;
-  }
-
-  drawCell(doc, gx, y, colWY[19], h0, 'Year avg', {
-    fillColor: headerFill,
-    bold: true,
-    size: 6.8,
-    align: 'center',
-    paddingY: 2,
-  });
-  gx += colWY[19];
-  drawCell(doc, gx, y, colWY[20] + colWY[21] + colWY[22], h0, 'Year total', {
-    fillColor: headerFill,
-    bold: true,
-    size: 6.8,
-    align: 'center',
-    paddingY: 2,
-  });
-  gx += colWY[20] + colWY[21] + colWY[22];
-  drawCell(doc, gx, y, colWY[23], h0 + h1, 'Rank', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-  });
-  gx += colWY[23];
-  drawCell(doc, gx, y, colWY[24], h0 + h1, 'Comments', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-  });
-
-  gx = tableX + colWY[0];
-  const labels = ['CAT', 'EXAM', 'TOTAL', 'CAT', 'EXAM', 'TOTAL'];
-  for (let t = 0; t < 3; t += 1) {
-    const o = 1 + t * 6;
-    for (let i = 0; i < 6; i += 1) {
-      drawCell(doc, gx, y1, colWY[o + i], h1, labels[i], {
-        fillColor: headerFill,
-        bold: true,
-        size: i < 3 ? 7.8 : 7.5,
-        align: 'center',
-        paddingY: 5,
-        compact: true,
-      });
-      gx += colWY[o + i];
-    }
-    const sepX = tableX + colWY[0] + colWY[o] + colWY[o + 1] + colWY[o + 2];
-    drawThickColumnSeparator(doc, sepX, y, headerH);
-  }
-
-  drawCell(doc, gx, y1, colWY[19], h1, 'AVG', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-    compact: true,
-  });
-  gx += colWY[19];
-  drawCell(doc, gx, y1, colWY[20], h1, 'max', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-    compact: true,
-  });
-  drawCell(doc, gx + colWY[20], y1, colWY[21], h1, 'Σ', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-    compact: true,
-  });
-  drawCell(doc, gx + colWY[20] + colWY[21], y1, colWY[22], h1, '%', {
-    fillColor: headerFill,
-    bold: true,
-    size: 7.5,
-    align: 'center',
-    paddingY: 5,
-    compact: true,
-  });
-
-  return headerH;
-}
-
-/** Draw thick separators between max and obtained blocks for each term column (yearly table). */
-function drawYearlyRowThickSeparators(
-  doc: PDFKit.PDFDocument,
-  tableX: number,
-  y: number,
-  rowH: number,
-  colWY: number[]
-) {
-  for (let t = 0; t < 3; t += 1) {
-    const o = 1 + t * 6;
-    const sepX = tableX + colWY[0] + colWY[o] + colWY[o + 1] + colWY[o + 2];
-    drawThickColumnSeparator(doc, sepX, y, rowH);
-  }
-}
-
-function displayValue(value?: string | number | null) {
-  if (value == null || value === '') {
-    return '—';
-  }
-  return String(value);
-}
-
-/** Six mark cells: max CAT/EXAM/TOTAL then obtained CAT/EXAM/TOTAL (screenshot layout). */
-function termMaxObtSixColumns(
-  catEx: { totalMarks: number; marksObtained: number | null } | undefined,
-  exPaper: { totalMarks: number; marksObtained: number | null } | undefined,
-  useRawMarks: boolean,
-  caPct: number | null,
-  exPct: number | null,
-  totPct: number
-): {
-  cells: [string, string, string, string, string, string];
-  nums: {
-    mCat: number;
-    mEx: number;
-    mTot: number;
-    oCat: number;
-    oEx: number;
-    oTot: number;
-  } | null;
-} {
-  if (useRawMarks && catEx && exPaper && catEx.totalMarks > 0 && exPaper.totalMarks > 0) {
-    const mCat = catEx.totalMarks;
-    const mEx = exPaper.totalMarks;
-    const mTot = mCat + mEx;
-    const hasO = catEx.marksObtained != null && exPaper.marksObtained != null;
-    const oCat = hasO ? catEx.marksObtained! : null;
-    const oEx = hasO ? exPaper.marksObtained! : null;
-    const oTot = hasO ? oCat! + oEx! : null;
-    return {
-      cells: [
-        String(mCat),
-        String(mEx),
-        String(mTot),
-        hasO ? String(oCat) : '—',
-        hasO ? String(oEx) : '—',
-        hasO ? String(oTot) : '—',
-      ],
-      nums: hasO ? { mCat, mEx, mTot, oCat: oCat!, oEx: oEx!, oTot: oTot! } : null,
-    };
-  }
-  const mCat = 100;
-  const mEx = 100;
-  const mTot = 200;
-  const oCat = caPct ?? NaN;
-  const oEx = exPct ?? NaN;
-  const oTot = totPct;
-  return {
-    cells: [
-      String(mCat),
-      String(mEx),
-      String(mTot),
-      caPct != null && !Number.isNaN(caPct) ? caPct.toFixed(1) : '—',
-      exPct != null && !Number.isNaN(exPct) ? exPct.toFixed(1) : '—',
-      totPct.toFixed(1),
-    ],
-    nums:
-      caPct != null && exPct != null ? { mCat, mEx, mTot, oCat: caPct, oEx: exPct, oTot } : null,
-  };
-}
-
-/** Double vertical rule between max-mark and obtained-mark blocks (MoE-style). */
-function drawThickColumnSeparator(doc: PDFKit.PDFDocument, x: number, y: number, height: number) {
-  doc.save();
-  doc.strokeColor('#000000');
-  doc.lineWidth(1.1);
-  doc
-    .moveTo(x, y)
-    .lineTo(x, y + height)
-    .stroke();
-  doc
-    .moveTo(x + 2.2, y)
-    .lineTo(x + 2.2, y + height)
-    .stroke();
-  doc.restore();
+function fmt(value: number | null | undefined, decimals = 1): string {
+  if (value == null || !Number.isFinite(value)) return DASH;
+  return Number.isInteger(value) ? String(value) : value.toFixed(decimals);
 }
 
 function formatBorn(iso?: string | null): string {
-  if (!iso) {
-    return '';
-  }
+  if (!iso) return '';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) {
-    return '';
-  }
+  if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-/** Double horizontal rules (full width), like the official form */
-function drawDoubleRule(doc: PDFKit.PDFDocument, x: number, y: number, width: number) {
-  doc.save();
-  doc.lineWidth(0.75);
-  doc.strokeColor('#000000');
-  doc
-    .moveTo(x, y)
-    .lineTo(x + width, y)
-    .stroke();
-  doc
-    .moveTo(x, y + 2.5)
-    .lineTo(x + width, y + 2.5)
-    .stroke();
-  doc.restore();
+function subjectKey(subject: Subject) {
+  return subject.subjectId ?? subject.subjectName;
 }
 
-function drawOuterFrame(
-  doc: PDFKit.PDFDocument,
-  outerX: number,
-  margin: number,
-  contentW: number,
-  pageHeight: number
-) {
-  doc.save();
-  doc.lineWidth(1.25);
-  doc.strokeColor('#000000');
-  doc.rect(outerX, margin, contentW, pageHeight - margin * 2).stroke();
-  doc.restore();
+function lookup<T>(map: Record<string, T> | undefined, subject: Subject): T | undefined {
+  if (!map) return undefined;
+  return (subject.subjectId ? map[subject.subjectId] : undefined) ?? map[subject.subjectName];
 }
 
-function isYearlyThreeTermReport(payload: ReportCardPayload): boolean {
-  return (
-    payload.yearlyReport?.layout === 'three_terms' &&
-    payload.subjects.length > 0 &&
-    Array.isArray(payload.subjects[0].yearlyTermBreakdown) &&
-    (payload.subjects[0].yearlyTermBreakdown?.length ?? 0) >= 3
-  );
+function isYearlyReport(payload: ReportCardPayload) {
+  return payload.yearlyReport?.layout === 'three_terms';
 }
 
-async function embedQrCode(
-  doc: PDFKit.PDFDocument,
-  payload: ReportCardPayload,
-  pageWidth: number,
-  pageHeight: number,
-  margin: number
-): Promise<void> {
-  if (!payload.verificationUrl) {
-    return;
-  }
-
+async function makeQr(url?: string): Promise<string | null> {
+  if (!url) return null;
   try {
-    console.log('[QR] Creating QR for URL:', payload.verificationUrl);
-    
-    const qrDataUrl = await qrCodeService.generateQrCodeDataUrl(payload.verificationUrl, {
-      width: 250,
-      margin: 2,
-    });
-    
-    console.log('[QR] Data URL length:', qrDataUrl.length);
-
-    const qrSize = 100;
-    const qrX = margin + 10;
-    const qrY = pageHeight - margin - qrSize - 30;
-
-    doc.fillColor('#ffffff').rect(qrX - 5, qrY - 5, qrSize + 10, qrSize + 35).fill();
-    doc.strokeColor('#000000').lineWidth(1).rect(qrX - 3, qrY - 3, qrSize + 6, qrSize + 6).stroke();
-
-    doc.image(qrDataUrl, qrX, qrY, {
-      fit: [qrSize, qrSize],
-    });
-
-    doc.font('Helvetica').fontSize(8).fillColor('#000000');
-    doc.text('Scan to Verify', qrX, qrY + qrSize + 4, {
-      width: qrSize,
-      align: 'center',
-    });
-
-    console.log('[QR] Successfully added to PDF at position:', qrX, qrY);
-  } catch (error) {
-    console.error('[QR] Failed to embed QR code:', error);
+    return await qrCodeService.generateQrCodeDataUrl(url, { width: 300, margin: 1 });
+  } catch {
+    return null;
   }
 }
+
+function schoolLines(payload: ReportCardPayload) {
+  const school = payload.school ?? {};
+  return {
+    name: (school.displayName ?? payload.schoolName ?? '').toUpperCase(),
+    district: (school.district ?? '').toUpperCase(),
+    contact: school.phone ?? school.registrationNumber ?? school.code ?? '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Term figures
+// ---------------------------------------------------------------------------
+
+interface TermRow {
+  max: [number | null, number | null, number | null];
+  obt: [number | null, number | null, number | null];
+}
+
+function sumExams(exams: Subject['exams']) {
+  if (!exams.length) return null;
+  const max = exams.reduce((acc, e) => acc + (e.totalMarks || 0), 0);
+  const complete = exams.every(e => e.marksObtained != null);
+  const obt = complete ? exams.reduce((acc, e) => acc + (e.marksObtained ?? 0), 0) : null;
+  return max > 0 ? { max, obt } : null;
+}
+
+/** TEST (CAT) / EX (exam) / TOT, as maximum points and obtained points. */
+function termRow(subject: Subject): TermRow {
+  const test = sumExams(subject.exams?.filter(e => e.examType === 'CAT') ?? []);
+  const exam = sumExams(subject.exams?.filter(e => e.examType === 'EXAM') ?? []);
+  if (test || exam) {
+    const maxTot = (test?.max ?? 0) + (exam?.max ?? 0);
+    const obtParts = [test, exam].filter(Boolean) as Array<{ max: number; obt: number | null }>;
+    const obtTot = obtParts.every(p => p.obt != null) ? obtParts.reduce((a, p) => a + (p.obt ?? 0), 0) : null;
+    return {
+      max: [test?.max ?? null, exam?.max ?? null, maxTot],
+      obt: [test?.obt ?? null, exam?.obt ?? null, obtTot],
+    };
+  }
+  // No raw marks stored: show percentages out of 100.
+  const final = subject.finalPercent ?? subject.averagePercentage;
+  return {
+    max: [null, null, 100],
+    obt: [subject.continuousAssessmentPercent ?? null, subject.examPercent ?? null, final ?? null],
+  };
+}
+
+function addInto(acc: Array<number | null>, values: Array<number | null>) {
+  values.forEach((v, i) => {
+    if (v != null) acc[i] = (acc[i] ?? 0) + v;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Term Report (sheet "Term Report")
+// ---------------------------------------------------------------------------
+
+function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null) {
+  const M = 28;
+  const W = doc.page.width - M * 2;
+  const pageBottom = doc.page.height - M;
+  const u = W / 13; // template columns B..N
+  const X = (i: number) => M + i * u;
+  const school = schoolLines(payload);
+  const tpl = payload.template ?? {};
+
+  // Header
+  let y = 30;
+  const lh = 13;
+  text(doc, 'REPUBLIC OF RWANDA', X(0), y, W / 2, lh, { font: 'Helvetica-Bold', size: 9.5, pad: 0 });
+  text(doc, 'MINISTRY OF EDUCATION', X(0), y, W, lh, { font: 'Helvetica-Bold', size: 9.5, align: 'right', pad: 0 });
+  y += lh;
+  text(doc, school.name, X(0), y, W * 0.55, lh, { size: 9.5, pad: 0 });
+  text(doc, `School Year: ${payload.academicYear.name}`, X(0), y, W, lh, { size: 9.5, align: 'right', pad: 0 });
+  y += lh;
+  text(doc, school.district, X(0), y, W * 0.55, lh, { size: 9.5, pad: 0 });
+  text(doc, payload.term.name, X(0), y, W, lh, { size: 9.5, align: 'right', pad: 0 });
+  y += lh;
+  text(doc, school.contact, X(0), y, W * 0.55, lh, { size: 9.5, pad: 0 });
+  y += lh + 3;
+
+  // Title
+  doubleRule(doc, X(0), y, W);
+  const title = payload.reportKind === 'MID_TERM' ? 'MID TERM - REPORT CARD' : 'REPORT CARD';
+  text(doc, title, X(0), y + 3, W, 20, { font: 'Times-Bold', size: 15, align: 'center' });
+  doubleRule(doc, X(0), y + 24, W);
+  y += 31;
+
+  // Student details
+  const rh = 15;
+  const studentName = `${payload.student.firstName} ${payload.student.lastName}`.trim();
+  text(doc, 'Student Name:', X(0), y, 3 * u, rh, { size: 9.5, pad: 0 });
+  rect(doc, X(3), y + 1, 10 * u, rh - 2, 0.7);
+  text(doc, studentName, X(3), y + 1, 10 * u, rh - 2, { font: 'Helvetica-Bold', size: 9.5 });
+  y += rh;
+  text(doc, 'Born:', X(0), y, u, rh, { size: 9.5, pad: 0 });
+  text(doc, formatBorn(payload.student.dateOfBirth), X(1), y, 3 * u, rh, { size: 9.5 });
+  text(doc, 'at', X(4), y, u, rh, { size: 9.5 });
+  text(doc, 'Class:', X(8), y, 2 * u, rh, { size: 9.5 });
+  text(doc, payload.classRoom.name || payload.classRoom.code, X(11), y, 2 * u, rh, { size: 9.5 });
+  y += rh;
+  text(doc, 'ID No.:', X(0), y, u, rh, { size: 9.5, pad: 0 });
+  text(doc, payload.student.studentCode, X(1), y, 4 * u, rh, { size: 9.5 });
+  text(doc, 'N. Students:', X(5), y, 2 * u, rh, { size: 9.5 });
+  text(doc, String(payload.totals.classSize || DASH), X(7), y, u, rh, { size: 9.5, align: 'center' });
+  text(doc, 'Conduct:', X(9), y, u * 1.2, rh, { size: 9.5 });
+  text(doc, payload.conduct?.grade ?? '', X(10.2), y, 2.8 * u, rh, { size: 9.5 });
+  y += rh + 8;
+
+  // Marks table: SUBJECTS | TEST EX TOT (max) || TEST EX TOT (obtained) | Rank | Comments
+  const tableTop = y;
+  const headH = 16;
+  cell(doc, X(0), y, 3 * u, headH, 'SUBJECTS', { font: 'Times-Bold', size: 10 });
+  ['TEST', 'EX', 'TOT', 'TEST', 'EX', 'TOT'].forEach((label, i) =>
+    cell(doc, X(3 + i), y, u, headH, label, { font: 'Times-Bold', size: 8, align: 'center' })
+  );
+  cell(doc, X(9), y, u, headH, 'Rank', { font: 'Times-Bold', size: 8, align: 'center' });
+  cell(doc, X(10), y, 3 * u, headH, 'Comments', { font: 'Times-Bold', size: 8.5, align: 'center' });
+  line(doc, X(0), y + headH, X(13), y + headH, 1.6);
+  y += headH;
+
+  const footerNeeds = 15 + 17 + 18 + 64;
+  const minRows = 18;
+  const rowCount = Math.max(payload.subjects.length, minRows);
+  const rowH = Math.max(10, Math.min(15, (pageBottom - footerNeeds - y) / rowCount));
+
+  const maxTotals: Array<number | null> = [null, null, null];
+  const obtTotals: Array<number | null> = [null, null, null];
+  for (let r = 0; r < rowCount; r += 1) {
+    const subject = payload.subjects[r];
+    if (!subject) {
+      for (let c = 0; c < 13; c += c === 0 ? 3 : c === 10 ? 3 : 1) {
+        const w = c === 0 || c === 10 ? 3 * u : u;
+        cell(doc, X(c), y, w, rowH, '');
+      }
+      y += rowH;
+      continue;
+    }
+    const row = termRow(subject);
+    addInto(maxTotals, row.max);
+    addInto(obtTotals, row.obt);
+    const rank = lookup(tpl.subjectRanks, subject);
+    cell(doc, X(0), y, 3 * u, rowH, subject.subjectName.toUpperCase(), { font: 'Times-Roman', size: 9 });
+    [...row.max, ...row.obt].forEach((v, i) =>
+      cell(doc, X(3 + i), y, u, rowH, fmt(v), { size: 8.5, align: 'center' })
+    );
+    cell(doc, X(9), y, u, rowH, rank ? String(rank) : DASH, { size: 8.5, align: 'center' });
+    cell(doc, X(10), y, 3 * u, rowH, subject.remark || subject.grade || '', { size: 8 });
+    y += rowH;
+  }
+
+  // Total
+  const totalH = 15;
+  cell(doc, X(0), y, 3 * u, totalH, 'Total', { font: 'Helvetica-Bold', size: 9 });
+  [...maxTotals, ...obtTotals].forEach((v, i) =>
+    cell(doc, X(3 + i), y, u, totalH, fmt(v), { font: 'Helvetica-Bold', size: 8.5, align: 'center' })
+  );
+  cell(doc, X(9), y, 4 * u, totalH, '');
+  // double rule between maximum and obtained blocks, header to total
+  line(doc, X(6) - 1.2, tableTop, X(6) - 1.2, y + totalH, 0.8);
+  line(doc, X(6) + 1.2, tableTop, X(6) + 1.2, y + totalH, 0.8);
+  y += totalH;
+
+  // Average | value | Rank | pos/size | Lates | n | Absences | n
+  const avgH = 17;
+  const att = tpl.attendance;
+  cell(doc, X(0), y, 2 * u, avgH, 'Average', { font: 'Helvetica-Bold', size: 9.5 });
+  const average = payload.totals.averagePercentage;
+  cell(doc, X(2), y, 2 * u, avgH, Number.isFinite(average) ? `${average.toFixed(1)}%` : DASH, {
+    font: 'Helvetica-Bold',
+    size: 9,
+    align: 'center',
+  });
+  cell(doc, X(4), y, u, avgH, 'Rank', { size: 9, align: 'center' });
+  cell(
+    doc,
+    X(5),
+    y,
+    u,
+    avgH,
+    payload.totals.position ? `${payload.totals.position}/${payload.totals.classSize}` : DASH,
+    { size: 9, align: 'center' }
+  );
+  cell(doc, X(6), y, 2 * u, avgH, 'Lates', { size: 9, align: 'center' });
+  cell(doc, X(8), y, u, avgH, att ? String(att.lates) : DASH, { size: 9, align: 'center' });
+  cell(doc, X(9), y, 3 * u, avgH, 'Absences', { size: 9, align: 'center' });
+  cell(doc, X(12), y, u, avgH, att ? String(att.absences) : DASH, { size: 9, align: 'center' });
+  rect(doc, X(0), y, W, avgH, 1.8);
+  y += avgH;
+  rect(doc, X(0), tableTop, W, y - tableTop, 1.6);
+
+  // Observations | Teacher / Parent signature | QR
+  y += 18;
+  const fh = 16;
+  const footerTop = y;
+  const footerH = fh * 4;
+  cell(doc, X(0), y, 6 * u, fh, 'Observations', { font: 'Helvetica-Bold', size: 9, align: 'center' });
+  paragraph(doc, payload.metadata?.teacherComment || payload.totals.remark || '', X(0), y + fh, 6 * u, fh * 3, 8.5);
+  text(doc, 'Teacher Signature', X(6), y, 5 * u, fh, { font: 'Helvetica-Bold', size: 9, align: 'center' });
+  if (payload.metadata?.classTeacherName) {
+    text(doc, payload.metadata.classTeacherName, X(6), y + fh, 5 * u, fh, { size: 8, align: 'center' });
+  }
+  line(doc, X(6), y + fh * 2.5, X(11), y + fh * 2.5, 0.4);
+  text(doc, 'Parent Signature', X(6), y + fh * 3, 5 * u, fh, { font: 'Helvetica-Bold', size: 9, align: 'center' });
+  if (qr) {
+    const size = footerH - 6;
+    doc.image(qr, X(11) + (2 * u - size) / 2, footerTop + 3, { fit: [size, size] });
+  }
+  line(doc, X(6), footerTop, X(6), footerTop + footerH, 1.6);
+  line(doc, X(0), footerTop + fh, X(6), footerTop + fh, 0.5);
+  rect(doc, X(0), footerTop, W, footerH, 1.8);
+}
+
+// ---------------------------------------------------------------------------
+// Annual School Report (sheet "Annual School Report")
+// ---------------------------------------------------------------------------
+
+function drawAnnualReport(doc: Doc, payload: ReportCardPayload, qr: string | null) {
+  const M = 24;
+  const W = doc.page.width - M * 2;
+  const pageBottom = doc.page.height - M;
+  const subjectWeight = 2.7;
+  const u = W / (subjectWeight + 17); // template columns A (wide) + B..R
+  const subjW = subjectWeight * u;
+  /** Left edge of template column k (0 = A, 1 = B, … 17 = R, 18 = right edge). */
+  const X = (k: number) => (k === 0 ? M : M + subjW + (k - 1) * u);
+  const span = (from: number, to: number) => X(to + 1) - X(from);
+  const school = schoolLines(payload);
+  const tpl = payload.template ?? {};
+
+  // Header: logo on the left, ministry block on the right
+  let y = 24;
+  if (tpl.logo) {
+    try {
+      doc.image(tpl.logo, X(3), y, { fit: [86, 86] });
+    } catch {
+      // unsupported image: leave the space empty
+    }
+  }
+  const hx = X(10);
+  const hw = X(16) - hx;
+  const lines: Array<[string, number]> = [
+    ['REPUBLIC OF RWANDA', 11.5],
+    ['MINISTRY OF EDUCATION', 11.5],
+    [school.name, 11],
+    [school.district, 10],
+    [school.contact, 10],
+  ];
+  let hy = y + 6;
+  for (const [value, size] of lines) {
+    if (value) text(doc, value, hx, hy, hw + 2 * u, 14, { font: 'Helvetica-Bold', size, pad: 0 });
+    hy += 14;
+  }
+  y = Math.max(hy, y + 90) + 8;
+
+  // Title
+  text(doc, 'ANNUAL SCHOOL REPORT', X(0), y, span(0, 15), 24, { font: 'Times-Bold', size: 19, align: 'center' });
+  y += 26;
+  doubleRule(doc, X(0), y, W);
+  y += 12;
+
+  // Student details
+  const rh = 14;
+  const studentName = `${payload.student.firstName} ${payload.student.lastName}`.trim();
+  text(doc, "Student's name:", X(0), y, subjW, rh, { size: 8.5, align: 'right' });
+  cell(doc, X(1), y, span(1, 11), rh, studentName, { font: 'Helvetica-Bold', size: 9 });
+  text(doc, `School Year: ${payload.academicYear.name}`, X(12), y, span(12, 17), rh, { size: 8.5 });
+  y += rh;
+  text(doc, "Student's number:", X(0), y, subjW, rh, { size: 8.5, align: 'right' });
+  cell(doc, X(1), y, span(1, 11), rh, payload.student.studentCode, { size: 9 });
+  y += rh + 6;
+  text(doc, 'Class:', X(0), y, subjW, rh, { size: 8.5, align: 'right' });
+  text(doc, payload.classRoom.name || payload.classRoom.code, X(1), y, span(1, 6), rh, { font: 'Helvetica-Bold', size: 9 });
+  text(doc, 'Option:', X(10), y, u * 1.4, rh, { size: 8.5, align: 'right' });
+  text(doc, (tpl.option ?? '').toUpperCase(), X(11) + u * 0.4, y, span(11, 16), rh, { font: 'Times-Roman', size: 8.5 });
+  y += rh + 6;
+
+  // Table header (3 rows)
+  const tableTop = y;
+  const h1 = 11;
+  const bold = { font: 'Helvetica-Bold' as Font, size: 7.5, align: 'center' as Align };
+  cell(doc, X(0), y, subjW, h1 * 3, 'Subjects', { font: 'Helvetica-Bold', size: 8 });
+  cell(doc, X(1), y, span(1, 3), h1 * 2, 'MAX POINTS', bold);
+  ['1st TERM', '2nd TERM', '3rd TERM'].forEach((label, t) => {
+    const k = 4 + t * 3;
+    cell(doc, X(k), y, span(k, k + 2), h1, label, bold);
+    cell(doc, X(k), y + h1, span(k, k + 2), h1, 'O.P.', bold);
+  });
+  cell(doc, X(13), y, span(13, 15), h1, 'ANNUAL POINTS', bold);
+  cell(doc, X(13), y + h1, span(13, 14), h1, 'TOT', bold);
+  cell(doc, X(15), y + h1, u, h1 * 2, '%', bold);
+  cell(doc, X(16), y, span(16, 17), h1 * 2, '2nd SITTING', bold);
+  const y3 = y + h1 * 2;
+  for (let b = 0; b < 4; b += 1) {
+    ['TEST', 'EX', 'TOT'].forEach((label, i) => cell(doc, X(1 + b * 3 + i), y3, u, h1, label, bold));
+  }
+  cell(doc, X(13), y3, u, h1, 'MAX', bold);
+  cell(doc, X(14), y3, u, h1, 'O.P.', bold);
+  cell(doc, X(16), y3, u, h1, 'O.P.', bold);
+  cell(doc, X(17), y3, u, h1, '%', bold);
+  y += h1 * 3;
+
+  // Rows: Core Subjects, then the others
+  const coreKeys = new Set(tpl.coreSubjectKeys ?? []);
+  const isCore = (s: Subject) => coreKeys.has(subjectKey(s)) || coreKeys.has(s.subjectName);
+  const core = payload.subjects.filter(isCore);
+  const other = payload.subjects.filter(s => !isCore(s));
+  const groups: Array<{ label: string | null; items: Subject[] }> = core.length
+    ? [
+        { label: 'Core Subjects', items: core },
+        ...(other.length ? [{ label: 'Other Subjects', items: other }] : []),
+      ]
+    : [{ label: null, items: other }];
+
+  const groupRows = groups.filter(g => g.label).length;
+  const bodyRows = payload.subjects.length + groupRows + 3; // + TOTAL, %, Position
+  const afterTable = 2 * 16 + 12 + 7 * 12 + 10 + 14 + 3 * 18;
+  const rowH = Math.max(8, Math.min(12.5, (pageBottom - afterTable - y) / bodyRows));
+  const size = Math.min(7.5, rowH - 3);
+
+  // column totals: 0..2 max, 3..11 terms, 12 annual max, 13 annual o.p.
+  const totals: Array<number | null> = Array.from({ length: 14 }, () => null);
+  const termMaxTotals: Array<number | null> = [null, null, null];
+
+  for (const group of groups) {
+    if (group.label) {
+      cell(doc, X(0), y, W, rowH, group.label, { font: 'Helvetica-Bold', size: size + 0.5 });
+      y += rowH;
+    }
+    for (const subject of group.items) {
+      const terms = subject.yearlyTermBreakdown ?? [];
+      const first = terms.find(Boolean);
+      const maxTest = first ? first.caMax : null;
+      const maxEx = first ? first.examMax : null;
+      const values: Array<number | null> = [maxTest, maxEx, first ? first.caMax + first.examMax : null];
+      for (let t = 0; t < 3; t += 1) {
+        const term = terms[t];
+        values.push(term ? term.caObtained : null, term ? term.examObtained : null, term ? term.caObtained + term.examObtained : null);
+        if (term) termMaxTotals[t] = (termMaxTotals[t] ?? 0) + term.caMax + term.examMax;
+      }
+      const annualMax =
+        subject.yearlyTotalRawMax ?? (terms.length ? terms.reduce((a, t) => a + t.caMax + t.examMax, 0) : null);
+      const annualObt =
+        subject.yearlyTotalRawObtained ?? (terms.length ? terms.reduce((a, t) => a + t.caObtained + t.examObtained, 0) : null);
+      values.push(annualMax, annualObt);
+      addInto(totals, values);
+      const pct =
+        subject.yearlyTotalRawPercent ??
+        (annualMax && annualObt != null ? (annualObt / annualMax) * 100 : subject.yearlyAveragePercent ?? null);
+
+      cell(doc, X(0), y, subjW, rowH, subject.subjectName.toUpperCase(), { size });
+      values.forEach((v, i) => cell(doc, X(1 + i), y, u, rowH, fmt(v), { size, align: 'center' }));
+      cell(doc, X(15), y, u, rowH, pct != null ? pct.toFixed(1) : DASH, { size, align: 'center' });
+      cell(doc, X(16), y, u, rowH, DASH, { size, align: 'center' });
+      cell(doc, X(17), y, u, rowH, DASH, { size, align: 'center' });
+      y += rowH;
+    }
+  }
+
+  // TOTAL
+  const b = { font: 'Helvetica-Bold' as Font, size, align: 'center' as Align };
+  cell(doc, X(0), y, subjW, rowH, 'TOTAL', { font: 'Helvetica-Bold', size });
+  totals.forEach((v, i) => cell(doc, X(1 + i), y, u, rowH, fmt(v), b));
+  cell(doc, X(15), y, u, rowH, '');
+  cell(doc, X(16), y, span(16, 17), rowH, '');
+  y += rowH;
+
+  // %
+  cell(doc, X(0), y, subjW, rowH, '%', { font: 'Helvetica-Bold', size });
+  cell(doc, X(1), y, span(1, 3), rowH, '');
+  for (let t = 0; t < 3; t += 1) {
+    const k = 4 + t * 3;
+    const obt = totals[3 + t * 3 + 2];
+    const max = termMaxTotals[t];
+    cell(doc, X(k), y, span(k, k + 1), rowH, '');
+    cell(doc, X(k + 2), y, u, rowH, obt != null && max ? ((obt / max) * 100).toFixed(1) : '', b);
+  }
+  cell(doc, X(13), y, span(13, 14), rowH, '');
+  cell(doc, X(15), y, u, rowH, `${payload.totals.averagePercentage.toFixed(1)}`, b);
+  cell(doc, X(16), y, span(16, 17), rowH, '');
+  y += rowH;
+
+  // Position
+  const termInfo = (seq: number) => tpl.terms?.find(t => t.sequence === seq);
+  cell(doc, X(0), y, subjW, rowH, 'Position', { font: 'Helvetica-Bold', size });
+  cell(doc, X(1), y, span(1, 3), rowH, '');
+  for (let t = 0; t < 3; t += 1) {
+    const k = 4 + t * 3;
+    const info = termInfo(t + 1);
+    const value = info?.position ? `${info.position} / ${info.classSize ?? DASH}` : '';
+    cell(doc, X(k), y, span(k, k + 2), rowH, value, b);
+  }
+  cell(
+    doc,
+    X(13),
+    y,
+    span(13, 15),
+    rowH,
+    payload.totals.position ? `${payload.totals.position} / ${payload.totals.classSize}` : '',
+    b
+  );
+  cell(doc, X(16), y, span(16, 17), rowH, '');
+  y += rowH;
+
+  // Signatures (one box per term block)
+  for (const label of ["Teacher's signature", "Parent's signature"]) {
+    cell(doc, X(0), y, subjW, 16, label, { size: 7.5 });
+    cell(doc, X(1), y, span(1, 3), 16, '');
+    for (let t = 0; t < 4; t += 1) cell(doc, X(4 + t * 3), y, span(4 + t * 3, 6 + t * 3), 16, '');
+    cell(doc, X(16), y, span(16, 17), 16, '');
+    y += 16;
+  }
+
+  // thick separators between the blocks, and the outer frame
+  const tableBottom = y;
+  [1, 4, 7, 10, 13].forEach(k => line(doc, X(k), tableTop, X(k), tableBottom, 1.4));
+  line(doc, X(16) - 1.2, tableTop, X(16) - 1.2, tableBottom, 0.8);
+  line(doc, X(16) + 1.2, tableTop, X(16) + 1.2, tableBottom, 0.8);
+  line(doc, X(0), tableTop + h1 * 3, X(18), tableTop + h1 * 3, 1.2);
+  rect(doc, X(0), tableTop, W, tableBottom - tableTop, 1.6);
+
+  // Verdict of the jury
+  y += 12;
+  const vh = 12;
+  const verdictTop = y;
+  text(doc, 'VERDICT OF THE JURY', X(0), y, span(0, 2), vh, { font: 'Helvetica-Bold', size: 8.5, pad: 0 });
+  const verdicts = ['Promoted', 'Advised to repeat', 'Discontinued', 'Proposed to resit', '', '2nd sitting, promoted', '2nd sitting, advised to repeat'];
+  verdicts.forEach((label, i) => {
+    const ry = verdictTop + i * vh;
+    if (!label) return;
+    checkbox(doc, X(3) - 11, ry + 2.5, 7);
+    text(doc, label, X(3), ry, span(3, 8), vh, { size: 8 });
+  });
+  text(doc, 'Headmaster', X(9), verdictTop + 2 * vh, span(9, 14), vh, { size: 8.5 });
+  text(doc, '(Name, signature and stamp)', X(9), verdictTop + 3 * vh, span(9, 14), vh, { size: 8 });
+  y = verdictTop + verdicts.length * vh + 10;
+
+  // Observations and conduct
+  const oh = 18;
+  text(doc, 'OBSERVATIONS', X(0), y, subjW, 14, { font: 'Helvetica-Bold', size: 8.5, pad: 0 });
+  text(doc, 'CONDUCT', X(10), y, span(10, 13), 14, { font: 'Helvetica-Bold', size: 8.5 });
+  const obsTop = y + 14;
+  ['1st Term:', '2nd Term:', '3rd Term:'].forEach((label, i) => {
+    const ry = obsTop + i * oh;
+    const info = termInfo(i + 1);
+    text(doc, label, X(0), ry, subjW - 4, oh, { size: 8, align: 'right' });
+    rect(doc, X(1), ry, span(1, 8), oh, 0.5);
+    paragraph(doc, info?.observation ?? '', X(1), ry, span(1, 8), oh, 7.5);
+    text(doc, label, X(10), ry, span(10, 11), oh, { size: 8 });
+    text(doc, info?.conduct ?? '', X(12), ry, span(12, 13), oh, { font: 'Helvetica-Bold', size: 8 });
+  });
+  const totalRow = obsTop + 3 * oh;
+  text(doc, 'Total Annual:', X(10), totalRow, span(10, 11), oh, { size: 8 });
+  text(doc, payload.conduct?.grade ?? '', X(12), totalRow, span(12, 13), oh, { font: 'Helvetica-Bold', size: 8 });
+
+  if (qr) {
+    const qrSize = Math.min(span(15, 17) - 6, totalRow + oh - verdictTop - 4);
+    doc.image(qr, X(18) - qrSize - 3, verdictTop + 2, { fit: [qrSize, qrSize] });
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 /**
- * Official-style report card: full page width, bordered grid, with QR verification.
- * Layout matches the MoE / Smart School Rwanda paper form.
- * Yearly (three-term) cards use landscape A4 so the wide marks grid fits without clipping.
+ * Builds the report card PDF. Yearly results use the Annual School Report layout,
+ * every other term uses the Term Report layout (Mid Term Report for mid-term reports).
  */
 export function buildReportCardPdfBuffer(payload: ReportCardPayload): Promise<Buffer> {
-  return new Promise<Buffer>(async (resolve, reject) => {
-    // Generate QR code image first
-    let qrImageData: string | null = null;
-    if (payload.verificationUrl) {
-      try {
-        qrImageData = await qrCodeService.generateQrCodeDataUrl(payload.verificationUrl, {
-          width: 300,
-          margin: 2,
-        });
-        console.log('[PDF] QR generated, length:', qrImageData.length);
-      } catch (e) {
-        console.error('[PDF] QR generation failed:', e);
-      }
-    }
+  return buildReportCardsPdfBuffer([payload]);
+}
 
-    const yearlyLandscape = isYearlyThreeTermReport(payload);
-    const doc = new PDFDocument({
-      size: 'A4',
-      layout: yearlyLandscape ? 'landscape' : 'portrait',
-      margin: 0,
-    });
+/** Several report cards in one PDF, one page each (e.g. a whole class for printing). */
+export async function buildReportCardsPdfBuffer(payloads: ReportCardPayload[]): Promise<Buffer> {
+  const qrs = await Promise.all(payloads.map(p => makeQr(p.verificationUrl)));
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', layout: 'portrait', margin: 0, autoFirstPage: false });
     const chunks: Buffer[] = [];
-    const pageWidth = doc.page.width;
-    const pageHeight = doc.page.height;
-    const margin = 8;
-    const contentW = pageWidth - margin * 2;
-    const outerX = margin;
-    const school = payload.school ?? {};
-    const studentName = `${payload.student.firstName} ${payload.student.lastName}`.trim();
-    const schoolTitle = (school.displayName ?? payload.schoolName).toUpperCase();
-    const schoolCodeOrPhone = displayValue(
-      school.phone ?? school.registrationNumber ?? school.code
-    );
-    const district = displayValue(school.district);
-    const teacherComment = payload.metadata?.teacherComment ?? payload.totals.remark;
-    const conductText = payload.conduct
-      ? `${payload.conduct.grade}${payload.conduct.remark ? ` (${payload.conduct.remark})` : ''}`
-      : '';
-
     doc.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-
-    let y = margin;
-
-    const innerPad = 6;
-    drawOuterFrame(doc, outerX, margin, contentW, pageHeight);
-
-    const innerX = outerX + innerPad;
-    const innerW = contentW - innerPad * 2;
-    y += innerPad;
-
-    // —— Header: left block | right block (screenshot) ——
-    const headMid = innerW * 0.52;
-    const leftW = headMid;
-    const rightW = innerW - headMid;
-    const headH = 11;
-    drawText(doc, 'REPUBLIC OF RWANDA', innerX, y, leftW, { size: 9.5, bold: true });
-    drawText(doc, 'MINISTRY OF EDUCATION', innerX + headMid, y, rightW, {
-      size: 9.5,
-      bold: true,
-      align: 'right',
-    });
-    y += headH + 2;
-    drawText(doc, schoolTitle, innerX, y, leftW, { size: 10, bold: true });
-    drawText(doc, `School Year: ${payload.academicYear.name}`, innerX, y, innerW, {
-      size: 10,
-      bold: true,
-      align: 'right',
-    });
-    y += headH + 2;
-    drawText(doc, district, innerX, y, leftW, { size: 10, bold: true });
-    drawText(doc, payload.term.name, innerX, y, innerW, { size: 10, bold: true, align: 'right' });
-    y += headH + 2;
-    drawText(doc, schoolCodeOrPhone, innerX, y, leftW, { size: 10, bold: true });
-    y += headH + 6;
-
-    // REPORT CARD between double rules (full inner width)
-    drawDoubleRule(doc, innerX, y, innerW);
-    y += 6;
-    drawText(doc, 'REPORT CARD', innerX, y, innerW, { size: 14, bold: true, align: 'center' });
-    y += 18;
-    drawDoubleRule(doc, innerX, y, innerW);
-    y += 10;
-
-    // —— Student info: bordered rows (screenshot) ——
-    const bornStr = formatBorn(payload.student.dateOfBirth);
-    const row1H = 22;
-    const split = innerW * 0.58;
-    drawCell(doc, innerX, y, split, row1H, `Student Name: ${studentName}`, {
-      size: 9.5,
-      bold: false,
-      paddingY: 5,
-    });
-    drawCell(
-      doc,
-      innerX + split,
-      y,
-      innerW - split,
-      row1H,
-      `Class: ${(payload.classRoom.name || payload.classRoom.code).toUpperCase()}`,
-      {
-        size: 9.5,
-        bold: false,
-        paddingY: 5,
-      }
-    );
-    y += row1H;
-
-    const row2H = 22;
-    const bornPart = bornStr ? `${bornStr}` : '';
-    const positionText = payload.totals.position > 0 ? `Position: ${payload.totals.position}/${payload.totals.classSize}` : '';
-    const row2Text = `Born: ${bornPart || '        '} at ${'        '}    N. Students: ${payload.totals.classSize}    ${positionText}    Conduct: ${conductText || '        '}`;
-    drawCell(doc, innerX, y, innerW, row2H, row2Text, { size: 9, paddingY: 5 });
-    y += row2H;
-
-    const row3H = 20;
-    drawCell(doc, innerX, y, innerW, row3H, `ID No.: ${payload.student.studentCode}`, {
-      size: 9.5,
-      paddingY: 4,
-    });
-    y += row3H + 4;
-
-    const tableX = innerX;
-    const rowH = 22;
-    const headerFill = '#eeeeee';
-
-    if (yearlyLandscape) {
-      const weightsY = [
-        2.05,
-        ...Array.from({ length: 18 }, () => 0.52),
-        0.44,
-        0.4,
-        0.4,
-        0.4,
-        0.55,
-        1.9,
-      ];
-      const wSumY = weightsY.reduce((a, b) => a + b, 0);
-      const colWY = weightsY.map(w => (w / wSumY) * innerW);
-      const h0y = 11;
-      const h1y = 13;
-      const br0 = payload.subjects[0].yearlyTermBreakdown ?? [];
-      const termBandLabels: [string, string, string] = [
-        br0[0]?.termName?.trim() || 'Term 1',
-        br0[1]?.termName?.trim() || 'Term 2',
-        br0[2]?.termName?.trim() || 'Term 3',
-      ];
-      const headerH = drawYearlyTableHeader(
-        doc,
-        tableX,
-        y,
-        colWY,
-        headerFill,
-        h0y,
-        h1y,
-        termBandLabels
-      );
-      y += headerH;
-
-      let cx = tableX;
-
-      const accT: [number, number, number, number, number, number][] = [
-        [0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0],
-      ];
-      const nPerTerm = [0, 0, 0];
-      let sumYrAvg = 0;
-      let sumYrMax = 0;
-      let sumYrObt = 0;
-      let sumYrPct = 0;
-      let nYr = 0;
-
-      const addTermNums = (
-        ti: number,
-        t:
-          | {
-              caMax: number;
-              caObtained: number;
-              examMax: number;
-              examObtained: number;
-            }
-          | undefined
-      ) => {
-        if (!t) {
-          return;
-        }
-        nPerTerm[ti] += 1;
-        const mCat = t.caMax;
-        const mEx = t.examMax;
-        const mTot = mCat + mEx;
-        const oCat = t.caObtained;
-        const oEx = t.examObtained;
-        const oTot = oCat + oEx;
-        const row = accT[ti];
-        row[0] += mCat;
-        row[1] += mEx;
-        row[2] += mTot;
-        row[3] += oCat;
-        row[4] += oEx;
-        row[5] += oTot;
-      };
-
-      for (const subject of payload.subjects) {
-        const br = subject.yearlyTermBreakdown ?? [];
-        const t1 = br[0];
-        const t2 = br[1];
-        const t3 = br[2];
-        const s1 = yearlyTermBreakdownSixCells(t1);
-        const s2 = yearlyTermBreakdownSixCells(t2);
-        const s3 = yearlyTermBreakdownSixCells(t3);
-        const cells = [
-          subject.subjectName,
-          ...s1,
-          ...s2,
-          ...s3,
-          subject.yearlyAveragePercent != null ? subject.yearlyAveragePercent.toFixed(1) : '—',
-          subject.yearlyTotalRawMax != null ? String(subject.yearlyTotalRawMax) : '—',
-          subject.yearlyTotalRawObtained != null ? String(subject.yearlyTotalRawObtained) : '—',
-          subject.yearlyTotalRawPercent != null ? subject.yearlyTotalRawPercent.toFixed(1) : '—',
-          '—',
-          subject.remark || subject.grade,
-        ];
-        cx = tableX;
-        for (let i = 0; i < cells.length; i += 1) {
-          const isCommentsCol = i === 24;
-          drawCell(doc, cx, y, colWY[i], rowH, cells[i], {
-            size: i === 0 ? 8.5 : 8,
-            bold: i === 0,
-            align: i === 0 ? 'left' : 'center',
-            compact: i !== 0 && !isCommentsCol,
-          });
-          cx += colWY[i];
-        }
-        drawYearlyRowThickSeparators(doc, tableX, y, rowH, colWY);
-        y += rowH;
-
-        addTermNums(0, t1);
-        addTermNums(1, t2);
-        addTermNums(2, t3);
-        if (subject.yearlyAveragePercent != null) {
-          sumYrAvg += subject.yearlyAveragePercent;
-          nYr += 1;
-        }
-        if (subject.yearlyTotalRawMax != null) {
-          sumYrMax += subject.yearlyTotalRawMax;
-        }
-        if (subject.yearlyTotalRawObtained != null) {
-          sumYrObt += subject.yearlyTotalRawObtained;
-        }
-        if (subject.yearlyTotalRawPercent != null) {
-          sumYrPct += subject.yearlyTotalRawPercent;
-        }
-
-        if (y > pageHeight - margin - 160) {
-          doc.addPage();
-          drawOuterFrame(doc, outerX, margin, contentW, pageHeight);
-          y = margin + innerPad;
-        }
-      }
-
-      const avgY = nYr ? sumYrAvg / nYr : 0;
-      const nYrMax = payload.subjects.filter(s => s.yearlyTotalRawMax != null).length;
-      const nYrObt = payload.subjects.filter(s => s.yearlyTotalRawObtained != null).length;
-      const nYrPct = payload.subjects.filter(s => s.yearlyTotalRawPercent != null).length;
-      const totCells = [
-        'Avg',
-        ...accT.flatMap((row, ti) =>
-          nPerTerm[ti]
-            ? row.map(v => (v / nPerTerm[ti]).toFixed(1))
-            : ['—', '—', '—', '—', '—', '—']
-        ),
-        avgY.toFixed(1),
-        nYrMax ? (sumYrMax / nYrMax).toFixed(1) : '—',
-        nYrObt ? (sumYrObt / nYrObt).toFixed(1) : '—',
-        nYrPct ? (sumYrPct / nYrPct).toFixed(1) : '—',
-        '—',
-        '',
-      ];
-      cx = tableX;
-      for (let i = 0; i < totCells.length; i += 1) {
-        drawCell(doc, cx, y, colWY[i], rowH, totCells[i], {
-          fillColor: '#f0f0f0',
-          bold: true,
-          size: 8.5,
-          align: i === 0 ? 'left' : 'center',
-          compact: i !== 0 && i !== 24,
-        });
-        cx += colWY[i];
-      }
-      drawYearlyRowThickSeparators(doc, tableX, y, rowH, colWY);
-      y += rowH;
-
-      const avgRow = [
-        'Avg',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        `${payload.totals.averagePercentage.toFixed(1)}`,
-        '',
-        '',
-        '',
-        `${payload.totals.position}/${payload.totals.classSize}`,
-        payload.totals.grade,
-      ];
-      cx = tableX;
-      for (let i = 0; i < avgRow.length; i += 1) {
-        drawCell(doc, cx, y, colWY[i], rowH, avgRow[i], {
-          fillColor: '#fafafa',
-          bold: i === 0,
-          size: 7.8,
-          align: i === 0 ? 'left' : 'center',
-          compact: i !== 0 && i !== 24,
-        });
-        cx += colWY[i];
-      }
-      drawYearlyRowThickSeparators(doc, tableX, y, rowH, colWY);
-      y += rowH + 6;
-
-      const leftObsW =
-        colWY[0] +
-        colWY[1] +
-        colWY[2] +
-        colWY[3] +
-        colWY[4] +
-        colWY[5] +
-        colWY[6] +
-        colWY[7] +
-        colWY[8] +
-        colWY[9] +
-        colWY[10] +
-        colWY[11] +
-        colWY[12] +
-        colWY[13] +
-        colWY[14] +
-        colWY[15] +
-        colWY[16] +
-        colWY[17] +
-        colWY[18] +
-        colWY[19] +
-        colWY[20] +
-        colWY[21] +
-        colWY[22];
-      const rightSigW = colWY[23] + colWY[24];
-      const headSig = 20;
-      
-      // For yearly, use same one-row structure: Observations | Teacher | Head Teacher | Parent | QR
-      // Footer spans full table width
-      const totalTableWidth = colWY.reduce((a, b) => a + b, 0);
-      const footerColCount = 5;
-      const footerColWidth = totalTableWidth / footerColCount;
-      
-      const sigRowH = 18;
-      const bodyH = 40;
-      
-      // ONE Header row with all 5 columns
-      drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
-      y += sigRowH;
-
-      // ONE Value row below
-      drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
-      drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-      drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
-      drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-      // QR in last column - draw cell for borders, then overlay QR image
-      const qrCellX = tableX + footerColWidth * 4;
-      drawCell(doc, qrCellX, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-      if (qrImageData) {
-        const qrSize = 26;
-        const qrX = qrCellX + (footerColWidth - qrSize) / 2;
-        const qrY = y + (bodyH - qrSize) / 2;
-        doc.image(qrImageData, qrX, qrY, { fit: [qrSize, qrSize] });
-      }
-      y += bodyH;
-
+    try {
+      payloads.forEach((payload, i) => {
+        doc.addPage({ size: 'A4', layout: 'portrait', margin: 0 });
+        if (isYearlyReport(payload)) drawAnnualReport(doc, payload, qrs[i]);
+        else drawTermReport(doc, payload, qrs[i]);
+      });
       doc.end();
-      return;
+    } catch (error) {
+      reject(error);
     }
-
-    // —— Grades table: [max CAT|EXAM|TOTAL] | [obt CAT|EXAM|TOTAL] | Rank | Comments ——
-    const weights = [2.0, 0.54, 0.54, 0.54, 0.54, 0.54, 0.54, 0.58, 1.88];
-    const wSum = weights.reduce((a, b) => a + b, 0);
-    const colW = weights.map(w => (w / wSum) * innerW);
-    const termHeaderH = 26;
-    const sepXTerm = tableX + colW[0] + colW[1] + colW[2] + colW[3];
-    y += drawTermTableHeader(doc, tableX, y, colW, headerFill, termHeaderH);
-    const tableStartY = y;
-
-    let cx = tableX;
-
-    const acc = { mCat: 0, mEx: 0, mTot: 0, oCat: 0, oEx: 0, oTot: 0 };
-    let nAcc = 0;
-
-    for (const subject of payload.subjects) {
-      const catEx = subject.exams?.find(e => e.examType === 'CAT');
-      const exPaper = subject.exams?.find(e => e.examType === 'EXAM');
-      const useRawMarks = Boolean(
-        catEx &&
-        exPaper &&
-        catEx.marksObtained != null &&
-        exPaper.marksObtained != null &&
-        catEx.totalMarks > 0 &&
-        exPaper.totalMarks > 0
-      );
-
-      const caPct = subject.continuousAssessmentPercent ?? null;
-      const exPct = subject.examPercent ?? null;
-      const totPct = subject.finalPercent ?? subject.averagePercentage;
-
-      const { cells: six, nums } = termMaxObtSixColumns(
-        catEx,
-        exPaper,
-        useRawMarks,
-        caPct,
-        exPct,
-        totPct
-      );
-      if (nums) {
-        acc.mCat += nums.mCat;
-        acc.mEx += nums.mEx;
-        acc.mTot += nums.mTot;
-        acc.oCat += nums.oCat;
-        acc.oEx += nums.oEx;
-        acc.oTot += nums.oTot;
-        nAcc += 1;
-      }
-
-      const cells = [subject.subjectName, ...six, '—', subject.remark || subject.grade];
-      cx = tableX;
-      for (let i = 0; i < cells.length; i += 1) {
-        drawCell(doc, cx, y, colW[i], rowH, cells[i], {
-          size: i === 0 ? 8.5 : 8,
-          bold: i === 0,
-          align: i === 0 ? 'left' : 'center',
-          compact: i !== 0 && i !== 8,
-        });
-        cx += colW[i];
-      }
-      drawThickColumnSeparator(doc, sepXTerm, y, rowH);
-      y += rowH;
-
-      if (y > pageHeight - margin - 180) {
-        doc.addPage();
-        drawOuterFrame(doc, outerX, margin, contentW, pageHeight);
-        y = margin + innerPad;
-      }
-    }
-
-    // Total row - shows column sums (not averages)
-    const totalCells = [
-      'Total',
-      nAcc ? String(acc.mCat) : '—',
-      nAcc ? String(acc.mEx) : '—',
-      nAcc ? String(acc.mTot) : '—',
-      nAcc ? String(acc.oCat) : '—',
-      nAcc ? String(acc.oEx) : '—',
-      nAcc ? String(acc.oTot) : '—',
-      '',
-      '',
-    ];
-    cx = tableX;
-    for (let i = 0; i < totalCells.length; i += 1) {
-      drawCell(doc, cx, y, colW[i], rowH, totalCells[i], {
-        fillColor: '#e0e0e0',
-        bold: true,
-        size: 8,
-        align: i === 0 ? 'left' : 'center',
-        compact: i !== 0,
-      });
-      cx += colW[i];
-    }
-    drawThickColumnSeparator(doc, sepXTerm, y, rowH);
-    y += rowH;
-
-    // Average row - shows average percentage, position and grade
-    const avgCells = [
-      'Average',
-      '',
-      '',
-      '',
-      '',
-      '',
-      nAcc ? (acc.oTot / nAcc).toFixed(1) : '—',
-      `${payload.totals.position}/${payload.totals.classSize}`,
-      payload.totals.grade,
-    ];
-    cx = tableX;
-    for (let i = 0; i < avgCells.length; i += 1) {
-      drawCell(doc, cx, y, colW[i], rowH, avgCells[i], {
-        fillColor: '#fafafa',
-        bold: i === 0,
-        size: 8,
-        align: i === 0 ? 'left' : 'center',
-        compact: i !== 0,
-      });
-      cx += colW[i];
-    }
-    drawThickColumnSeparator(doc, sepXTerm, y, rowH);
-    y += rowH + 6;
-
-    const tableEndY = y;
-    const tableHeight = tableEndY - tableStartY;
-    if (tableHeight > 0) {
-      const tableWidth = innerX + innerW - tableX;
-      drawBox(doc, tableX, tableStartY, tableWidth, tableHeight, undefined, 1);
-    }
-
-    // Footer: All in ONE row - Observations | Parent | Teacher | Head Teacher | QR
-    // Footer spans full table width
-    const totalTableWidth = colW.reduce((a, b) => a + b, 0);
-    const footerColCount = 5;
-    const footerColWidth = totalTableWidth / footerColCount;
-    
-    const sigRowH = 18;
-    const bodyH = 40;
-    
-    // ONE Header row with all 5 columns
-    drawCell(doc, tableX, y, footerColWidth, sigRowH, 'Observations', { bold: true, size: 8, paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth, y, footerColWidth, sigRowH, 'Parent', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, sigRowH, 'Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, sigRowH, 'Head Teacher', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    drawCell(doc, tableX + footerColWidth * 4, y, footerColWidth, sigRowH, 'QR', { bold: true, size: 8, align: 'center', paddingY: 2 });
-    y += sigRowH;
-
-    // ONE Value row below
-    drawCell(doc, tableX, y, footerColWidth, bodyH, teacherComment, { size: 7.5, paddingY: 4 });
-    drawCell(doc, tableX + footerColWidth, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-    drawCell(doc, tableX + footerColWidth * 2, y, footerColWidth, bodyH, displayValue(payload.metadata?.classTeacherName), { size: 7, align: 'center', paddingY: 15 });
-    drawCell(doc, tableX + footerColWidth * 3, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-    // QR in the last column - draw cell for borders, then overlay QR image
-    const qrCellX = tableX + footerColWidth * 4;
-    drawCell(doc, qrCellX, y, footerColWidth, bodyH, '', { size: 7, align: 'center', paddingY: 15 });
-    if (qrImageData) {
-      const qrSize = 26;
-      const qrX = qrCellX + (footerColWidth - qrSize) / 2;
-      const qrY = y + (bodyH - qrSize) / 2;
-      doc.image(qrImageData, qrX, qrY, { fit: [qrSize, qrSize] });
-    }
-    y += bodyH;
-
-    doc.end();
   });
 }

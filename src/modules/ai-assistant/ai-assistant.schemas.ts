@@ -23,7 +23,7 @@ export const sendAiMessageSchema = z
     }
   });
 
-/** School admin settings. `apiKey` is write-only: it is checked, encrypted and never returned. */
+/** Platform (super admin) settings, shared by all schools. `apiKey` is write-only: it is checked, encrypted and never returned. */
 export const updateAiSettingsSchema = z
   .object({
     apiKey: z
@@ -36,6 +36,7 @@ export const updateAiSettingsSchema = z
     model: z.enum(['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1']).optional(),
     enabled: z.boolean().optional(),
     dailyLimitPerStudent: z.number().int().min(1).max(1000).optional(),
+    dailyLimitPerTeacher: z.number().int().min(1).max(1000).optional(),
   })
   .strict();
 

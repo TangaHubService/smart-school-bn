@@ -118,6 +118,19 @@ export const reportCardsQuerySchema = z.object({
   academicYearId: z.string().uuid().optional(),
 });
 
+/** Mid-term progress report: built live from the marks entered so far in the term. */
+export const midTermReportQuerySchema = z.object({
+  termId: z.string().uuid(),
+  classRoomId: z.string().uuid(),
+  /** Only one student (omit for the whole class, one page per student). */
+  studentId: z.string().uuid().optional(),
+  /** Only exams dated on or before this day (exams without a date are included). */
+  upTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
+    .optional(),
+});
+
 /** Admin listing: mixed report-card snapshots for a tenant. */
 export const reportCardsCatalogQuerySchema = z.object({
   /** Omit to list report cards across all academic years (still paginated). */
@@ -195,6 +208,7 @@ export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
 export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
 export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
+export type MidTermReportQueryInput = z.infer<typeof midTermReportQuerySchema>;
 export type ReportCardsCatalogQueryInput = z.infer<typeof reportCardsCatalogQuerySchema>;
 export type MyExamScheduleQueryInput = z.infer<typeof myExamScheduleQuerySchema>;
 export type ParentReportCardsQueryInput = z.infer<typeof parentReportCardsQuerySchema>;

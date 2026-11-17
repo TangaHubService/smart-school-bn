@@ -8,9 +8,14 @@ import { validateBody } from '../../common/middleware/validate.middleware';
 import { asyncHandler } from '../../common/utils/async-handler';
 import { sendSuccess } from '../../common/utils/response';
 import { PERMISSIONS } from '../../constants/permissions';
-import { createConversationSchema, sendAiMessageSchema, updateAiSettingsSchema } from './ai-assistant.schemas';
+import { createConversationSchema, sendAiMessageSchema } from './ai-assistant.schemas';
 import { AiAssistantService } from './ai-assistant.service';
-import { draftLessonPlanSchema, generateAssessmentQuestionsSchema } from './ai-teacher.schemas';
+import {
+  assessmentPrepSchema,
+  draftLessonPlanSchema,
+  generateAssessmentQuestionsSchema,
+  generateStudyMaterialSchema,
+} from './ai-teacher.schemas';
 import { AiTeacherService } from './ai-teacher.service';
 
 const service = new AiAssistantService();
@@ -18,31 +23,6 @@ const teacherService = new AiTeacherService();
 export const aiAssistantRoutes = Router();
 
 aiAssistantRoutes.use('/ai', authenticate, enforceTenant);
-
-// School admins add their school's OpenAI key and choose limits.
-const manageSettings = requirePermissions([PERMISSIONS.SCHOOL_SETUP_MANAGE]);
-
-aiAssistantRoutes.get(
-  '/ai/settings',
-  manageSettings,
-  asyncHandler(async (req: Request, res: Response) => sendSuccess(req, res, await service.getSettings(req.tenantId!)))
-);
-
-aiAssistantRoutes.put(
-  '/ai/settings',
-  manageSettings,
-  validateBody(updateAiSettingsSchema),
-  asyncHandler(async (req: Request, res: Response) => {
-    const input = updateAiSettingsSchema.parse(req.body);
-    return sendSuccess(req, res, await service.updateSettings(req.tenantId!, input, req.user!));
-  })
-);
-
-aiAssistantRoutes.delete(
-  '/ai/settings/key',
-  manageSettings,
-  asyncHandler(async (req: Request, res: Response) => sendSuccess(req, res, await service.removeKey(req.tenantId!, req.user!)))
-);
 
 // Teacher tools: AI drafts lesson plans and test questions. The teacher edits before saving.
 aiAssistantRoutes.use(
@@ -53,7 +33,36 @@ aiAssistantRoutes.use(
 
 aiAssistantRoutes.get(
   '/ai/teacher/status',
-  asyncHandler(async (req: Request, res: Response) => sendSuccess(req, res, await teacherService.getStatus(req.tenantId!)))
+  asyncHandler(async (req: Request, res: Response) =>
+    sendSuccess(req, res, await teacherService.getStatus(req.tenantId!, req.user!))
+  )
+);
+
+// Knowledge base = the teacher's own courses and lessons, used as the AI's source material.
+aiAssistantRoutes.get(
+  '/ai/teacher/knowledge-base',
+  asyncHandler(async (req: Request, res: Response) =>
+    sendSuccess(req, res, await teacherService.getKnowledgeBase(req.tenantId!, req.user!))
+  )
+);
+
+aiAssistantRoutes.post(
+  '/ai/teacher/study-material',
+  validateBody(generateStudyMaterialSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = generateStudyMaterialSchema.parse(req.body);
+    return sendSuccess(req, res, await teacherService.generateStudyMaterial(req.tenantId!, input, req.user!));
+  })
+);
+
+aiAssistantRoutes.post(
+  '/ai/teacher/assessment-prep',
+  requirePermissions([PERMISSIONS.ASSESSMENTS_MANAGE]),
+  validateBody(assessmentPrepSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const input = assessmentPrepSchema.parse(req.body);
+    return sendSuccess(req, res, await teacherService.prepareAssessment(req.tenantId!, input, req.user!));
+  })
 );
 
 aiAssistantRoutes.post(

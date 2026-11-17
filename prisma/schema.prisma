@@ -2302,6 +2302,23 @@ model TicketAttachment {
 }
 
 /// Per-school AI assistant settings, managed by the school admin.
+/// Platform-wide AI settings (one row, id "platform"). Managed by SUPER_ADMIN only;
+/// every school uses this OpenAI key. TenantAiSettings below is kept for history but unused.
+model PlatformAiSettings {
+  id                    String   @id @default("platform")
+  /// OpenAI key encrypted with secret-box (never returned by the API).
+  openaiApiKeyEncrypted String?
+  keyLast4              String?
+  model                 String   @default("gpt-4o-mini")
+  enabled               Boolean  @default(true)
+  dailyLimitPerStudent  Int      @default(100)
+  dailyLimitPerTeacher  Int      @default(50)
+  updatedByUserId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+/// DEPRECATED: per-school settings, replaced by PlatformAiSettings. Not read anymore.
 model TenantAiSettings {
   tenantId              String   @id
   /// OpenAI key encrypted with secret-box (never returned by the API).

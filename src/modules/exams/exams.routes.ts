@@ -156,6 +156,12 @@ examsRoutes.get(
 );
 
 examsRoutes.get(
+  '/report-cards/mid-term/pdf',
+  requirePermissions([PERMISSIONS.REPORT_CARDS_READ]),
+  asyncHandler((req, res) => examsController.downloadMidTermReportCardsPdf(req, res))
+);
+
+examsRoutes.get(
   '/report-cards/students/:studentId',
   requirePermissions([PERMISSIONS.REPORT_CARDS_READ]),
   asyncHandler((req, res) => examsController.getStudentReportCards(req, res))

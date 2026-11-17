@@ -33,6 +33,7 @@ import { academicYearPreferenceRoutes } from '../modules/academic-year-preferenc
 import { lessonPlansRoutes } from '../modules/lesson-plans/lesson-plans.routes';
 import { chatRoutes } from '../modules/chat/chat.routes';
 import { aiAssistantRoutes } from '../modules/ai-assistant/ai-assistant.routes';
+import { platformAiRoutes } from '../modules/ai-assistant/platform-ai.routes';
 import { supportRoutes } from '../modules/support/support.routes';
 import { activityLogsRouter } from '../modules/activity-logs/activity.routes';
 import { env } from '../config/env';
@@ -62,6 +63,8 @@ apiRouter.use('/', supportRoutes);
 // ---------------------------------------------------------------------------
 // AUTHENTICATED SECTION
 // ---------------------------------------------------------------------------
+// Super admin only, no tenant: mounted before any router with a blanket enforceTenant.
+apiRouter.use('/platform/ai', platformAiRoutes);
 apiRouter.use('/', usersRoutes);
 apiRouter.use('/', auditRoutes);
 apiRouter.use('/', subscriptionsRoutes);

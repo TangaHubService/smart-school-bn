@@ -12,6 +12,7 @@ import {
   parentReportCardsQuerySchema,
   reportCardsCatalogQuerySchema,
   reportCardsQuerySchema,
+  midTermReportQuerySchema,
 } from './exams.schemas';
 
 const examsService = new ExamsService();
@@ -207,6 +208,14 @@ export class ExamsController {
     const query = parentReportCardsQuerySchema.parse(req.query);
     const result = await examsService.getParentReportCards(req.tenantId!, req.user!, query);
     return sendSuccess(req, res, result);
+  }
+
+  async downloadMidTermReportCardsPdf(req: Request, res: Response) {
+    const query = midTermReportQuerySchema.parse(req.query);
+    const result = await examsService.getMidTermReportCardsPdf(req.tenantId!, req.user!, query);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${result.fileName}"`);
+    return res.status(200).send(result.buffer);
   }
 
   async downloadStudentReportCardPdf(req: Request, res: Response) {

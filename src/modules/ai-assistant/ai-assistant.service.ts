@@ -9,7 +9,20 @@ import { prisma } from '../../db/prisma';
 import { LmsService } from '../lms/lms.service';
 import { CreateConversationInput, SendAiMessageInput, UpdateAiSettingsInput } from './ai-assistant.schemas';
 
-export type AiConfig = { apiKey: string | null; model: string; enabled: boolean; dailyLimit: number; source: 'school' | 'platform' | 'none' };
+export type AiConfig = {
+  apiKey: string | null;
+  model: string;
+  enabled: boolean;
+  /** Questions per student per day. */
+  dailyLimit: number;
+  /** AI requests per teacher per day. */
+  teacherDailyLimit: number;
+  source: 'platform' | 'env' | 'none';
+};
+
+/** The single PlatformAiSettings row. */
+const PLATFORM_ID = 'platform';
+const DEFAULT_TEACHER_DAILY_LIMIT = 50;
 
 const log = rootLogger.child({ module: 'ai-assistant' });
 
@@ -57,22 +70,24 @@ export class AiAssistantService {
   private readonly lms = new LmsService();
 
   /**
-   * The school's own key (added by its admin) wins; the platform key in .env is only a
-   * fallback. A school admin can also switch the assistant off for their school.
+   * One platform-wide configuration, managed by the super admin, is shared by every school.
+   * The OPENAI_API_KEY in .env is only a fallback when no key has been saved in the app.
+   * `tenantId` is kept in the signature so callers stay school-aware if limits ever differ.
    */
-  async resolveConfig(tenantId: string): Promise<AiConfig> {
-    const settings = await prisma.tenantAiSettings.findUnique({ where: { tenantId } });
-    const schoolKey = settings?.openaiApiKeyEncrypted ? decryptSecret(settings.openaiApiKeyEncrypted) : null;
-    if (settings?.openaiApiKeyEncrypted && !schoolKey) {
-      log.error({ tenantId }, 'Stored OpenAI key could not be decrypted (encryption key changed?)');
+  async resolveConfig(_tenantId?: string): Promise<AiConfig> {
+    const settings = await prisma.platformAiSettings.findUnique({ where: { id: PLATFORM_ID } });
+    const savedKey = settings?.openaiApiKeyEncrypted ? decryptSecret(settings.openaiApiKeyEncrypted) : null;
+    if (settings?.openaiApiKeyEncrypted && !savedKey) {
+      log.error('Stored platform OpenAI key could not be decrypted (encryption key changed?)');
     }
-    const apiKey = schoolKey ?? env.OPENAI_API_KEY ?? null;
+    const apiKey = savedKey ?? env.OPENAI_API_KEY ?? null;
     return {
       apiKey,
       model: settings?.model ?? env.OPENAI_MODEL,
       enabled: (settings?.enabled ?? true) && Boolean(apiKey),
       dailyLimit: settings?.dailyLimitPerStudent ?? env.AI_ASSISTANT_DAILY_LIMIT,
-      source: schoolKey ? 'school' : env.OPENAI_API_KEY ? 'platform' : 'none',
+      teacherDailyLimit: settings?.dailyLimitPerTeacher ?? DEFAULT_TEACHER_DAILY_LIMIT,
+      source: savedKey ? 'platform' : env.OPENAI_API_KEY ? 'env' : 'none',
     };
   }
 
@@ -81,29 +96,32 @@ export class AiAssistantService {
     return { enabled: config.enabled, model: config.model, dailyLimit: config.dailyLimit };
   }
 
-  // ---- School admin settings -------------------------------------------------
+  // ---- Super admin (platform) settings ---------------------------------------
 
-  async getSettings(tenantId: string) {
-    const settings = await prisma.tenantAiSettings.findUnique({ where: { tenantId } });
-    const config = await this.resolveConfig(tenantId);
+  async getSettings() {
+    const settings = await prisma.platformAiSettings.findUnique({ where: { id: PLATFORM_ID } });
+    const config = await this.resolveConfig();
     return {
       hasKey: Boolean(settings?.openaiApiKeyEncrypted),
       keyLast4: settings?.keyLast4 ?? null,
       model: config.model,
       enabled: settings?.enabled ?? true,
       dailyLimitPerStudent: config.dailyLimit,
-      usingPlatformKey: config.source === 'platform',
+      dailyLimitPerTeacher: config.teacherDailyLimit,
+      usingEnvKey: config.source === 'env',
+      active: config.enabled,
       updatedAt: settings?.updatedAt ?? null,
     };
   }
 
-  async updateSettings(tenantId: string, input: UpdateAiSettingsInput, actor: JwtUser) {
-    const current = await prisma.tenantAiSettings.findUnique({ where: { tenantId } });
+  async updateSettings(input: UpdateAiSettingsInput, actor: JwtUser) {
+    const current = await prisma.platformAiSettings.findUnique({ where: { id: PLATFORM_ID } });
     const model = input.model ?? current?.model ?? env.OPENAI_MODEL;
     const data: Record<string, unknown> = { updatedByUserId: actor.sub };
     if (input.model !== undefined) data.model = input.model;
     if (input.enabled !== undefined) data.enabled = input.enabled;
     if (input.dailyLimitPerStudent !== undefined) data.dailyLimitPerStudent = input.dailyLimitPerStudent;
+    if (input.dailyLimitPerTeacher !== undefined) data.dailyLimitPerTeacher = input.dailyLimitPerTeacher;
 
     if (input.apiKey) {
       // Check the key works (and can use the chosen model) before saving it.
@@ -115,22 +133,22 @@ export class AiAssistantService {
       if (key) await this.verifyKey(key, model);
     }
 
-    await prisma.tenantAiSettings.upsert({
-      where: { tenantId },
-      create: { tenantId, ...data },
+    await prisma.platformAiSettings.upsert({
+      where: { id: PLATFORM_ID },
+      create: { id: PLATFORM_ID, ...data },
       update: data,
     });
-    log.info({ tenantId, actorUserId: actor.sub, keyChanged: Boolean(input.apiKey) }, 'AI settings updated');
-    return this.getSettings(tenantId);
+    log.info({ actorUserId: actor.sub, keyChanged: Boolean(input.apiKey) }, 'Platform AI settings updated');
+    return this.getSettings();
   }
 
-  async removeKey(tenantId: string, actor: JwtUser) {
-    await prisma.tenantAiSettings.updateMany({
-      where: { tenantId },
+  async removeKey(actor: JwtUser) {
+    await prisma.platformAiSettings.updateMany({
+      where: { id: PLATFORM_ID },
       data: { openaiApiKeyEncrypted: null, keyLast4: null, updatedByUserId: actor.sub },
     });
-    log.info({ tenantId, actorUserId: actor.sub }, 'AI key removed');
-    return this.getSettings(tenantId);
+    log.info({ actorUserId: actor.sub }, 'Platform AI key removed');
+    return this.getSettings();
   }
 
   /** Asks OpenAI about the model with this key: proves the key is valid and has access. */
@@ -259,7 +277,7 @@ export class AiAssistantService {
   async sendMessage(tenantId: string, id: string, input: SendAiMessageInput, actor: JwtUser) {
     const config = await this.resolveConfig(tenantId);
     if (!config.enabled || !config.apiKey) {
-      throw new AppError(503, 'AI_NOT_CONFIGURED', 'The AI assistant is not switched on for your school yet. Ask your school administrator.');
+      throw new AppError(503, 'AI_NOT_CONFIGURED', 'The AI assistant is not available right now. Please try again later or contact support.');
     }
     const conversation = await this.loadOwnConversation(tenantId, id, actor);
 
@@ -378,7 +396,7 @@ export class AiAssistantService {
         throw new AppError(503, 'AI_BUSY', 'The AI assistant is busy right now. Please try again in a minute.');
       }
       if (response.status === 401) {
-        throw new AppError(503, 'AI_NOT_CONFIGURED', 'Your school\'s OpenAI key is no longer valid. Ask your school administrator to update it.');
+        throw new AppError(503, 'AI_NOT_CONFIGURED', 'The AI service key is no longer valid. Please contact support so the platform administrator can update it.');
       }
       throw new AppError(502, 'AI_UNAVAILABLE', 'The AI assistant could not answer. Please try again.');
     }

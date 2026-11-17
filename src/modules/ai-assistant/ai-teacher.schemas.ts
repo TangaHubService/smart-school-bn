@@ -36,3 +36,36 @@ export const generateAssessmentQuestionsSchema = z
 
 export type DraftLessonPlanInput = z.infer<typeof draftLessonPlanSchema>;
 export type GenerateAssessmentQuestionsInput = z.infer<typeof generateAssessmentQuestionsSchema>;
+
+export const STUDY_MATERIAL_FORMATS = ['summary', 'revision-notes', 'key-terms', 'study-guide'] as const;
+
+/** Teacher asks for study material summarized from their course content (the knowledge base). */
+export const generateStudyMaterialSchema = z
+  .object({
+    courseId: z.string().uuid(),
+    /** Lessons to summarize. Empty = every lesson in the course. */
+    lessonIds: z.array(z.string().uuid()).max(40).default([]),
+    format: z.enum(STUDY_MATERIAL_FORMATS).default('summary'),
+    instructions: z.string().trim().max(1000).optional(),
+    language: z.enum(['en', 'fr', 'rw']).default('en'),
+  })
+  .strict();
+
+/**
+ * Assessment preparation from the knowledge base, before any assessment exists: draft
+ * questions with an answer key. Saving goes through the normal assessments API.
+ */
+export const assessmentPrepSchema = z
+  .object({
+    courseId: z.string().uuid(),
+    lessonIds: z.array(z.string().uuid()).max(40).default([]),
+    count: z.number().int().min(1).max(20).default(10),
+    types: z.array(z.enum(AI_QUESTION_TYPES)).min(1).default(['MCQ_SINGLE', 'OPEN_TEXT']),
+    difficulty: z.enum(['easy', 'medium', 'hard', 'mixed']).default('mixed'),
+    instructions: z.string().trim().max(1000).optional(),
+    language: z.enum(['en', 'fr', 'rw']).default('en'),
+  })
+  .strict();
+
+export type GenerateStudyMaterialInput = z.infer<typeof generateStudyMaterialSchema>;
+export type AssessmentPrepInput = z.infer<typeof assessmentPrepSchema>;

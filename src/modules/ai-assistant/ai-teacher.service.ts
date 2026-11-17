@@ -8,8 +8,11 @@ import { teacherTeachesClassSubject } from '../lesson-plans/lesson-plans.service
 import { AiAssistantService, AiConfig, stripHtml } from './ai-assistant.service';
 import {
   AI_QUESTION_TYPES,
+  AssessmentPrepInput,
   DraftLessonPlanInput,
   GenerateAssessmentQuestionsInput,
+  GenerateStudyMaterialInput,
+  STUDY_MATERIAL_FORMATS,
 } from './ai-teacher.schemas';
 
 const log = rootLogger.child({ module: 'ai-teacher' });
@@ -20,6 +23,38 @@ const MAX_LESSON_CONTEXT_CHARS = 14_000;
 const TEACHER_TOOLS_CONVERSATION_TITLE = 'Teacher planning tools';
 
 const LANGUAGE_NAMES = { en: 'English', fr: 'French', rw: 'Kinyarwanda' } as const;
+
+/** Course text sent for study material / assessment prep (a whole course can be long). */
+const MAX_KNOWLEDGE_CONTEXT_CHARS = 24_000;
+
+const STUDY_FORMAT_PROMPTS: Record<(typeof STUDY_MATERIAL_FORMATS)[number], { label: string; prompt: string }> = {
+  summary: {
+    label: 'Summary',
+    prompt:
+      'Write a clear summary for learners: a short overview paragraph, then one "##" section per lesson with the key ideas as bullet points, and finish with "## Key takeaways" (3-5 bullets).',
+  },
+  'revision-notes': {
+    label: 'Revision notes',
+    prompt:
+      'Write concise revision notes learners can study before a test: headings per topic, bullet points, important definitions in bold, formulas or rules on their own line, and a short "Common mistakes" list at the end.',
+  },
+  'key-terms': {
+    label: 'Key terms',
+    prompt:
+      'Write a glossary of the key terms and concepts: a Markdown table with columns Term | Meaning | Example, grouped by lesson with "##" headings. Use simple language for the class level.',
+  },
+  'study-guide': {
+    label: 'Study guide',
+    prompt:
+      'Write a study guide: "## What you will learn" (objectives), "## Key ideas" per lesson, "## Worked examples" (2-3 step-by-step), "## Practice questions" (5 questions) and "## Answers" at the end.',
+  },
+};
+
+const STUDY_SYSTEM_PROMPT = `You are an experienced teacher and curriculum specialist in Rwanda (Competence-Based Curriculum) helping a teacher on the Smart School platform turn their course content into study material for learners.
+- Base the material strictly on the course content provided. If something important is missing, you may add standard curriculum knowledge for the subject and class, but keep it brief.
+- Be accurate, well structured and age-appropriate for the class level. Use everyday examples from life in Rwanda when helpful.
+- Format the answer in Markdown. Use plain notation for maths (e.g. x^2, 3/4), no LaTeX.
+- Never include personal information. Decline anything unsafe or unsuitable for a school.`;
 
 const TEACHER_SYSTEM_PROMPT = `You are an experienced curriculum and assessment specialist helping teachers in Rwanda (primary and secondary, Competence-Based Curriculum) using the Smart School platform.
 - Be practical, specific and age-appropriate for the class level given.
@@ -67,9 +102,15 @@ function parseJson(raw: string): Record<string, unknown> {
 export class AiTeacherService {
   private readonly ai = new AiAssistantService();
 
-  async getStatus(tenantId: string) {
+  async getStatus(tenantId: string, actor?: JwtUser) {
     const config = await this.ai.resolveConfig(tenantId);
-    return { enabled: config.enabled, model: config.model, dailyLimit: config.dailyLimit };
+    const usedToday = actor ? await this.countUsedToday(tenantId, actor) : 0;
+    return {
+      enabled: config.enabled,
+      model: config.model,
+      dailyLimit: config.teacherDailyLimit,
+      remainingToday: Math.max(config.teacherDailyLimit - usedToday, 0),
+    };
   }
 
   // ---- Lesson plan draft ------------------------------------------------------
@@ -283,6 +324,204 @@ Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for 
     return result;
   }
 
+  // ---- Knowledge base (the teacher's own course content) ----------------------
+
+  /** Courses the teacher can use as sources, with their lessons grouped by section. */
+  async getKnowledgeBase(tenantId: string, actor: JwtUser) {
+    const courses = await prisma.course.findMany({
+      where: { tenantId, isActive: true, ...(isAdmin(actor) ? {} : { teacherUserId: actor.sub }) },
+      orderBy: [{ updatedAt: 'desc' }],
+      take: 200,
+      select: {
+        id: true,
+        title: true,
+        subject: { select: { name: true } },
+        classRoom: { select: { name: true } },
+        academicYear: { select: { name: true } },
+        sections: { orderBy: { sortOrder: 'asc' }, select: { id: true, title: true } },
+        lessons: {
+          orderBy: { sequence: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            contentType: true,
+            sectionId: true,
+            isPublished: true,
+            summary: true,
+            body: true,
+          },
+        },
+      },
+    });
+    return courses.map(course => ({
+      id: course.id,
+      title: course.title,
+      subjectName: course.subject?.name ?? null,
+      classRoomName: course.classRoom?.name ?? null,
+      academicYearName: course.academicYear?.name ?? null,
+      sections: course.sections,
+      lessons: course.lessons.map(l => ({
+        id: l.id,
+        title: l.title,
+        contentType: l.contentType,
+        sectionId: l.sectionId,
+        isPublished: l.isPublished,
+        // Only written text can be read by the AI; PDFs/videos/links contribute their title and summary.
+        hasText: Boolean((l.body && stripHtml(l.body)) || (l.summary && stripHtml(l.summary))),
+      })),
+    }));
+  }
+
+  /** Loads a course the actor may use, plus the chosen lessons' text, ready for a prompt. */
+  private async loadCourseMaterial(tenantId: string, courseId: string, lessonIds: string[], actor: JwtUser) {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        teacherUserId: true,
+        subject: { select: { name: true } },
+        classRoom: { select: { name: true, gradeLevel: { select: { name: true } } } },
+      },
+    });
+    if (!course) throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+    if (!isAdmin(actor) && !(actor.roles.includes('TEACHER') && actor.sub === course.teacherUserId)) {
+      throw new AppError(403, 'COURSE_MANAGE_FORBIDDEN', 'You can only use your own courses');
+    }
+
+    const lessons = await prisma.lesson.findMany({
+      where: { tenantId, courseId, ...(lessonIds.length ? { id: { in: lessonIds } } : {}) },
+      orderBy: { sequence: 'asc' },
+      select: { title: true, summary: true, body: true, contentType: true, section: { select: { title: true } } },
+    });
+    if (lessonIds.length && lessons.length !== lessonIds.length) {
+      throw new AppError(400, 'LESSON_NOT_IN_COURSE', 'Some selected lessons are not part of this course');
+    }
+    if (!lessons.length) {
+      throw new AppError(400, 'AI_NO_CONTENT', 'This course has no lessons yet. Add lessons first, then try again.');
+    }
+
+    let material = '';
+    let currentSection: string | null = null;
+    lessons.forEach((lesson, i) => {
+      const section = lesson.section?.title ?? null;
+      if (section && section !== currentSection) material += `\n## Unit: ${section}\n`;
+      currentSection = section;
+      material += `\n${i + 1}. ${lesson.title}${lesson.contentType !== 'TEXT' ? ` (${lesson.contentType} lesson)` : ''}\n`;
+      if (lesson.summary) material += `Summary: ${stripHtml(lesson.summary)}\n`;
+      if (lesson.body) material += `${stripHtml(lesson.body)}\n`;
+    });
+    const hasText = lessons.some(l => (l.body && stripHtml(l.body)) || (l.summary && stripHtml(l.summary)));
+    const truncated = material.length > MAX_KNOWLEDGE_CONTEXT_CHARS;
+    if (truncated) material = `${material.slice(0, MAX_KNOWLEDGE_CONTEXT_CHARS)}\n…(course content shortened)`;
+
+    const classLabel = course.classRoom
+      ? `${course.classRoom.name}${course.classRoom.gradeLevel?.name ? ` (${course.classRoom.gradeLevel.name})` : ''}`
+      : null;
+    const header = `Course: ${course.title}\n${course.subject?.name ? `Subject: ${course.subject.name}\n` : ''}${classLabel ? `Class: ${classLabel}\n` : ''}${course.description ? `Course description: ${stripHtml(course.description).slice(0, 500)}\n` : ''}`;
+
+    return { course, lessons, material, hasText, truncated, header };
+  }
+
+  // ---- Study material ------------------------------------------------------------
+
+  async generateStudyMaterial(tenantId: string, input: GenerateStudyMaterialInput, actor: JwtUser) {
+    const { course, lessons, material, hasText, truncated, header } = await this.loadCourseMaterial(
+      tenantId,
+      input.courseId,
+      input.lessonIds,
+      actor
+    );
+    const config = await this.prepare(tenantId, actor);
+    const format = STUDY_FORMAT_PROMPTS[input.format];
+
+    const userPrompt = `${format.prompt}
+${input.instructions ? `\nTeacher instructions: ${input.instructions}\n` : ''}
+${header}
+${hasText ? 'Course content (the knowledge base):' : 'The lessons have little written text, so use these lesson titles and the standard curriculum for this subject and class:'}
+"""${material}
+"""
+
+Write everything in ${LANGUAGE_NAMES[input.language]}. Start with a "#" title.`;
+
+    const content = await this.ai.callOpenAi(
+      [
+        { role: 'system', content: STUDY_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      config,
+      { maxTokens: 3000, temperature: 0.4 }
+    );
+
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    const title = (titleMatch?.[1] ?? `${format.label}: ${course.title}`).trim().slice(0, 200);
+    await this.logUsage(tenantId, actor, `Study material (${format.label}): ${course.title}`, title);
+    return {
+      title,
+      format: input.format,
+      content,
+      basedOnLessons: lessons.map(l => l.title),
+      usedWrittenContent: hasText,
+      contentShortened: truncated,
+    };
+  }
+
+  // ---- Assessment preparation -----------------------------------------------------
+
+  async prepareAssessment(tenantId: string, input: AssessmentPrepInput, actor: JwtUser) {
+    const { course, lessons, material, hasText, truncated, header } = await this.loadCourseMaterial(
+      tenantId,
+      input.courseId,
+      input.lessonIds,
+      actor
+    );
+    const config = await this.prepare(tenantId, actor);
+
+    const typeHelp: Record<(typeof AI_QUESTION_TYPES)[number], string> = {
+      MCQ_SINGLE: 'MCQ_SINGLE = multiple choice with 4 options and exactly one correct',
+      OPEN_TEXT: 'OPEN_TEXT = written answer, from one sentence to a short paragraph (no options)',
+    };
+
+    const userPrompt = `Prepare an assessment of ${input.count} questions from this course.
+${header}Difficulty: ${input.difficulty}
+Question types to use (spread them across the questions): ${input.types.map(t => typeHelp[t]).join('; ')}
+Cover the lessons evenly and test understanding and application, not only recall.
+${input.instructions ? `Teacher instructions: ${input.instructions}\n` : ''}
+${hasText ? 'Base every question on this course content:' : 'There is little lesson text, so base the questions on these lesson titles and the standard curriculum for this subject and class:'}
+"""${material}
+"""
+
+Write everything in ${LANGUAGE_NAMES[input.language]}.
+Return JSON: {"title": "suggested assessment title", "instructions": "one or two sentences of instructions for learners", "questions": [{"type": "MCQ_SINGLE|OPEN_TEXT", "prompt": "question text", "points": 1-10, "explanation": "model answer / marking guide, or why the correct option is right", "options": [{"label": "option text", "isCorrect": true|false}]}]}
+Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for other types.`;
+
+    const raw = await this.ai.callOpenAi(
+      [
+        { role: 'system', content: TEACHER_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      config,
+      { json: true, maxTokens: Math.min(400 * input.count + 600, 8000), temperature: 0.5 }
+    );
+    const data = parseJson(raw);
+    const questions = this.sanitizeQuestions(data.questions, input.types).slice(0, input.count);
+    if (!questions.length) {
+      throw new AppError(502, 'AI_BAD_RESPONSE', 'The AI did not return usable questions. Please try again.');
+    }
+    const title = asText(data.title, 200) || `${course.title} — assessment`;
+    await this.logUsage(tenantId, actor, `Assessment prep: ${course.title}`, `${questions.length} questions`);
+    return {
+      title,
+      instructions: asText(data.instructions, 2000),
+      questions,
+      totalPoints: questions.reduce((sum, q) => sum + q.points, 0),
+      basedOnLessons: lessons.map(l => l.title),
+      usedWrittenContent: hasText,
+      contentShortened: truncated,
+    };
+  }
+
   // ---- Shared -----------------------------------------------------------------
 
   /** Checks the school has AI switched on and the teacher is within today's limit. */
@@ -292,12 +531,20 @@ Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for 
       throw new AppError(
         503,
         'AI_NOT_CONFIGURED',
-        'AI is not switched on for your school yet. Ask your school administrator to add the OpenAI key in AI settings.'
+        'The AI assistant is not available right now. The platform administrator has not switched it on yet; please contact support.'
       );
     }
+    const usedToday = await this.countUsedToday(tenantId, actor);
+    if (usedToday >= config.teacherDailyLimit) {
+      throw new AppError(429, 'AI_DAILY_LIMIT', `You have reached today's limit of ${config.teacherDailyLimit} AI requests. Try again tomorrow.`);
+    }
+    return config;
+  }
+
+  private countUsedToday(tenantId: string, actor: JwtUser) {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const usedToday = await prisma.aiMessage.count({
+    return prisma.aiMessage.count({
       where: {
         tenantId,
         role: AiMessageRole.USER,
@@ -305,10 +552,6 @@ Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for 
         conversation: { userId: actor.sub },
       },
     });
-    if (usedToday >= config.dailyLimit) {
-      throw new AppError(429, 'AI_DAILY_LIMIT', `You have reached today's limit of ${config.dailyLimit} AI requests. Try again tomorrow.`);
-    }
-    return config;
   }
 
   /** Records the request so it counts toward the daily limit and leaves a trace. */
