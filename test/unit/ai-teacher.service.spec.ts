@@ -36,7 +36,7 @@ function actor(overrides: Partial<JwtUser> = {}): JwtUser {
   return { sub: 'teacher-1', tenantId: 'tenant-1', email: 't@example.com', roles: ['TEACHER'], permissions: [], ...overrides } as JwtUser;
 }
 
-const enabledConfig = { apiKey: 'sk-test', model: 'gpt-4o-mini', enabled: true, dailyLimit: 50, source: 'school' };
+const enabledConfig = { apiKey: 'sk-test', model: 'gpt-4o-mini', enabled: true, dailyLimit: 50, teacherDailyLimit: 50, source: 'school' };
 
 const assessment = {
   id: 'assessment-1',
@@ -49,6 +49,8 @@ const assessment = {
 const questionsInput = {
   assessmentId: '44444444-4444-4444-8444-444444444444',
   lessonIds: [],
+  documentIds: [],
+  avoidPrompts: [],
   count: 5,
   types: ['MCQ_SINGLE', 'OPEN_TEXT'] as Array<'MCQ_SINGLE' | 'OPEN_TEXT'>,
   difficulty: 'mixed' as const,
@@ -121,6 +123,28 @@ describe('AiTeacherService', () => {
     expect(callOpenAi.mock.calls[0][2]).toMatchObject({ json: true });
     // Usage is recorded so it counts toward the daily limit.
     expect(db.aiMessage.createMany).toHaveBeenCalled();
+  });
+
+  it('writes more than 20 questions by asking in batches without repeats', async () => {
+    db.assessment.findFirst.mockResolvedValue(assessment);
+    let n = 0;
+    callOpenAi.mockImplementation(() => {
+      const questions = Array.from({ length: 15 }, () => {
+        n += 1;
+        return { type: 'OPEN_TEXT', prompt: `Question number ${n}?`, points: 1, options: [] };
+      });
+      return Promise.resolve(JSON.stringify({ questions }));
+    });
+
+    const result = await new AiTeacherService().generateAssessmentQuestions(
+      'tenant-1',
+      { ...questionsInput, count: 50, types: ['OPEN_TEXT'] },
+      actor()
+    );
+
+    expect(result.questions).toHaveLength(50);
+    expect(new Set(result.questions.map(q => q.prompt)).size).toBe(50);
+    expect(callOpenAi).toHaveBeenCalledTimes(4);
   });
 
   it('rejects lessons that are not part of the test course', async () => {

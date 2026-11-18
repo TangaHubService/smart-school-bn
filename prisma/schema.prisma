@@ -280,6 +280,7 @@ model Tenant {
   chatMembers                  ChatMember[]
   aiConversations              AiConversation[]
   aiMessages                   AiMessage[]
+  aiKnowledgeDocuments         AiKnowledgeDocument[]
   aiSettings                   TenantAiSettings?
   announcementResponses        AnnouncementResponse[]
   academicYearPreferences      UserAcademicYearPreference[]
@@ -415,6 +416,7 @@ model User {
   chatMemberships                  ChatMember[]
   createdChats                     StudentGroupChat[]           @relation("StudentGroupChatCreatedBy")
   aiConversations                  AiConversation[]
+  aiKnowledgeDocuments             AiKnowledgeDocument[]
   announcementResponses            AnnouncementResponse[]
   academicYearPreference           UserAcademicYearPreference?
   supportTicketsCreated            SupportTicket[]              @relation("SupportTicketCreatedBy")
@@ -2145,6 +2147,28 @@ model AiConversation {
   messages AiMessage[]
 
   @@index([tenantId, userId, updatedAt])
+}
+
+/// A document (book, notes, syllabus…) a teacher uploads for the AI to read before answering.
+/// Only the extracted text is stored; the original file is not kept.
+model AiKnowledgeDocument {
+  id          String   @id @default(uuid())
+  tenantId    String
+  ownerUserId String
+  title       String
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  pageCount   Int?
+  charCount   Int
+  textContent String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  owner  User   @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ownerUserId, createdAt])
 }
 
 model AiMessage {

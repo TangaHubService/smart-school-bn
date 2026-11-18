@@ -6,6 +6,7 @@ import { rootLogger } from '../../config/logger';
 import { prisma } from '../../db/prisma';
 import { teacherTeachesClassSubject } from '../lesson-plans/lesson-plans.service';
 import { AiAssistantService, AiConfig, stripHtml } from './ai-assistant.service';
+import { AiKnowledgeService } from './ai-knowledge.service';
 import {
   AI_QUESTION_TYPES,
   AssessmentPrepInput,
@@ -26,6 +27,11 @@ const LANGUAGE_NAMES = { en: 'English', fr: 'French', rw: 'Kinyarwanda' } as con
 
 /** Course text sent for study material / assessment prep (a whole course can be long). */
 const MAX_KNOWLEDGE_CONTEXT_CHARS = 24_000;
+/** Text from uploaded documents (books, notes) sent per request; long books are searched for the best passages. */
+const MAX_DOCUMENT_CONTEXT_CHARS = 40_000;
+/** Questions asked of the model per call, and calls made at the same time, when many are requested. */
+const QUESTION_BATCH_SIZE = 15;
+const QUESTION_BATCH_CONCURRENCY = 4;
 
 const STUDY_FORMAT_PROMPTS: Record<(typeof STUDY_MATERIAL_FORMATS)[number], { label: string; prompt: string }> = {
   summary: {
@@ -43,6 +49,10 @@ const STUDY_FORMAT_PROMPTS: Record<(typeof STUDY_MATERIAL_FORMATS)[number], { la
     prompt:
       'Write a glossary of the key terms and concepts: a Markdown table with columns Term | Meaning | Example, grouped by lesson with "##" headings. Use simple language for the class level.',
   },
+  custom: {
+    label: 'Custom',
+    prompt: "Write exactly what the teacher's request describes.",
+  },
   'study-guide': {
     label: 'Study guide',
     prompt:
@@ -51,7 +61,7 @@ const STUDY_FORMAT_PROMPTS: Record<(typeof STUDY_MATERIAL_FORMATS)[number], { la
 };
 
 const STUDY_SYSTEM_PROMPT = `You are an experienced teacher and curriculum specialist in Rwanda (Competence-Based Curriculum) helping a teacher on the Smart School platform turn their course content into study material for learners.
-- Base the material strictly on the course content provided. If something important is missing, you may add standard curriculum knowledge for the subject and class, but keep it brief.
+- Base the material strictly on the course content and reference documents provided; read them fully before writing. If something important is missing, you may add standard curriculum knowledge for the subject and class, but keep it brief.
 - Be accurate, well structured and age-appropriate for the class level. Use everyday examples from life in Rwanda when helpful.
 - Format the answer in Markdown. Use plain notation for maths (e.g. x^2, 3/4), no LaTeX.
 - Never include personal information. Decline anything unsafe or unsuitable for a school.`;
@@ -88,6 +98,10 @@ function asText(value: unknown, max: number) {
   return '';
 }
 
+function normalizePrompt(text: string) {
+  return stripHtml(text).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
 function parseJson(raw: string): Record<string, unknown> {
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
   try {
@@ -101,6 +115,7 @@ function parseJson(raw: string): Record<string, unknown> {
 
 export class AiTeacherService {
   private readonly ai = new AiAssistantService();
+  private readonly knowledge = new AiKnowledgeService();
 
   async getStatus(tenantId: string, actor?: JwtUser) {
     const config = await this.ai.resolveConfig(tenantId);
@@ -217,7 +232,7 @@ Return JSON with exactly these keys (all strings, use "\\n- " bullet lines insid
             classRoom: { select: { name: true } },
           },
         },
-        questions: { select: { prompt: true }, take: 100 },
+        questions: { select: { prompt: true }, take: 300 },
       },
     });
     if (!assessment) throw new AppError(404, 'ASSESSMENT_NOT_FOUND', 'Assessment not found');
@@ -248,48 +263,131 @@ Return JSON with exactly these keys (all strings, use "\\n- " bullet lines insid
       if (lesson.summary) material += `Summary: ${stripHtml(lesson.summary)}\n`;
       if (lesson.body) material += `${stripHtml(lesson.body)}\n`;
     });
-    const hasMaterial = material.trim().length > 0 && lessons.some(l => l.summary || l.body);
+    const lessonsHaveText = lessons.some(l => l.summary || l.body);
     if (material.length > MAX_LESSON_CONTEXT_CHARS) {
       material = `${material.slice(0, MAX_LESSON_CONTEXT_CHARS)}\n…(lesson material shortened)`;
     }
 
-    const existing = assessment.questions
-      .map(q => stripHtml(q.prompt).slice(0, 140))
-      .filter(Boolean)
-      .slice(0, 40);
+    const excerpt = await this.knowledge.buildExcerpt(
+      tenantId,
+      actor,
+      input.documentIds,
+      [assessment.title, assessment.course.title, input.instructions ?? '', ...lessons.map(l => l.title)].join(' '),
+      MAX_DOCUMENT_CONTEXT_CHARS
+    );
+    const hasMaterial = lessonsHaveText || Boolean(excerpt.text);
+
+    const existing = assessment.questions.map(q => stripHtml(q.prompt).slice(0, 140)).filter(Boolean);
 
     const typeHelp: Record<(typeof AI_QUESTION_TYPES)[number], string> = {
       MCQ_SINGLE: 'MCQ_SINGLE = multiple choice with 4 options and exactly one correct',
       OPEN_TEXT: 'OPEN_TEXT = written answer, from one sentence to a short paragraph (no options)',
     };
 
-    const userPrompt = `Write ${input.count} test questions for the assessment "${assessment.title}".
+    const sourceBlock = hasMaterial
+      ? `${material.trim() ? `Base the questions on this lesson material:\n"""${material}\n"""\n` : ''}${excerpt.text ? `\nReference documents uploaded by the teacher (knowledge base):\n"""\n${excerpt.text}\n"""` : ''}`
+      : `There is little lesson text, so base the questions on these lesson titles and the standard curriculum for this subject and class:\n${material || assessment.course.title}`;
+
+    const questions = await this.generateQuestionBatches({
+      count: input.count,
+      types: input.types,
+      config,
+      alreadyAsked: [...existing, ...input.avoidPrompts],
+      buildPrompt: ({ batchCount, focus, avoid }) => `Write ${batchCount} test questions for the assessment "${assessment.title}".
 Course: ${assessment.course.title}
 ${assessment.course.subject?.name ? `Subject: ${assessment.course.subject.name}\n` : ''}${assessment.course.classRoom?.name ? `Class: ${assessment.course.classRoom.name}\n` : ''}Difficulty: ${input.difficulty}
 Question types to use (spread them across the questions): ${input.types.map(t => typeHelp[t]).join('; ')}
-${input.instructions ? `Teacher instructions: ${input.instructions}\n` : ''}${existing.length ? `\nThe test already has these questions; do not repeat them:\n- ${existing.join('\n- ')}\n` : ''}
-${hasMaterial ? `Base every question on this lesson material:\n"""${material}\n"""` : `There is little lesson text, so base the questions on these lesson titles and the standard curriculum for this subject and class:\n${material || assessment.course.title}`}
+${input.instructions ? `Teacher's request (follow it closely): ${input.instructions}\n` : ''}${focus ? `${focus}\n` : ''}${avoid.length ? `\nThese questions already exist; do not repeat them or ask the same thing:\n- ${avoid.join('\n- ')}\n` : ''}
+${sourceBlock}
 
 Write everything in ${LANGUAGE_NAMES[input.language]}.
 Return JSON: {"questions": [{"type": "MCQ_SINGLE|OPEN_TEXT", "prompt": "question text", "points": 1-10, "explanation": "model answer or why the correct option is right", "options": [{"label": "option text", "isCorrect": true|false}]}]}
-Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for other types.`;
-
-    const raw = await this.ai.callOpenAi(
-      [
-        { role: 'system', content: TEACHER_SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      config,
-      { json: true, maxTokens: Math.min(400 * input.count + 500, 8000), temperature: 0.5 }
-    );
-    const data = parseJson(raw);
-    const questions = this.sanitizeQuestions(data.questions, input.types).slice(0, input.count);
-    if (!questions.length) {
-      throw new AppError(502, 'AI_BAD_RESPONSE', 'The AI did not return usable questions. Please try again.');
-    }
+Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for other types.`,
+    });
 
     await this.logUsage(tenantId, actor, `Test questions: ${assessment.title}`, `${questions.length} questions`);
-    return { questions, basedOnLessons: lessons.map(l => l.title) };
+    return {
+      questions,
+      basedOnLessons: lessons.map(l => l.title),
+      basedOnDocuments: excerpt.documents.map(d => d.title),
+    };
+  }
+
+  /**
+   * Generates `count` questions in batches (the model writes better questions, and stays
+   * within its output limit, when asked for ~15 at a time). Batches run a few at a time,
+   * each told what was already written and which part of the material to focus on.
+   */
+  private async generateQuestionBatches(params: {
+    count: number;
+    types: readonly (typeof AI_QUESTION_TYPES)[number][];
+    config: AiConfig;
+    alreadyAsked: string[];
+    buildPrompt: (batch: { batchCount: number; focus: string; avoid: string[] }) => string;
+  }): Promise<GeneratedQuestion[]> {
+    const result: GeneratedQuestion[] = [];
+    const seen = new Set(params.alreadyAsked.map(normalizePrompt));
+    const totalBatches = Math.ceil(params.count / QUESTION_BATCH_SIZE);
+    let attempts = 0;
+
+    while (result.length < params.count && attempts < totalBatches + 3) {
+      const missing = params.count - result.length;
+      const wave = Math.min(QUESTION_BATCH_CONCURRENCY, Math.ceil(missing / QUESTION_BATCH_SIZE));
+      const avoid = [...params.alreadyAsked, ...result.map(q => stripHtml(q.prompt).slice(0, 140))].slice(-80);
+
+      const prompts = Array.from({ length: wave }, (_, i) => {
+        const batchCount = Math.min(QUESTION_BATCH_SIZE, missing - i * QUESTION_BATCH_SIZE);
+        const part = attempts + i + 1;
+        const focus =
+          totalBatches > 1
+            ? `This is part ${Math.min(part, totalBatches)} of ${totalBatches} of a larger set: focus mainly on part ${Math.min(part, totalBatches)} of ${totalBatches} of the material (in order), so the whole set covers all of it.`
+            : '';
+        return params.buildPrompt({ batchCount: Math.max(batchCount, 1), focus, avoid });
+      });
+      attempts += wave;
+
+      const replies = await Promise.allSettled(
+        prompts.map(prompt =>
+          this.ai.callOpenAi(
+            [
+              { role: 'system', content: TEACHER_SYSTEM_PROMPT },
+              { role: 'user', content: prompt },
+            ],
+            params.config,
+            { json: true, maxTokens: Math.min(400 * QUESTION_BATCH_SIZE + 600, 8000), temperature: 0.5 }
+          )
+        )
+      );
+
+      let gotAny = false;
+      let firstError: unknown = null;
+      for (const reply of replies) {
+        if (reply.status === 'rejected') {
+          firstError ??= reply.reason;
+          continue;
+        }
+        let data: Record<string, unknown>;
+        try {
+          data = parseJson(reply.value);
+        } catch (err) {
+          firstError ??= err;
+          continue;
+        }
+        for (const q of this.sanitizeQuestions(data.questions, params.types)) {
+          const key = normalizePrompt(q.prompt);
+          if (seen.has(key) || result.length >= params.count) continue;
+          seen.add(key);
+          result.push(q);
+          gotAny = true;
+        }
+      }
+      if (!gotAny) {
+        if (result.length) break; // keep what we have rather than failing the whole request
+        if (firstError instanceof AppError) throw firstError;
+        throw new AppError(502, 'AI_BAD_RESPONSE', 'The AI did not return usable questions. Please try again.');
+      }
+    }
+    return result;
   }
 
   /** Keep only questions that the assessments API would accept. */
@@ -372,78 +470,130 @@ Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for 
     }));
   }
 
-  /** Loads a course the actor may use, plus the chosen lessons' text, ready for a prompt. */
-  private async loadCourseMaterial(tenantId: string, courseId: string, lessonIds: string[], actor: JwtUser) {
-    const course = await prisma.course.findFirst({
-      where: { id: courseId, tenantId },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        teacherUserId: true,
-        subject: { select: { name: true } },
-        classRoom: { select: { name: true, gradeLevel: { select: { name: true } } } },
-      },
-    });
-    if (!course) throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
-    if (!isAdmin(actor) && !(actor.roles.includes('TEACHER') && actor.sub === course.teacherUserId)) {
-      throw new AppError(403, 'COURSE_MANAGE_FORBIDDEN', 'You can only use your own courses');
-    }
-
-    const lessons = await prisma.lesson.findMany({
-      where: { tenantId, courseId, ...(lessonIds.length ? { id: { in: lessonIds } } : {}) },
-      orderBy: { sequence: 'asc' },
-      select: { title: true, summary: true, body: true, contentType: true, section: { select: { title: true } } },
-    });
-    if (lessonIds.length && lessons.length !== lessonIds.length) {
-      throw new AppError(400, 'LESSON_NOT_IN_COURSE', 'Some selected lessons are not part of this course');
-    }
-    if (!lessons.length) {
-      throw new AppError(400, 'AI_NO_CONTENT', 'This course has no lessons yet. Add lessons first, then try again.');
-    }
-
+  /**
+   * Gathers what the AI should read: a course's lessons (optional) and the teacher's
+   * uploaded documents (optional), ready for a prompt. `query` steers which passages
+   * of long documents are picked.
+   */
+  private async loadSources(
+    tenantId: string,
+    input: { courseId?: string; lessonIds: string[]; documentIds: string[] },
+    query: string,
+    actor: JwtUser
+  ) {
+    let header = '';
     let material = '';
-    let currentSection: string | null = null;
-    lessons.forEach((lesson, i) => {
-      const section = lesson.section?.title ?? null;
-      if (section && section !== currentSection) material += `\n## Unit: ${section}\n`;
-      currentSection = section;
-      material += `\n${i + 1}. ${lesson.title}${lesson.contentType !== 'TEXT' ? ` (${lesson.contentType} lesson)` : ''}\n`;
-      if (lesson.summary) material += `Summary: ${stripHtml(lesson.summary)}\n`;
-      if (lesson.body) material += `${stripHtml(lesson.body)}\n`;
-    });
-    const hasText = lessons.some(l => (l.body && stripHtml(l.body)) || (l.summary && stripHtml(l.summary)));
-    const truncated = material.length > MAX_KNOWLEDGE_CONTEXT_CHARS;
-    if (truncated) material = `${material.slice(0, MAX_KNOWLEDGE_CONTEXT_CHARS)}\n…(course content shortened)`;
+    let hasText = false;
+    let truncated = false;
+    let courseTitle: string | null = null;
+    let lessonTitles: string[] = [];
 
-    const classLabel = course.classRoom
-      ? `${course.classRoom.name}${course.classRoom.gradeLevel?.name ? ` (${course.classRoom.gradeLevel.name})` : ''}`
-      : null;
-    const header = `Course: ${course.title}\n${course.subject?.name ? `Subject: ${course.subject.name}\n` : ''}${classLabel ? `Class: ${classLabel}\n` : ''}${course.description ? `Course description: ${stripHtml(course.description).slice(0, 500)}\n` : ''}`;
+    if (input.courseId) {
+      const course = await prisma.course.findFirst({
+        where: { id: input.courseId, tenantId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          teacherUserId: true,
+          subject: { select: { name: true } },
+          classRoom: { select: { name: true, gradeLevel: { select: { name: true } } } },
+        },
+      });
+      if (!course) throw new AppError(404, 'COURSE_NOT_FOUND', 'Course not found');
+      if (!isAdmin(actor) && !(actor.roles.includes('TEACHER') && actor.sub === course.teacherUserId)) {
+        throw new AppError(403, 'COURSE_MANAGE_FORBIDDEN', 'You can only use your own courses');
+      }
 
-    return { course, lessons, material, hasText, truncated, header };
+      const lessons = await prisma.lesson.findMany({
+        where: { tenantId, courseId: course.id, ...(input.lessonIds.length ? { id: { in: input.lessonIds } } : {}) },
+        orderBy: { sequence: 'asc' },
+        select: { title: true, summary: true, body: true, contentType: true, section: { select: { title: true } } },
+      });
+      if (input.lessonIds.length && lessons.length !== input.lessonIds.length) {
+        throw new AppError(400, 'LESSON_NOT_IN_COURSE', 'Some selected lessons are not part of this course');
+      }
+      if (!lessons.length && !input.documentIds.length) {
+        throw new AppError(
+          400,
+          'AI_NO_CONTENT',
+          'This course has no lessons yet. Add lessons or pick uploaded documents, then try again.'
+        );
+      }
+
+      let currentSection: string | null = null;
+      lessons.forEach((lesson, i) => {
+        const section = lesson.section?.title ?? null;
+        if (section && section !== currentSection) material += `\n## Unit: ${section}\n`;
+        currentSection = section;
+        material += `\n${i + 1}. ${lesson.title}${lesson.contentType !== 'TEXT' ? ` (${lesson.contentType} lesson)` : ''}\n`;
+        if (lesson.summary) material += `Summary: ${stripHtml(lesson.summary)}\n`;
+        if (lesson.body) material += `${stripHtml(lesson.body)}\n`;
+      });
+      hasText = lessons.some(l => (l.body && stripHtml(l.body)) || (l.summary && stripHtml(l.summary)));
+      if (material.length > MAX_KNOWLEDGE_CONTEXT_CHARS) {
+        material = `${material.slice(0, MAX_KNOWLEDGE_CONTEXT_CHARS)}\n…(course content shortened)`;
+        truncated = true;
+      }
+
+      const classLabel = course.classRoom
+        ? `${course.classRoom.name}${course.classRoom.gradeLevel?.name ? ` (${course.classRoom.gradeLevel.name})` : ''}`
+        : null;
+      header = `Course: ${course.title}\n${course.subject?.name ? `Subject: ${course.subject.name}\n` : ''}${classLabel ? `Class: ${classLabel}\n` : ''}${course.description ? `Course description: ${stripHtml(course.description).slice(0, 500)}\n` : ''}`;
+      courseTitle = course.title;
+      lessonTitles = lessons.map(l => l.title);
+    }
+
+    const excerpt = await this.knowledge.buildExcerpt(
+      tenantId,
+      actor,
+      input.documentIds,
+      [query, courseTitle ?? '', ...lessonTitles].join(' '),
+      MAX_DOCUMENT_CONTEXT_CHARS
+    );
+
+    let sourceBlock = '';
+    if (material.trim()) {
+      sourceBlock += hasText
+        ? `Course lessons (the knowledge base):\n"""${material}\n"""\n`
+        : `The course lessons have little written text; their titles are:\n"""${material}\n"""\n`;
+    }
+    if (excerpt.text) {
+      sourceBlock += `\nReference documents uploaded by the teacher${excerpt.selected ? ' (the passages most relevant to the request were selected from long documents)' : ''}:\n"""\n${excerpt.text}\n"""\n`;
+    }
+    const usedWrittenContent = hasText || Boolean(excerpt.text);
+    if (!usedWrittenContent) {
+      sourceBlock += '\nUse the lesson titles above and the standard curriculum for this subject and class.\n';
+    }
+
+    return {
+      courseTitle,
+      header,
+      sourceBlock,
+      usedWrittenContent,
+      truncated: truncated || excerpt.selected,
+      basedOnLessons: lessonTitles,
+      basedOnDocuments: excerpt.documents.map(d => d.title),
+    };
   }
 
   // ---- Study material ------------------------------------------------------------
 
   async generateStudyMaterial(tenantId: string, input: GenerateStudyMaterialInput, actor: JwtUser) {
-    const { course, lessons, material, hasText, truncated, header } = await this.loadCourseMaterial(
-      tenantId,
-      input.courseId,
-      input.lessonIds,
-      actor
-    );
+    const sources = await this.loadSources(tenantId, input, input.instructions ?? '', actor);
     const config = await this.prepare(tenantId, actor);
     const format = STUDY_FORMAT_PROMPTS[input.format];
+    const isCustom = input.format === 'custom';
 
-    const userPrompt = `${format.prompt}
-${input.instructions ? `\nTeacher instructions: ${input.instructions}\n` : ''}
-${header}
-${hasText ? 'Course content (the knowledge base):' : 'The lessons have little written text, so use these lesson titles and the standard curriculum for this subject and class:'}
-"""${material}
-"""
+    const request = isCustom
+      ? `The teacher describes exactly what they want. Follow this request closely (content, structure, length, tone and level):\n"""${input.instructions}"""`
+      : `${format.prompt}${input.instructions ? `\n\nThe teacher also asks for the following. Where it differs from the format above, the teacher's request wins:\n"""${input.instructions}"""` : ''}`;
 
-Write everything in ${LANGUAGE_NAMES[input.language]}. Start with a "#" title.`;
+    const userPrompt = `${request}
+
+${sources.header}
+${sources.sourceBlock}
+Read all of the material above before writing. Write everything in ${LANGUAGE_NAMES[input.language]}. Start with a "#" title.`;
 
     const content = await this.ai.callOpenAi(
       [
@@ -451,31 +601,28 @@ Write everything in ${LANGUAGE_NAMES[input.language]}. Start with a "#" title.`;
         { role: 'user', content: userPrompt },
       ],
       config,
-      { maxTokens: 3000, temperature: 0.4 }
+      { maxTokens: isCustom ? 8000 : 4000, temperature: 0.4 }
     );
 
+    const label = sources.courseTitle ?? sources.basedOnDocuments[0] ?? 'Knowledge base';
     const titleMatch = content.match(/^#\s+(.+)$/m);
-    const title = (titleMatch?.[1] ?? `${format.label}: ${course.title}`).trim().slice(0, 200);
-    await this.logUsage(tenantId, actor, `Study material (${format.label}): ${course.title}`, title);
+    const title = (titleMatch?.[1] ?? `${format.label}: ${label}`).trim().slice(0, 200);
+    await this.logUsage(tenantId, actor, `Study material (${format.label}): ${label}`, title);
     return {
       title,
       format: input.format,
       content,
-      basedOnLessons: lessons.map(l => l.title),
-      usedWrittenContent: hasText,
-      contentShortened: truncated,
+      basedOnLessons: sources.basedOnLessons,
+      basedOnDocuments: sources.basedOnDocuments,
+      usedWrittenContent: sources.usedWrittenContent,
+      contentShortened: sources.truncated,
     };
   }
 
   // ---- Assessment preparation -----------------------------------------------------
 
   async prepareAssessment(tenantId: string, input: AssessmentPrepInput, actor: JwtUser) {
-    const { course, lessons, material, hasText, truncated, header } = await this.loadCourseMaterial(
-      tenantId,
-      input.courseId,
-      input.lessonIds,
-      actor
-    );
+    const sources = await this.loadSources(tenantId, input, input.instructions ?? '', actor);
     const config = await this.prepare(tenantId, actor);
 
     const typeHelp: Record<(typeof AI_QUESTION_TYPES)[number], string> = {
@@ -483,42 +630,33 @@ Write everything in ${LANGUAGE_NAMES[input.language]}. Start with a "#" title.`;
       OPEN_TEXT: 'OPEN_TEXT = written answer, from one sentence to a short paragraph (no options)',
     };
 
-    const userPrompt = `Prepare an assessment of ${input.count} questions from this course.
-${header}Difficulty: ${input.difficulty}
+    const questions = await this.generateQuestionBatches({
+      count: input.count,
+      types: input.types,
+      config,
+      alreadyAsked: input.avoidPrompts,
+      buildPrompt: ({ batchCount, focus, avoid }) => `Prepare ${batchCount} assessment questions from this material.
+${sources.header}Difficulty: ${input.difficulty}
 Question types to use (spread them across the questions): ${input.types.map(t => typeHelp[t]).join('; ')}
-Cover the lessons evenly and test understanding and application, not only recall.
-${input.instructions ? `Teacher instructions: ${input.instructions}\n` : ''}
-${hasText ? 'Base every question on this course content:' : 'There is little lesson text, so base the questions on these lesson titles and the standard curriculum for this subject and class:'}
-"""${material}
-"""
-
+Cover the material evenly and test understanding and application, not only recall.
+${input.instructions ? `Teacher's request (follow it closely): ${input.instructions}\n` : ''}${focus ? `${focus}\n` : ''}${avoid.length ? `\nThese questions were already written; do not repeat them or ask the same thing:\n- ${avoid.join('\n- ')}\n` : ''}
+${sources.sourceBlock}
 Write everything in ${LANGUAGE_NAMES[input.language]}.
 Return JSON: {"title": "suggested assessment title", "instructions": "one or two sentences of instructions for learners", "questions": [{"type": "MCQ_SINGLE|OPEN_TEXT", "prompt": "question text", "points": 1-10, "explanation": "model answer / marking guide, or why the correct option is right", "options": [{"label": "option text", "isCorrect": true|false}]}]}
-Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for other types.`;
+Options only for MCQ_SINGLE (exactly 4, exactly one isCorrect true); use [] for other types.`,
+    });
 
-    const raw = await this.ai.callOpenAi(
-      [
-        { role: 'system', content: TEACHER_SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      config,
-      { json: true, maxTokens: Math.min(400 * input.count + 600, 8000), temperature: 0.5 }
-    );
-    const data = parseJson(raw);
-    const questions = this.sanitizeQuestions(data.questions, input.types).slice(0, input.count);
-    if (!questions.length) {
-      throw new AppError(502, 'AI_BAD_RESPONSE', 'The AI did not return usable questions. Please try again.');
-    }
-    const title = asText(data.title, 200) || `${course.title} — assessment`;
-    await this.logUsage(tenantId, actor, `Assessment prep: ${course.title}`, `${questions.length} questions`);
+    const label = sources.courseTitle ?? sources.basedOnDocuments[0] ?? 'Knowledge base';
+    await this.logUsage(tenantId, actor, `Assessment prep: ${label}`, `${questions.length} questions`);
     return {
-      title,
-      instructions: asText(data.instructions, 2000),
+      title: `${label} — assessment`.slice(0, 200),
+      instructions: 'Answer all questions. Read each question carefully before answering.',
       questions,
       totalPoints: questions.reduce((sum, q) => sum + q.points, 0),
-      basedOnLessons: lessons.map(l => l.title),
-      usedWrittenContent: hasText,
-      contentShortened: truncated,
+      basedOnLessons: sources.basedOnLessons,
+      basedOnDocuments: sources.basedOnDocuments,
+      usedWrittenContent: sources.usedWrittenContent,
+      contentShortened: sources.truncated,
     };
   }
 

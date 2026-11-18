@@ -1,4 +1,4 @@
-import { Request, Response, Router } from 'express';
+import express, { Request, Response, Router } from 'express';
 
 import { authenticate } from '../../common/middleware/authenticate.middleware';
 import { enforceTenant } from '../../common/middleware/tenant.middleware';
@@ -17,9 +17,11 @@ import {
   generateStudyMaterialSchema,
 } from './ai-teacher.schemas';
 import { AiTeacherService } from './ai-teacher.service';
+import { AiKnowledgeService, MAX_KNOWLEDGE_FILE_BYTES } from './ai-knowledge.service';
 
 const service = new AiAssistantService();
 const teacherService = new AiTeacherService();
+const knowledgeService = new AiKnowledgeService();
 export const aiAssistantRoutes = Router();
 
 aiAssistantRoutes.use('/ai', authenticate, enforceTenant);
@@ -43,6 +45,47 @@ aiAssistantRoutes.get(
   '/ai/teacher/knowledge-base',
   asyncHandler(async (req: Request, res: Response) =>
     sendSuccess(req, res, await teacherService.getKnowledgeBase(req.tenantId!, req.user!))
+  )
+);
+
+// Uploaded documents (books, notes, syllabi) the AI reads before answering. The file is
+// sent as the raw request body; its name comes in the X-File-Name header (URI-encoded).
+aiAssistantRoutes.get(
+  '/ai/teacher/documents',
+  asyncHandler(async (req: Request, res: Response) =>
+    sendSuccess(req, res, await knowledgeService.listDocuments(req.tenantId!, req.user!))
+  )
+);
+
+aiAssistantRoutes.post(
+  '/ai/teacher/documents',
+  express.raw({ type: () => true, limit: MAX_KNOWLEDGE_FILE_BYTES + 1024 }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const decode = (value: unknown) => {
+      if (typeof value !== 'string' || !value) return '';
+      try {
+        return decodeURIComponent(value);
+      } catch {
+        return value;
+      }
+    };
+    const fileName = decode(req.header('x-file-name')) || 'document';
+    const title = decode(req.header('x-document-title')) || undefined;
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const created = await knowledgeService.uploadDocument(req.tenantId!, req.user!, {
+      buffer,
+      fileName,
+      title,
+      mimeType: (req.header('content-type') ?? 'application/octet-stream').split(';')[0].trim(),
+    });
+    return sendSuccess(req, res, created, 201);
+  })
+);
+
+aiAssistantRoutes.delete(
+  '/ai/teacher/documents/:id',
+  asyncHandler(async (req: Request, res: Response) =>
+    sendSuccess(req, res, await knowledgeService.deleteDocument(req.tenantId!, req.user!, req.params.id))
   )
 );
 
