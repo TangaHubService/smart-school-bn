@@ -94,6 +94,18 @@ export const resultsActionSchema = z
   })
   .strict();
 
+export const generateYearlyReportCardsSchema = z
+  .object({
+    academicYearId: z.string().uuid(),
+    classRoomId: z.string().uuid(),
+    gradingSchemeId: z.string().uuid().optional(),
+    /** Publish right away so students and parents can see the annual report. */
+    publish: z.boolean().optional().default(false),
+    /** Rebuild if yearly results already exist (e.g. after correcting term marks). */
+    regenerate: z.boolean().optional().default(false),
+  })
+  .strict();
+
 export const bulkConductGradesSchema = z
   .object({
     termId: z.string().uuid(),
@@ -207,6 +219,7 @@ export type UpdateExamInput = z.infer<typeof updateExamSchema>;
 export type ListExamsQueryInput = z.infer<typeof listExamsQuerySchema>;
 export type BulkExamMarksInput = z.infer<typeof bulkExamMarksSchema>;
 export type ResultsActionInput = z.infer<typeof resultsActionSchema>;
+export type GenerateYearlyReportCardsInput = z.infer<typeof generateYearlyReportCardsSchema>;
 export type ReportCardsQueryInput = z.infer<typeof reportCardsQuerySchema>;
 export type MidTermReportQueryInput = z.infer<typeof midTermReportQuerySchema>;
 export type ReportCardsCatalogQueryInput = z.infer<typeof reportCardsCatalogQuerySchema>;

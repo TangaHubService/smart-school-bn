@@ -175,6 +175,16 @@ export class ExamsController {
     return sendSuccess(req, res, result);
   }
 
+  async generateYearlyReportCards(req: Request, res: Response) {
+    const result = await examsService.generateYearlyReportCards(
+      req.tenantId!,
+      req.body,
+      req.user!,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
+
   async listReportCardsCatalog(req: Request, res: Response) {
     const query = reportCardsCatalogQuerySchema.parse(req.query);
     const result = await examsService.listReportCardsCatalog(req.tenantId!, query, req.user!);

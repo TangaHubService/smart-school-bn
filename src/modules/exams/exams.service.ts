@@ -24,6 +24,7 @@ import {
   ReportCardsQueryInput,
   MidTermReportQueryInput,
   ResultsActionInput,
+  GenerateYearlyReportCardsInput,
   UpdateExamInput,
 } from './exams.schemas';
 import { computeSubjectScore } from './marks-calculation';
@@ -2066,6 +2067,123 @@ export class ExamsService {
     } catch (error) {
       this.handlePrismaError(error, 'publishResults');
     }
+  }
+
+  /**
+   * One-click yearly report cards for a class: finds (or creates) the year's
+   * "Annual" aggregation term, then locks Term 1–3 results into it and
+   * optionally publishes them. The auto-created term is zero-length on the last
+   * day of the academic year so it never becomes the "current" term.
+   */
+  async generateYearlyReportCards(
+    tenantId: string,
+    input: GenerateYearlyReportCardsInput,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    this.ensureAdmin(actor);
+    if (
+      input.publish &&
+      !(actor.roles ?? []).includes('SUPER_ADMIN') &&
+      !(actor.permissions ?? []).includes(PERMISSIONS.RESULTS_PUBLISH)
+    ) {
+      throw new AppError(403, 'RESULTS_FORBIDDEN', 'You are not allowed to publish results');
+    }
+
+    const academicYear = await prisma.academicYear.findFirst({
+      where: { id: input.academicYearId, tenantId, isActive: true },
+      select: { id: true, name: true, endDate: true },
+    });
+    if (!academicYear) {
+      throw new AppError(404, 'ACADEMIC_YEAR_NOT_FOUND', 'Academic year not found');
+    }
+
+    const terms = await prisma.term.findMany({
+      where: { tenantId, academicYearId: academicYear.id },
+      select: { id: true, name: true, sequence: true, isActive: true },
+      orderBy: { sequence: 'asc' },
+    });
+
+    let yearlyTerm = terms.find(
+      t => t.isActive && t.sequence > 3 && isYearlyAggregationTerm(t)
+    );
+    let createdTerm = false;
+    if (!yearlyTerm) {
+      const maxSequence = terms.reduce((max, t) => Math.max(max, t.sequence), 3);
+      const takenNames = new Set(terms.map(t => t.name.toLowerCase()));
+      const name = ['Annual', 'Annual Report', `Annual ${academicYear.name}`].find(
+        n => !takenNames.has(n.toLowerCase())
+      ) ?? `Annual ${Date.now()}`;
+      const created = await prisma.term.create({
+        data: {
+          tenantId,
+          academicYearId: academicYear.id,
+          name,
+          sequence: maxSequence + 1,
+          startDate: academicYear.endDate,
+          endDate: academicYear.endDate,
+        },
+        select: { id: true, name: true, sequence: true, isActive: true },
+      });
+      yearlyTerm = created;
+      createdTerm = true;
+    }
+
+    const action = {
+      termId: yearlyTerm.id,
+      classRoomId: input.classRoomId,
+      gradingSchemeId: input.gradingSchemeId,
+    };
+
+    const existing = await prisma.resultSnapshot.count({
+      where: { tenantId, termId: yearlyTerm.id, classRoomId: input.classRoomId },
+    });
+    if (existing > 0 && !input.regenerate) {
+      throw new AppError(
+        409,
+        'RESULTS_ALREADY_LOCKED',
+        'Yearly report cards already exist for this class. Choose "Regenerate" to rebuild them from the latest term marks.'
+      );
+    }
+
+    // Keep the current cards so a failed rebuild (e.g. a mark was cleared) does
+    // not leave students and parents with no annual report at all.
+    const previous =
+      existing > 0
+        ? await prisma.resultSnapshot.findMany({
+            where: { tenantId, termId: yearlyTerm.id, classRoomId: input.classRoomId },
+          })
+        : [];
+    if (existing > 0) {
+      await this.unlockResults(tenantId, action, actor, context);
+    }
+
+    let locked: Awaited<ReturnType<ExamsService['lockResults']>>;
+    try {
+      locked = await this.lockResults(tenantId, action, actor, context);
+    } catch (error) {
+      if (previous.length) {
+        await prisma.resultSnapshot.createMany({
+          data: previous.map(row => ({
+            ...row,
+            payload: row.payload as Prisma.InputJsonValue,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      throw error;
+    }
+    const published = input.publish
+      ? await this.publishResults(tenantId, action, actor, context)
+      : null;
+
+    return {
+      term: { id: yearlyTerm.id, name: yearlyTerm.name, created: createdTerm },
+      status: published ? ('PUBLISHED' as const) : ('LOCKED' as const),
+      snapshotsCreated: locked?.snapshotsCreated ?? 0,
+      classSize: locked?.classSize ?? 0,
+      regenerated: existing > 0,
+    };
   }
 
   /**

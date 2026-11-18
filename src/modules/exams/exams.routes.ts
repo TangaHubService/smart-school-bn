@@ -16,6 +16,7 @@ import {
   bulkExamMarksSchema,
   createExamSchema,
   createGradingSchemeSchema,
+  generateYearlyReportCardsSchema,
   marksGridSaveSchema,
   resultsActionSchema,
   updateExamSchema,
@@ -147,6 +148,13 @@ examsRoutes.post(
   requirePermissions([PERMISSIONS.RESULTS_PUBLISH]),
   validateBody(resultsActionSchema),
   asyncHandler((req, res) => examsController.publishResults(req, res))
+);
+
+examsRoutes.post(
+  '/results/yearly/generate',
+  requirePermissions([PERMISSIONS.RESULTS_LOCK]),
+  validateBody(generateYearlyReportCardsSchema),
+  asyncHandler((req, res) => examsController.generateYearlyReportCards(req, res))
 );
 
 examsRoutes.get(

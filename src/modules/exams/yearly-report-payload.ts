@@ -157,7 +157,12 @@ export function buildYearlyReportCardSubjects(params: {
       };
     });
 
-    const finals = yearlyTermBreakdown.map(t => t.termFinalPercent);
+    // Average only the terms in which the subject was actually examined, so a
+    // subject taught in two terms is not dragged down by a 0 for the third.
+    const examinedTermIndexes = yearlyTermBreakdown
+      .map((t, i) => (t.caMax + t.examMax > 0 ? i : -1))
+      .filter(i => i >= 0);
+    const finals = examinedTermIndexes.map(i => yearlyTermBreakdown[i].termFinalPercent);
     const yearlyAveragePercent =
       finals.length > 0 ? finals.reduce((a, b) => a + b, 0) / finals.length : 0;
     const totalRawObtained = yearlyTermBreakdown.reduce(
@@ -167,9 +172,10 @@ export function buildYearlyReportCardSubjects(params: {
     const totalRawMax = yearlyTermBreakdown.reduce((sum, t) => sum + t.caMax + t.examMax, 0);
     const yearlyTotalRawPercent = totalRawMax > 0 ? (totalRawObtained / totalRawMax) * 100 : 0;
 
+    const policyTerm = params.teachingTerms[examinedTermIndexes[0] ?? 0];
     const passMark =
-      params.policyByTermAndSubject.get(`${params.teachingTerms[0].termId}:${subjectId}`)
-        ?.passMark ?? defaultPolicy.passMark;
+      params.policyByTermAndSubject.get(`${policyTerm.termId}:${subjectId}`)?.passMark ??
+      defaultPolicy.passMark;
 
     const decision: 'PASS' | 'FAIL' = yearlyAveragePercent >= passMark ? 'PASS' : 'FAIL';
     const band = resolveBand(gradingRules, yearlyAveragePercent);
