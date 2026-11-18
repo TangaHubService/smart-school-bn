@@ -192,28 +192,33 @@ export class SchoolsService {
 
       let createdSubjects = 0;
       for (const subjectInput of input.subjects) {
-        await tx.subject.upsert({
-          where: {
-            tenantId_code: {
+        // Codes are not unique, so match on code and name to avoid duplicating
+        // a subject when setup is run again.
+        const existingSubject = await tx.subject.findFirst({
+          where: { tenantId, code: subjectInput.code, name: subjectInput.name },
+          select: { id: true },
+        });
+        if (existingSubject) {
+          await tx.subject.update({
+            where: { id: existingSubject.id },
+            data: {
+              description: subjectInput.description,
+              isCore: subjectInput.isCore,
+              isActive: true,
+            },
+          });
+        } else {
+          await tx.subject.create({
+            data: {
               tenantId,
               code: subjectInput.code,
+              name: subjectInput.name,
+              description: subjectInput.description,
+              isCore: subjectInput.isCore,
+              isActive: true,
             },
-          },
-          update: {
-            name: subjectInput.name,
-            description: subjectInput.description,
-            isCore: subjectInput.isCore,
-            isActive: true,
-          },
-          create: {
-            tenantId,
-            code: subjectInput.code,
-            name: subjectInput.name,
-            description: subjectInput.description,
-            isCore: subjectInput.isCore,
-            isActive: true,
-          },
-        });
+          });
+        }
 
         createdSubjects += 1;
       }

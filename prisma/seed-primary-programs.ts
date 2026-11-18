@@ -1,6 +1,19 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+/** Subject codes are not unique any more, so "upsert by code" is find-then-update/create. */
+async function upsertSubjectByCode(args: {
+  where: { tenantId_code: { tenantId: string; code: string } };
+  update: Prisma.SubjectUncheckedUpdateInput;
+  create: Prisma.SubjectUncheckedCreateInput;
+}) {
+  const { tenantId, code } = args.where.tenantId_code;
+  const existing = await prisma.subject.findFirst({ where: { tenantId, code }, orderBy: { createdAt: 'asc' } });
+  return existing
+    ? prisma.subject.update({ where: { id: existing.id }, data: args.update })
+    : prisma.subject.create({ data: args.create });
+}
 
 const GRADES = [
   { code: 'P1', name: 'Primary 1', rank: 1 },
@@ -234,7 +247,7 @@ async function main() {
 
   const subjectByCode = new Map<string, { id: string; name: string }>();
   for (const subject of SUBJECTS) {
-    const row = await prisma.subject.upsert({
+    const row = await upsertSubjectByCode({
       where: { tenantId_code: { tenantId: catalogTenant.id, code: subject.code } },
       update: { name: subject.name, isCore: subject.isCore, isActive: true },
       create: {

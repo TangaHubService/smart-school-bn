@@ -544,36 +544,30 @@ export class AcademicsService {
     actor: JwtUser,
     context: RequestAuditContext
   ) {
-    await this.ensureSubjectCodeAvailable(tenantId, input.code);
-
-    try {
-      const created = await prisma.subject.create({
-        data: {
-          tenantId,
-          code: input.code,
-          name: input.name,
-          description: input.description,
-          isCore: input.isCore,
-          isActive: true,
-        },
-      });
-
-      await this.auditService.log({
+    // Subjects may share a code and a name, so there is nothing to check first.
+    const created = await prisma.subject.create({
+      data: {
         tenantId,
-        actorUserId: actor.sub,
-        event: AUDIT_EVENT.SUBJECT_CREATED,
-        entity: 'Subject',
-        entityId: created.id,
-        requestId: context.requestId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-      });
+        code: input.code,
+        name: input.name,
+        description: input.description,
+        isCore: input.isCore,
+        isActive: true,
+      },
+    });
 
-      return created;
-    } catch (error) {
-      this.handleUniqueError(error, `Subject code "${input.code}" already exists`);
-      throw error;
-    }
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SUBJECT_CREATED,
+      entity: 'Subject',
+      entityId: created.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    return created;
   }
 
   async listSubjects(tenantId: string) {
@@ -584,26 +578,16 @@ export class AcademicsService {
   }
 
   async updateSubject(tenantId: string, id: string, input: UpdateSubjectInput) {
-    if (input.code !== undefined) {
-      await this.ensureSubjectCodeAvailable(tenantId, input.code, id);
-    }
-
-    let result: Prisma.BatchPayload;
-    try {
-      result = await prisma.subject.updateMany({
-        where: { id, tenantId, isActive: true },
-        data: {
-          code: input.code,
-          name: input.name,
-          description: input.description === null ? null : input.description,
-          isCore: input.isCore,
-          isActive: input.isActive,
-        },
-      });
-    } catch (error) {
-      this.handleUniqueError(error, `Subject code "${input.code}" already exists`);
-      throw error;
-    }
+    const result = await prisma.subject.updateMany({
+      where: { id, tenantId, isActive: true },
+      data: {
+        code: input.code,
+        name: input.name,
+        description: input.description === null ? null : input.description,
+        isCore: input.isCore,
+        isActive: input.isActive,
+      },
+    });
 
     if (!result.count) {
       throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
@@ -630,31 +614,6 @@ export class AcademicsService {
         400,
         `${label.toUpperCase().replace(/\s+/g, '_')}_INVALID_DATES`,
         `${label} startDate must be earlier than endDate`
-      );
-    }
-  }
-
-  /**
-   * Subject codes must be unique per school (case-insensitive). Names may repeat.
-   * Deleted (inactive) subjects still hold their code, so they are checked too.
-   */
-  private async ensureSubjectCodeAvailable(tenantId: string, code: string, excludeId?: string) {
-    const existing = await prisma.subject.findFirst({
-      where: {
-        tenantId,
-        code: { equals: code.trim(), mode: 'insensitive' },
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
-      select: { code: true, name: true, isActive: true },
-    });
-
-    if (existing) {
-      throw new AppError(
-        409,
-        'SUBJECT_CODE_EXISTS',
-        existing.isActive
-          ? `Subject code "${existing.code}" is already used by "${existing.name}"`
-          : `Subject code "${existing.code}" is already used by a deleted subject "${existing.name}"`
       );
     }
   }

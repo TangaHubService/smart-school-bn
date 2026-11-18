@@ -10,6 +10,19 @@ import {
 
 const prisma = new PrismaClient();
 
+/** Subject codes are not unique any more, so "upsert by code" is find-then-update/create. */
+async function upsertSubjectByCode(args: {
+  where: { tenantId_code: { tenantId: string; code: string } };
+  update: Prisma.SubjectUncheckedUpdateInput;
+  create: Prisma.SubjectUncheckedCreateInput;
+}) {
+  const { tenantId, code } = args.where.tenantId_code;
+  const existing = await prisma.subject.findFirst({ where: { tenantId, code }, orderBy: { createdAt: 'asc' } });
+  return existing
+    ? prisma.subject.update({ where: { id: existing.id }, data: args.update })
+    : prisma.subject.create({ data: args.create });
+}
+
 function schoolDate(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -882,7 +895,7 @@ async function main() {
     },
   });
 
-  const mathSubject = await prisma.subject.upsert({
+  const mathSubject = await upsertSubjectByCode({
     where: {
       tenantId_code: {
         tenantId: schoolTenant.id,
@@ -904,7 +917,7 @@ async function main() {
     },
   });
 
-  const englishSubject = await prisma.subject.upsert({
+  const englishSubject = await upsertSubjectByCode({
     where: {
       tenantId_code: {
         tenantId: schoolTenant.id,
@@ -2335,7 +2348,7 @@ async function main() {
 
   const nyangeSubjects: Array<{ id: string; name: string }> = [];
   for (const spec of nyangeSubjectSpecs) {
-    const sub = await prisma.subject.upsert({
+    const sub = await upsertSubjectByCode({
       where: {
         tenantId_code: {
           tenantId: nyangeTenant.id,
