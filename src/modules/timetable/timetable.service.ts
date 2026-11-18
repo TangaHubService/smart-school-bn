@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+
 import { AppError } from '../../common/errors/app-error';
 import { JwtUser, RequestAuditContext } from '../../common/types/auth.types';
 import { AUDIT_EVENT } from '../../constants/audit-events';
@@ -357,25 +359,31 @@ export class TimetableService {
       this.ensureValidTimeRange(s.startTime, s.endTime);
     }
 
-    const processedSlots = await Promise.all(
-      input.slots.map(async (slot) => {
-        let courseId = slot.courseId;
-        if (!courseId && slot.subjectId) {
-          const course = await this.findOrCreateCourseFromSubject(
-            tenantId,
-            input.academicYearId,
-            input.classRoomId,
-            slot.subjectId,
-            actor
-          );
-          courseId = course.id;
-        }
-        if (!courseId) {
-          throw new AppError(400, 'COURSE_REQUIRED', 'Either courseId or subjectId is required');
-        }
-        return { ...slot, courseId };
-      })
-    );
+    // Resolve each subject's course once, one at a time: the same subject usually
+    // fills several slots, and creating its course in parallel races on the
+    // course unique key.
+    const courseIdBySubjectId = new Map<string, string>();
+    for (const subjectId of new Set(
+      input.slots.filter(s => !s.courseId && s.subjectId).map(s => s.subjectId!)
+    )) {
+      const course = await this.findOrCreateCourseFromSubject(
+        tenantId,
+        input.academicYearId,
+        input.classRoomId,
+        subjectId,
+        actor
+      );
+      courseIdBySubjectId.set(subjectId, course.id);
+    }
+
+    const processedSlots = input.slots.map(slot => {
+      const courseId =
+        slot.courseId ?? (slot.subjectId ? courseIdBySubjectId.get(slot.subjectId) : undefined);
+      if (!courseId) {
+        throw new AppError(400, 'COURSE_REQUIRED', 'Either courseId or subjectId is required');
+      }
+      return { ...slot, courseId };
+    });
 
     const uniqueCourseIds = [...new Set(processedSlots.map(s => s.courseId).filter(Boolean))];
     for (const courseId of uniqueCourseIds) {
@@ -733,16 +741,40 @@ export class TimetableService {
     if (!subject) {
       throw new AppError(404, 'SUBJECT_NOT_FOUND', 'Subject not found');
     }
-    const createdCourse = await prisma.course.create({
-      data: {
-        tenantId,
-        academicYearId,
-        classRoomId,
-        subjectId,
-        teacherUserId: actor.sub,
-        title: subject.name,
-      },
-    });
-    return createdCourse;
+    const data = {
+      tenantId,
+      academicYearId,
+      classRoomId,
+      subjectId,
+      teacherUserId: actor.sub,
+      title: subject.name,
+    };
+    try {
+      return await prisma.course.create({ data });
+    } catch (error) {
+      // A course with this title already exists for this class and teacher
+      // (e.g. created by hand without a subject, or archived): reuse it.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const sameTitle = await prisma.course.findFirst({
+          where: {
+            tenantId,
+            academicYearId,
+            classRoomId,
+            teacherUserId: actor.sub,
+            title: subject.name,
+          },
+        });
+        if (sameTitle) {
+          if (!sameTitle.isActive || sameTitle.subjectId !== subjectId) {
+            return prisma.course.update({
+              where: { id: sameTitle.id },
+              data: { isActive: true, subjectId },
+            });
+          }
+          return sameTitle;
+        }
+      }
+      throw error;
+    }
   }
 }
