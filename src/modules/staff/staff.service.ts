@@ -16,6 +16,8 @@ import {
   UpdateStaffMemberInput,
 } from './staff.schemas';
 
+const SCHOOL_ADMIN_ROLE = 'SCHOOL_ADMIN';
+
 export class StaffService {
   private readonly auditService = new AuditService();
   private readonly emailService = new EmailService();
@@ -396,6 +398,14 @@ export class StaffService {
       );
     }
 
+    if (
+      input.status !== undefined &&
+      input.status !== UserStatus.ACTIVE &&
+      member.userRoles.some(item => item.role.name === SCHOOL_ADMIN_ROLE)
+    ) {
+      await this.assertAnotherActiveSchoolAdmin(tenantId, member.id);
+    }
+
     const shouldRevokeRefreshTokens =
       input.status !== undefined &&
       input.status !== member.status &&
@@ -507,6 +517,10 @@ export class StaffService {
       );
     }
 
+    if (member.userRoles.some(item => item.role.name === SCHOOL_ADMIN_ROLE)) {
+      await this.assertAnotherActiveSchoolAdmin(tenantId, member.id);
+    }
+
     await prisma.$transaction(async tx => {
       await tx.refreshToken.deleteMany({
         where: {
@@ -591,6 +605,204 @@ export class StaffService {
     });
 
     return { revoked: true };
+  }
+
+  async grantSchoolAdmin(
+    tenantId: string,
+    userId: string,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const member = await this.findMemberWithRoles(tenantId, userId);
+    const roleNames = member.userRoles.map(item => item.role.name);
+
+    if (roleNames.includes('SUPER_ADMIN')) {
+      throw new AppError(400, 'SCHOOL_ADMIN_GRANT_FORBIDDEN', 'Super admin cannot be changed here');
+    }
+
+    if (roleNames.includes('STUDENT') || roleNames.includes('PARENT')) {
+      throw new AppError(
+        400,
+        'SCHOOL_ADMIN_GRANT_FORBIDDEN',
+        'Students and parents cannot be made school administrators'
+      );
+    }
+
+    if (member.status !== UserStatus.ACTIVE) {
+      throw new AppError(
+        400,
+        'SCHOOL_ADMIN_GRANT_INACTIVE',
+        'Activate this account before making it a school administrator'
+      );
+    }
+
+    if (roleNames.includes(SCHOOL_ADMIN_ROLE)) {
+      throw new AppError(
+        409,
+        'SCHOOL_ADMIN_ALREADY_ASSIGNED',
+        'This user is already a school administrator'
+      );
+    }
+
+    const schoolAdminRole = await this.findSchoolAdminRole(tenantId);
+
+    await prisma.userRole.create({
+      data: {
+        tenantId,
+        userId: member.id,
+        roleId: schoolAdminRole.id,
+        assignedById: actor.sub,
+      },
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SCHOOL_ADMIN_ASSIGNED,
+      entity: 'UserRole',
+      entityId: member.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        email: member.email,
+      },
+    });
+
+    return this.getMember(tenantId, member.id);
+  }
+
+  async revokeSchoolAdmin(
+    tenantId: string,
+    userId: string,
+    actor: JwtUser,
+    context: RequestAuditContext
+  ) {
+    const member = await this.findMemberWithRoles(tenantId, userId);
+    const roleNames = member.userRoles.map(item => item.role.name);
+
+    if (!roleNames.includes(SCHOOL_ADMIN_ROLE)) {
+      throw new AppError(
+        400,
+        'SCHOOL_ADMIN_NOT_ASSIGNED',
+        'This user is not a school administrator'
+      );
+    }
+
+    if (!roleNames.some(name => name !== SCHOOL_ADMIN_ROLE)) {
+      throw new AppError(
+        400,
+        'SCHOOL_ADMIN_ONLY_ROLE',
+        'This administrator has no other role. Deactivate or delete the account instead.'
+      );
+    }
+
+    await this.assertAnotherActiveSchoolAdmin(tenantId, member.id);
+
+    const schoolAdminRole = await this.findSchoolAdminRole(tenantId);
+
+    await prisma.$transaction(async tx => {
+      await tx.userRole.deleteMany({
+        where: {
+          tenantId,
+          userId: member.id,
+          roleId: schoolAdminRole.id,
+        },
+      });
+
+      // Force the user to sign in again so the removed admin permissions take effect now.
+      await tx.refreshToken.updateMany({
+        where: {
+          tenantId,
+          userId: member.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: new Date(),
+        },
+      });
+    });
+
+    await this.auditService.log({
+      tenantId,
+      actorUserId: actor.sub,
+      event: AUDIT_EVENT.SCHOOL_ADMIN_REVOKED,
+      entity: 'UserRole',
+      entityId: member.id,
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      payload: {
+        email: member.email,
+      },
+    });
+
+    return this.getMember(tenantId, member.id);
+  }
+
+  private async findMemberWithRoles(tenantId: string, userId: string) {
+    const member = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        tenantId,
+        deletedAt: null,
+      },
+      include: {
+        userRoles: {
+          include: {
+            role: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!member) {
+      throw new AppError(404, 'STAFF_MEMBER_NOT_FOUND', 'Staff member not found');
+    }
+
+    return member;
+  }
+
+  private async findSchoolAdminRole(tenantId: string) {
+    const role = await prisma.role.findFirst({
+      where: { tenantId, name: SCHOOL_ADMIN_ROLE },
+      select: { id: true },
+    });
+
+    if (!role) {
+      throw new AppError(500, 'TENANT_ROLE_BOOTSTRAP_FAILED', 'SCHOOL_ADMIN role was not created');
+    }
+
+    return role;
+  }
+
+  /** A school must always keep at least one active administrator. */
+  private async assertAnotherActiveSchoolAdmin(tenantId: string, excludeUserId: string) {
+    const otherActiveAdmins = await prisma.user.count({
+      where: {
+        tenantId,
+        id: { not: excludeUserId },
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        userRoles: {
+          some: {
+            role: { name: SCHOOL_ADMIN_ROLE },
+          },
+        },
+      },
+    });
+
+    if (otherActiveAdmins === 0) {
+      throw new AppError(
+        400,
+        'LAST_SCHOOL_ADMIN',
+        'A school must keep at least one active administrator. Add another admin first.'
+      );
+    }
   }
 
   private mapStaffMember(member: {

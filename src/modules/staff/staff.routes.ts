@@ -76,6 +76,24 @@ staffRoutes.delete(
   asyncHandler((req, res) => staffController.deleteMember(req, res))
 );
 
+staffRoutes.post(
+  '/members/:id/school-admin',
+  authenticate,
+  enforceTenant,
+  requireActiveSubscription,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  asyncHandler((req, res) => staffController.grantSchoolAdmin(req, res))
+);
+
+staffRoutes.delete(
+  '/members/:id/school-admin',
+  authenticate,
+  enforceTenant,
+  requireActiveSubscription,
+  requirePermissions([PERMISSIONS.STAFF_INVITE]),
+  asyncHandler((req, res) => staffController.revokeSchoolAdmin(req, res))
+);
+
 staffRoutes.delete(
   '/invites/:id',
   authenticate,

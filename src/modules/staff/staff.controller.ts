@@ -70,6 +70,26 @@ export class StaffController {
     return sendSuccess(req, res, result);
   }
 
+  async grantSchoolAdmin(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.grantSchoolAdmin(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
+
+  async revokeSchoolAdmin(req: Request, res: Response): Promise<Response> {
+    const result = await staffService.revokeSchoolAdmin(
+      req.tenantId!,
+      req.params.id,
+      req.user!,
+      buildContext(req)
+    );
+    return sendSuccess(req, res, result);
+  }
+
   async revokeInvite(req: Request, res: Response): Promise<Response> {
     const result = await staffService.revokeInvite(
       req.tenantId!,
