@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 
 import { sendSuccess } from '../../common/utils/response';
+import { studentConductProfileQuerySchema } from '../conduct/conduct.schemas';
 import { ParentsService } from './parents.service';
 import {
   listLinkableStudentsQuerySchema,
@@ -100,6 +101,17 @@ export class ParentsController {
       req.tenantId!,
       req.user!.sub,
       req.params.studentId
+    );
+    return sendSuccess(req, res, result);
+  }
+
+  async getMyStudentConduct(req: Request, res: Response): Promise<Response> {
+    const query = studentConductProfileQuerySchema.parse(req.query);
+    const result = await parentsService.getMyStudentConduct(
+      req.tenantId!,
+      req.user!.sub,
+      req.params.studentId,
+      query
     );
     return sendSuccess(req, res, result);
   }

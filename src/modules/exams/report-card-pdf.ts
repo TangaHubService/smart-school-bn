@@ -365,22 +365,13 @@ function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null)
   y += headH;
 
   const footerNeeds = 15 + 17 + 18 + 64;
-  const minRows = 18;
-  const rowCount = Math.max(payload.subjects.length, minRows);
+  // One row per subject only: no blank filler rows under the last subject.
+  const rowCount = Math.max(payload.subjects.length, 1);
   const rowH = Math.max(10, Math.min(15, (pageBottom - footerNeeds - y) / rowCount));
 
   const maxTotals: Array<number | null> = [null, null, null];
   const obtTotals: Array<number | null> = [null, null, null];
-  for (let r = 0; r < rowCount; r += 1) {
-    const subject = payload.subjects[r];
-    if (!subject) {
-      for (let c = 0; c < 13; c += c === 0 ? 3 : c === 10 ? 3 : 1) {
-        const w = c === 0 || c === 10 ? 3 * u : u;
-        cell(doc, X(c), y, w, rowH, '');
-      }
-      y += rowH;
-      continue;
-    }
+  for (const subject of payload.subjects) {
     const row = termRow(subject);
     addInto(maxTotals, row.max);
     addInto(obtTotals, row.obt);

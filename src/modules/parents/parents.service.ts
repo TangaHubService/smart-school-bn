@@ -9,6 +9,8 @@ import { AUDIT_EVENT } from '../../constants/audit-events';
 import { PERMISSIONS } from '../../constants/permissions';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
+import { ConductService } from '../conduct/conduct.service';
+import type { StudentConductProfileQueryInput } from '../conduct/conduct.schemas';
 import {
   BulkCreateParentsInput,
   CreateParentInput,
@@ -1066,6 +1068,42 @@ export class ParentsService {
         classRoom: record.classRoom,
         markedAt: record.markedAt,
         updatedAt: record.updatedAt,
+      })),
+    };
+  }
+
+  /**
+   * Conduct record of a child linked to this parent. Staff-only fields (private
+   * reporter notes and internal/auditor feedback) are removed.
+   */
+  async getMyStudentConduct(
+    tenantId: string,
+    userId: string,
+    studentId: string,
+    query: StudentConductProfileQueryInput
+  ) {
+    const parent = await prisma.parent.findFirst({
+      where: { tenantId, userId, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!parent) {
+      throw new AppError(403, 'PARENT_NOT_FOUND', 'Parent profile not found');
+    }
+    const link = await prisma.parentStudent.findFirst({
+      where: { tenantId, parentId: parent.id, studentId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!link) {
+      throw new AppError(404, 'STUDENT_NOT_LINKED', 'Student is not linked to this account');
+    }
+
+    const profile = await new ConductService().getStudentConductProfile(tenantId, studentId, query);
+    return {
+      ...profile,
+      incidents: profile.incidents.map(incident => ({
+        ...incident,
+        reporterNotes: null,
+        feedback: [],
       })),
     };
   }
