@@ -237,7 +237,12 @@ function isYearlyReport(payload: ReportCardPayload) {
 async function makeQr(url?: string): Promise<string | null> {
   if (!url) return null;
   try {
-    return await qrCodeService.generateQrCodeDataUrl(url, { width: 300, margin: 1 });
+    return await qrCodeService.generateQrCodeDataUrl(url, {
+      width: 600,
+      margin: 2,
+      // Long (mid-term) links: less redundancy keeps the modules big enough to scan on paper.
+      errorCorrectionLevel: url.length > 120 ? 'M' : 'H',
+    });
   } catch {
     return null;
   }
@@ -364,7 +369,9 @@ function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null)
   line(doc, X(0), y + headH, X(13), y + headH, 1.6);
   y += headH;
 
-  const footerNeeds = 15 + 17 + 18 + 64;
+  // Mid-term QR codes hold more data, so they get a taller footer.
+  const footerRowH = payload.reportKind === 'MID_TERM' && qr ? 21 : 16;
+  const footerNeeds = 15 + 17 + 18 + footerRowH * 4;
   // One row per subject only: no blank filler rows under the last subject.
   const rowCount = Math.max(payload.subjects.length, 1);
   const rowH = Math.max(10, Math.min(15, (pageBottom - footerNeeds - y) / rowCount));
@@ -427,7 +434,7 @@ function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null)
 
   // Observations | Teacher / Parent signature | QR
   y += 18;
-  const fh = 16;
+  const fh = footerRowH;
   const footerTop = y;
   const footerH = fh * 4;
   cell(doc, X(0), y, 6 * u, fh, 'Observations', { font: 'Helvetica-Bold', size: 9, align: 'center' });
@@ -439,8 +446,8 @@ function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null)
   line(doc, X(6), y + fh * 2.5, X(11), y + fh * 2.5, 0.4);
   text(doc, 'Parent Signature', X(6), y + fh * 3, 5 * u, fh, { font: 'Helvetica-Bold', size: 9, align: 'center' });
   if (qr) {
-    const size = footerH - 6;
-    doc.image(qr, X(11) + (2 * u - size) / 2, footerTop + 3, { fit: [size, size] });
+    const size = Math.min(footerH - 6, 2 * u - 4);
+    doc.image(qr, X(11) + (2 * u - size) / 2, footerTop + (footerH - size) / 2, { fit: [size, size] });
   }
   line(doc, X(6), footerTop, X(6), footerTop + footerH, 1.6);
   line(doc, X(0), footerTop + fh, X(6), footerTop + fh, 0.5);

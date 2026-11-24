@@ -28,6 +28,7 @@ import {
   UpdateExamInput,
 } from './exams.schemas';
 import { computeSubjectScore } from './marks-calculation';
+import { createMidTermToken, isMidTermToken, readMidTermToken } from './mid-term-verification';
 import {
   loadLedgerConductDisplayMap,
   loadTermConductDisplayMap,
@@ -2533,6 +2534,8 @@ export class ExamsService {
   }
 
   async verifyPublishedReportCard(snapshotId: string) {
+    if (isMidTermToken(snapshotId)) return this.verifyMidTermReport(snapshotId);
+
     const snapshot = await prisma.resultSnapshot.findFirst({
       where: {
         id: snapshotId,
@@ -2578,6 +2581,69 @@ export class ExamsService {
       totals: payload.totals,
       issuedAt: snapshot.publishedAt ?? snapshot.lockedAt,
       message: 'This report card is valid and was published by Smart School Rwanda.',
+    };
+  }
+
+  /** Mid-term QR code: shows the signed result exactly as printed. */
+  private async verifyMidTermReport(token: string) {
+    const notFound = () =>
+      new AppError(404, 'REPORT_CARD_NOT_FOUND', 'Report card not found. The QR code may be invalid or expired.');
+    const facts = readMidTermToken(token);
+    if (!facts) throw notFound();
+
+    const student = await prisma.student.findUnique({
+      where: { id: facts.studentId },
+      select: { tenantId: true, firstName: true, lastName: true, studentCode: true },
+    });
+    if (!student) throw notFound();
+    const { tenantId } = student;
+    const [term, classRoom, school] = await Promise.all([
+      prisma.term.findFirst({
+        where: { id: facts.termId, tenantId },
+        select: {
+          id: true,
+          name: true,
+          sequence: true,
+          startDate: true,
+          endDate: true,
+          academicYear: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.classRoom.findFirst({
+        where: { id: facts.classRoomId, tenantId },
+        select: { id: true, code: true, name: true },
+      }),
+      prisma.school.findFirst({
+        where: { tenantId },
+        select: { displayName: true, registrationNumber: true, district: true, tenant: { select: { code: true } } },
+      }),
+    ]);
+    if (!term || !classRoom) throw notFound();
+
+    const { academicYear, ...termInfo } = term;
+    return {
+      valid: true,
+      reportKind: 'MID_TERM' as const,
+      verificationCode: `SSR-MT-${token.slice(-10).replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`,
+      verificationUrl: this.buildVerificationUrl(token),
+      pdfDownloadUrl: null,
+      school: {
+        name: school?.displayName ?? 'Smart School Rwanda',
+        code: school?.registrationNumber ?? school?.tenant?.code ?? null,
+        district: school?.district ?? null,
+      },
+      student: { name: `${student.firstName} ${student.lastName}`, studentCode: student.studentCode },
+      classRoom,
+      term: termInfo,
+      academicYear,
+      totals: {
+        averagePercentage: facts.averagePercentage,
+        grade: facts.grade,
+        position: facts.position,
+        classSize: facts.classSize,
+      },
+      issuedAt: facts.issuedAt,
+      message: 'This mid-term report is valid. It shows progress when it was printed, not final term results.',
     };
   }
 
@@ -3565,7 +3631,25 @@ export class ExamsService {
       payloads.length === 1
         ? `${payloads[0].student.studentCode}-${termSlug}-mid-term-report.pdf`
         : `${scope.classRoom.code}-${termSlug}-mid-term-reports.pdf`;
-    return { fileName, buffer: await buildReportCardsPdfBuffer(payloads) };
+    const issuedAt = new Date();
+    const printable = payloads.map((payload, i) => ({
+      ...payload,
+      verificationUrl: this.buildVerificationUrl(
+        createMidTermToken({
+          studentId: selected[i].studentId,
+          termId: query.termId,
+          classRoomId: query.classRoomId,
+          issuedAt,
+          averagePercentage: Number.isFinite(payload.totals.averagePercentage)
+            ? payload.totals.averagePercentage
+            : null,
+          position: payload.totals.position,
+          classSize: payload.totals.classSize,
+          grade: payload.totals.grade,
+        })
+      ),
+    }));
+    return { fileName, buffer: await buildReportCardsPdfBuffer(printable) };
   }
 
   /** Report card PDF in the official template layout (term or annual). */
