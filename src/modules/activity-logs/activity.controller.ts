@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
+import { localizePdf } from '../../common/i18n/pdf-text';
 
 import { prisma } from '../../db/prisma';
 
@@ -111,7 +112,7 @@ export const exportLogsPdf = async (req: Request, res: Response) => {
     orderBy: { createdAt: 'desc' },
     take: 2000,
   });
-  const doc = new PDFDocument({ margin: 30, size: 'A4' });
+  const doc = localizePdf(new PDFDocument({ margin: 30, size: 'A4' }));
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'attachment; filename="activity-logs.pdf"');
   doc.pipe(res);

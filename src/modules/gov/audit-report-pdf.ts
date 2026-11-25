@@ -1,5 +1,7 @@
 import PDFDocument from 'pdfkit';
 
+import { localizePdf } from '../../common/i18n/pdf-text';
+
 export interface AuditReportPdfPayload {
   id: string;
   module: string;
@@ -31,7 +33,7 @@ function formatDate(value: string | null): string {
 
 export function buildAuditReportPdfBuffer(payload: AuditReportPdfPayload): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 48 });
+    const doc = localizePdf(new PDFDocument({ size: 'A4', margin: 48 }));
     const chunks: Buffer[] = [];
     doc.on('data', chunk => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

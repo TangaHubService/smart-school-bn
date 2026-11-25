@@ -1,3 +1,4 @@
+import { localizePdf, pdfText } from '../../common/i18n/pdf-text';
 import { AttendanceSession, AttendanceStatus, Prisma } from '@prisma/client';
 
 import { AppError } from '../../common/errors/app-error';
@@ -666,7 +667,7 @@ export class AttendanceService {
     if (total !== present + absent + late + excused) {
       throw new AppError(500, 'ATTENDANCE_TOTALS_MISMATCH', 'Attendance totals do not reconcile');
     }
-    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const doc = localizePdf(new PDFDocument({ margin: 40, size: 'A4' }));
     const chunks: Buffer[] = [];
     const done = new Promise<Buffer>((resolve, reject) => {
       doc.on('data', (c: Buffer) => chunks.push(c));
@@ -709,7 +710,7 @@ export class AttendanceService {
         doc
           .fontSize(9)
           .text(
-            `${r.date} | ${r.student.firstName} ${r.student.lastName} (${r.student.studentCode}) | ${r.classRoom.code} | ${r.status}${r.remarks ? ` | ${r.remarks}` : ''}`
+            `${r.date} | ${r.student.firstName} ${r.student.lastName} (${r.student.studentCode}) | ${r.classRoom.code} | ${pdfText(r.status)}${r.remarks ? ` | ${r.remarks}` : ''}`
           );
       }
       if (report.records.length > 1500) {

@@ -1,6 +1,7 @@
 import type { MarkStatus } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 
+import { pdfText } from '../../common/i18n/pdf-text';
 import { officialCountryName } from '../locations/eac-countries.constant';
 import { qrCodeService } from '../../services/qr-code.service';
 
@@ -167,6 +168,7 @@ function text(
   h: number,
   opts: { font?: Font; size?: number; align?: Align; pad?: number; minSize?: number } = {}
 ) {
+  value = pdfText(value);
   const pad = opts.pad ?? 2;
   const font = opts.font ?? 'Helvetica';
   let size = opts.size ?? 8;
@@ -187,6 +189,7 @@ function text(
 /** Wrapped text inside a box (for comments / observations). */
 function paragraph(doc: Doc, value: string, x: number, y: number, w: number, h: number, size = 8) {
   if (!value) return;
+  value = pdfText(value);
   let s = size;
   doc.font('Helvetica');
   while (s > 5.5 && doc.fontSize(s).heightOfString(value, { width: w - 6 }) > h - 4) s -= 0.25;
