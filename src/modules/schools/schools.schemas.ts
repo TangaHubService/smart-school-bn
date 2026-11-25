@@ -22,8 +22,9 @@ export const schoolSetupSchema = z.object({
       sector: z.string().trim().max(100).optional(),
       cell: z.string().trim().max(100).optional(),
       village: z.string().trim().max(100).optional(),
-      country: z.string().trim().max(100).default('Rwanda'),
-      timezone: z.string().trim().max(80).default('Africa/Kigali'),
+      // No default: it would overwrite the saved country when a save leaves it out.
+      country: z.string().trim().max(100).optional(),
+      timezone: z.string().trim().max(80).optional(),
       ...schoolLocationFields,
       logoUrl: z.string().trim().url().optional().or(z.literal('')),
     })

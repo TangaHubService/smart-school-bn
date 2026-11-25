@@ -1,6 +1,7 @@
 import type { MarkStatus } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 
+import { officialCountryName } from '../locations/eac-countries.constant';
 import { qrCodeService } from '../../services/qr-code.service';
 
 /**
@@ -251,6 +252,7 @@ async function makeQr(url?: string): Promise<string | null> {
 function schoolLines(payload: ReportCardPayload) {
   const school = payload.school ?? {};
   return {
+    state: officialCountryName(school.country).toUpperCase(),
     name: (school.displayName ?? payload.schoolName ?? '').toUpperCase(),
     district: (school.district ?? '').toUpperCase(),
     contact: school.phone ?? school.registrationNumber ?? school.code ?? '',
@@ -317,7 +319,7 @@ function drawTermReport(doc: Doc, payload: ReportCardPayload, qr: string | null)
   // Header
   let y = 30;
   const lh = 13;
-  text(doc, 'REPUBLIC OF RWANDA', X(0), y, W / 2, lh, { font: 'Helvetica-Bold', size: 9.5, pad: 0 });
+  text(doc, school.state, X(0), y, W / 2, lh, { font: 'Helvetica-Bold', size: 9.5, pad: 0 });
   text(doc, 'MINISTRY OF EDUCATION', X(0), y, W, lh, { font: 'Helvetica-Bold', size: 9.5, align: 'right', pad: 0 });
   y += lh;
   text(doc, school.name, X(0), y, W * 0.55, lh, { size: 9.5, pad: 0 });
@@ -483,7 +485,7 @@ function drawAnnualReport(doc: Doc, payload: ReportCardPayload, qr: string | nul
   const hx = X(10);
   const hw = X(16) - hx;
   const lines: Array<[string, number]> = [
-    ['REPUBLIC OF RWANDA', 11.5],
+    [school.state, 11.5],
     ['MINISTRY OF EDUCATION', 11.5],
     [school.name, 11],
     [school.district, 10],

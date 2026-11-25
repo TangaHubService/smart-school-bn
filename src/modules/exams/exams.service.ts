@@ -8,6 +8,7 @@ import { AUDIT_EVENT } from '../../constants/audit-events';
 import { PERMISSIONS } from '../../constants/permissions';
 import { prisma } from '../../db/prisma';
 import { AuditService } from '../audit/audit.service';
+import { schoolCountryName } from '../locations/eac-countries.constant';
 import {
   BulkConductGradesInput,
   BulkExamMarksInput,
@@ -2991,6 +2992,7 @@ export class ExamsService {
           phone: true,
           district: true,
           country: true,
+          adminCountryCode: true,
           logoUrl: true,
           tenant: {
             select: {
@@ -3019,7 +3021,7 @@ export class ExamsService {
         email: school?.email ?? null,
         phone: school?.phone ?? null,
         district: school?.district ?? null,
-        country: school?.country ?? null,
+        country: schoolCountryName(school),
         logoUrl: school?.logoUrl ?? null,
       },
       schoolName: school?.displayName ?? 'Smart School Rwanda',
@@ -3673,6 +3675,12 @@ export class ExamsService {
       // The card still renders; only the extra template details are missing.
       console.error('[report-card] could not load template details', error);
     }
+    // The country heading follows the school's registration, also on cards locked earlier.
+    const school = await prisma.school.findUnique({
+      where: { tenantId: snapshot.tenantId },
+      select: { country: true, adminCountryCode: true },
+    });
+    if (school) payload.school = { ...payload.school, country: schoolCountryName(school) };
     return buildReportCardPdfBuffer(payload);
   }
 
