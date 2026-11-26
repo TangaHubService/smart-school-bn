@@ -140,6 +140,28 @@ export class AnnouncementsService {
     };
   }
 
+  /** One announcement as its reader sees it (parent, student, staff). */
+  async getForViewer(tenantId: string, id: string, actor: JwtUser) {
+    await this.loadVisibleForViewer(tenantId, id, actor);
+    const a = await prisma.announcement.findFirstOrThrow({
+      where: { id, tenantId },
+      include: {
+        ...announcementInclude,
+        reads: { where: { userId: actor.sub }, select: { readAt: true } },
+        responses: {
+          where: { userId: actor.sub },
+          select: { id: true, type: true, message: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    return {
+      ...this.mapAnnouncement(a, actor.sub),
+      acknowledged: a.responses.some(r => r.type === AnnouncementResponseType.ACKNOWLEDGE),
+      myReplies: a.responses.filter(r => r.type === AnnouncementResponseType.REPLY),
+    };
+  }
+
   /** The announcement must be published and addressed to this viewer. */
   private async loadVisibleForViewer(tenantId: string, id: string, actor: JwtUser) {
     const now = new Date();
@@ -257,10 +279,8 @@ export class AnnouncementsService {
   }
 
   async markRead(tenantId: string, id: string, actor: JwtUser) {
-    const announcement = await prisma.announcement.findFirst({ where: { id, tenantId } });
-    if (!announcement) {
-      throw new AppError(404, 'ANNOUNCEMENT_NOT_FOUND', 'Announcement not found');
-    }
+    // Only announcements sent to this reader can be marked read.
+    await this.loadVisibleForViewer(tenantId, id, actor);
 
     await prisma.announcementRead.upsert({
       where: { announcementId_userId: { announcementId: id, userId: actor.sub } },

@@ -72,9 +72,11 @@ academicRoutes.post(
   asyncHandler((req, res) => academicsController.createTerm(req, res))
 );
 
+// Students and parents need the term names for the term filter on their report cards.
 academicRoutes.get(
   '/terms',
   requireAnyPermissions([
+    PERMISSIONS.REPORT_CARDS_MY_READ,
     PERMISSIONS.TERM_MANAGE,
     PERMISSIONS.EXAMS_READ,
     PERMISSIONS.COURSES_MANAGE,

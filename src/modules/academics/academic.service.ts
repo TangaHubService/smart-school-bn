@@ -209,7 +209,10 @@ export class AcademicsService {
         academicYearId: query.academicYearId,
         isActive: true,
       },
-      orderBy: [{ academicYearId: 'asc' }, { sequence: 'asc' }],
+      // The year comes with each term so lists covering several years can tell
+      // "Term 1" of one year from another; newest year first.
+      include: { academicYear: { select: { id: true, name: true } } },
+      orderBy: [{ academicYear: { startDate: 'desc' } }, { sequence: 'asc' }],
     });
   }
 

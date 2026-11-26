@@ -29,6 +29,18 @@ announcementsRoutes.get(
   asyncHandler((req, res) => controller.listForViewer(req, res))
 );
 
+// One announcement for the person it was sent to (parents and students open it from their list).
+announcementsRoutes.get(
+  '/announcements/me/:id',
+  requireAnyPermissions([
+    PERMISSIONS.ANNOUNCEMENTS_READ,
+    PERMISSIONS.ANNOUNCEMENTS_MANAGE,
+    PERMISSIONS.ANNOUNCEMENTS_MY_READ,
+  ]),
+  enforceTenant,
+  asyncHandler((req, res) => controller.getForViewer(req, res))
+);
+
 announcementsRoutes.post(
   '/announcements/:id/read',
   requireAnyPermissions([

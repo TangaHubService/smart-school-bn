@@ -26,6 +26,11 @@ export class AnnouncementsController {
     return sendSuccess(req, res, result);
   }
 
+  async getForViewer(req: Request, res: Response): Promise<Response> {
+    const result = await service.getForViewer(req.tenantId!, req.params.id, req.user!);
+    return sendSuccess(req, res, result);
+  }
+
   async markRead(req: Request, res: Response): Promise<Response> {
     const result = await service.markRead(req.tenantId!, req.params.id, req.user!);
     return sendSuccess(req, res, result);
